@@ -1,0 +1,33 @@
+{
+  "cookies": [
+    {
+      "name": "__cf_bm",
+      "value": "ABco8RvrtBcIYCiKkkCrGq_LSZhCnBFl4PhbPn8aRsk-1766347629-1.0.1.1-wThpBNBRLr5Lxaj1xw.OGqMUKKocFmXtW3HDxm1Dasolx930DVMA7kY9oprfG6JH2UVJyTOWVUbKTbDZv4UGHFf3GNU9wfMg2NRU1ZS34Qo",
+      "domain": ".onesignal.com",
+      "path": "/",
+      "expires": 1766349428.82035,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "None"
+    }
+  ],
+  "origins": [
+    {
+      "origin": "http://localhost:5173",
+      "localStorage": [
+        {
+          "name": "accessToken",
+          "value": "mock_access_token"
+        },
+        {
+          "name": "coa-theme-mode",
+          "value": "tokyo"
+        },
+        {
+          "name": "refreshToken",
+          "value": "mock_refresh_token"
+        }
+      ]
+    }
+  ]
+}

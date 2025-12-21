@@ -25,5 +25,6 @@
   "adminPush": "/admin/push",
   "adminNavigation": "/admin/navigation",
   "adminKnowledge": "/admin/knowledge",
-  "adminCrm": "/admin/crm"
+  "adminCrm": "/admin/crm",
+  "adminTelemetry": "/admin/telemetry"
 }

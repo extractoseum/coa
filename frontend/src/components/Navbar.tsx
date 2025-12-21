@@ -86,13 +86,13 @@ export default function Navbar() {
         { label: 'Mis COA', icon: <FileText size={20} />, href: 'https://extractoseum.com/pages/coa', external: true },
     ]);
     const [userMenuItems, setUserMenuItems] = useState<NavItem[]>([
-        { label: 'Dashboard', icon: <LayoutDashboard size={18} />, href: ROUTES.dashboard, authOnly: true },
-        { label: 'Mis Pedidos', icon: <ShoppingBag size={18} />, href: ROUTES.myOrders, authOnly: true },
-        { label: 'Mis Carpetas', icon: <FolderOpen size={18} />, href: ROUTES.folders, authOnly: true },
+        { label: 'Dashboard', icon: <LayoutDashboard size={18} />, href: ROUTES.dashboard, authOnly: true, testid: UI["nav.user.dashboard"].testid },
+        { label: 'Mis Pedidos', icon: <ShoppingBag size={18} />, href: ROUTES.myOrders, authOnly: true, testid: UI["nav.user.orders"].testid },
+        { label: 'Mis Carpetas', icon: <FolderOpen size={18} />, href: ROUTES.folders, authOnly: true, testid: UI["nav.user.collection"].testid },
     ]);
     const [adminMenuItems, setAdminMenuItems] = useState<NavItem[]>([
-        { label: 'Administrar COAs', icon: <FileText size={18} />, href: ROUTES.adminCoas, adminOnly: true },
-        { label: 'Configuracion', icon: <Settings size={18} />, href: ROUTES.settings, adminOnly: true },
+        { label: 'Administrar COAs', icon: <FileText size={18} />, href: ROUTES.adminCoas, adminOnly: true, testid: UI["nav.admin.coas"].testid },
+        { label: 'Configuracion', icon: <Settings size={18} />, href: ROUTES.settings, adminOnly: true, testid: UI["nav.admin.settings"].testid },
     ]);
 
     useEffect(() => {

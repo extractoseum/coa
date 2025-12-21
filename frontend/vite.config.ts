@@ -52,6 +52,14 @@ export default defineConfig({
     __BUILD_ID__: JSON.stringify(process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "dev"),
     __ENV__: JSON.stringify(process.env.NODE_ENV ?? "development"),
   },
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      }
+    }
+  },
   build: {
     rollupOptions: {
       output: {

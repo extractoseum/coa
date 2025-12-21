@@ -1,6 +1,6 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
-import { ShieldCheck, Leaf, Upload, FileText, FolderOpen, Box, Award, Image, FileCode, Settings, Heart, Bell, LayoutDashboard, Package, Brain } from 'lucide-react';
+import { ShieldCheck, Leaf, Upload, FileText, FolderOpen, Box, Award, Image, FileCode, Settings, Heart, Bell, LayoutDashboard, Package, Brain, Terminal } from 'lucide-react';
 // Lazy load heavy pages
 const COADetails = lazy(() => import('./pages/COADetails'));
 const COAPreview = lazy(() => import('./pages/COAPreview'));
@@ -16,6 +16,7 @@ const COAAdminPanel = lazy(() => import('./pages/COAAdminPanel'));
 const PushNotificationPanel = lazy(() => import('./pages/PushNotificationPanel'));
 const NavigationManagement = lazy(() => import('./pages/NavigationManagement'));
 const AdminAIKnowledge = lazy(() => import('./pages/AdminAIKnowledge'));
+const AdminTelemetry = lazy(() => import('./pages/AdminTelemetry')); // Telemetry Dashboard
 const AdminCRM = lazy(() => import('./pages/AdminCRM'));
 const FoldersView = lazy(() => import('./pages/FoldersView'));
 const PublicFolderView = lazy(() => import('./pages/PublicFolderView'));
@@ -124,6 +125,7 @@ function Home() {
     { label: 'Navegación', icon: <LayoutDashboard size={20} />, path: ROUTES.adminNavigation, color: '#8b5cf6' },
     { label: 'Cerebro AI', icon: <Brain size={20} />, path: ROUTES.adminKnowledge, color: '#ec4899' },
     { label: 'Omni CRM', icon: <LayoutDashboard size={20} />, path: ROUTES.adminCrm, color: '#f472b6' },
+    { label: 'Telemetry', icon: <Terminal size={20} />, path: ROUTES.adminTelemetry, color: '#3b82f6' },
     { label: 'Configuracion', icon: <Settings size={20} />, path: ROUTES.settings, color: '#6b7280' },
   ];
 
@@ -374,6 +376,11 @@ function App() {
                 <Route path={ROUTES.adminKnowledge} element={
                   <ProtectedRoute requireSuperAdmin>
                     <AdminAIKnowledge />
+                  </ProtectedRoute>
+                } />
+                <Route path={ROUTES.adminTelemetry} element={
+                  <ProtectedRoute requireSuperAdmin>
+                    <AdminTelemetry />
                   </ProtectedRoute>
                 } />
                 <Route path={ROUTES.adminCrm} element={

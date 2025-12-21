@@ -30,6 +30,8 @@ import toolsRoutes from './routes/toolsRoutes'; // NEW: IDE Tools Editor
 import crmRoutes from './routes/crmRoutes'; // NEW: Omnichannel CRM Core
 import healthRoutes from './routes/healthRoutes'; // NEW: Vitality Health Check
 import behaviorRoutes from './routes/behaviorRoutes'; // NEW: Behavioral Intelligence Tracking
+import logsRoutes from './routes/logsRoutes'; // NEW: Telemetry Logs
+import sitemapRoutes from './routes/sitemapRoutes'; // NEW: Dynamic Sitemap
 
 import { initCronJobs } from './services/cronService';
 
@@ -91,6 +93,11 @@ app.get('/', (req, res) => {
     res.send('🌿 EUM v2.0 Backend is Running');
 });
 
+// Create a specialized router just for the root-level sitemap or mount it under /api/v1
+// The goal was /api/v1/sitemap.xml
+// We can just use app.use here
+app.use('/api/v1', sitemapRoutes);
+
 app.use('/api/v1/coas', coaRoutes);
 app.use('/api/v1/coas', enrichmentRoutes); // COA enrichment (images, docs, links)
 app.use('/api/v1/coas', pdfRoutes); // PDF generation
@@ -120,15 +127,7 @@ app.use('/api/v1/tools', toolsRoutes); // NEW: IDE Tools Editor
 app.use('/api/v1/behavior', behaviorRoutes); // NEW: Behavioral Intelligence Tracking
 
 // Telemetry Logs Endpoint (Surgical Injection)
-app.post('/api/v1/logs', (req, res) => {
-    const { event, trace_id, ...ctx } = req.body;
-    // For now, just pipe to stdout so we can see it in server logs
-    // In future, this could persist to ClickHouse/Postgres
-    if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_TELEMETRY_LOGS === 'true') {
-        console.log(`[Telemetry] ${trace_id?.slice(0, 6)} | ${event}`, JSON.stringify(ctx));
-    }
-    res.status(200).json({ success: true });
-});
+app.use('/api/v1/logs', logsRoutes); // Telemetry Logs
 
 // Start Server
 app.listen(config.port, () => {
