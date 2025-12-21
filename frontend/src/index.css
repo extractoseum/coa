@@ -37,6 +37,7 @@ body {
  * Force dark theme colors on all form inputs
  */
 @layer utilities {
+
   input:not([type="checkbox"]):not([type="radio"]),
   textarea,
   select {
@@ -71,4 +72,13 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator {
 /* Checkbox accent */
 input[type="checkbox"] {
   accent-color: var(--theme-accent, #10b981);
+}
+
+@layer utilities {
+  .glass-morphism {
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
 }

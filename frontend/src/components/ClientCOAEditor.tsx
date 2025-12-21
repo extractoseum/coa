@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Save, Loader2, Image, FileText, Link as LinkIcon, X, Plus, EyeOff, Eye, Upload, BarChart3, Users, MousePointerClick, Download, RefreshCw, MapPin, Globe } from 'lucide-react';
 import { authFetch } from '../contexts/AuthContext';
-
-type ThemeMode = 'light' | 'dark' | 'tokyo';
+import type { ThemeMode } from '../contexts/ThemeContext';
 
 interface ClientCOAEditorProps {
     coaToken: string;
@@ -165,6 +164,14 @@ export default function ClientCOAEditor({ coaToken, coa, onComplete, themeMode }
             text: '#ffffff',
             textMuted: '#a0a0c0',
             accent: '#00f5d4',
+        },
+        neon: {
+            bg: '#030014',
+            cardBg: '#05001a',
+            border: '#1a1033',
+            text: '#f8fafc',
+            textMuted: '#94a3b8',
+            accent: '#ec4899',
         },
     };
     const theme = themes[themeMode];
@@ -486,14 +493,12 @@ export default function ClientCOAEditor({ coaToken, coa, onComplete, themeMode }
                         <button
                             type="button"
                             onClick={() => setIsHidden(!isHidden)}
-                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                                isHidden ? 'bg-purple-600' : 'bg-gray-400'
-                            }`}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${isHidden ? 'bg-purple-600' : 'bg-gray-400'
+                                }`}
                         >
                             <span
-                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                    isHidden ? 'translate-x-6' : 'translate-x-1'
-                                }`}
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isHidden ? 'translate-x-6' : 'translate-x-1'
+                                    }`}
                             />
                         </button>
                     </div>
@@ -662,10 +667,10 @@ export default function ClientCOAEditor({ coaToken, coa, onComplete, themeMode }
                                             <div key={idx} className="flex items-center justify-between text-sm">
                                                 <span style={{ color: theme.textMuted }}>
                                                     {item.access_type === 'direct_link' ? 'Link Directo' :
-                                                     item.access_type === 'qr_scan' ? 'Escaneo QR' :
-                                                     item.access_type === 'cvv_verification' ? 'Verificacion CVV' :
-                                                     item.access_type === 'pdf_link' ? 'Link desde PDF' :
-                                                     item.access_type}
+                                                        item.access_type === 'qr_scan' ? 'Escaneo QR' :
+                                                            item.access_type === 'cvv_verification' ? 'Verificacion CVV' :
+                                                                item.access_type === 'pdf_link' ? 'Link desde PDF' :
+                                                                    item.access_type}
                                                 </span>
                                                 <span className="font-medium" style={{ color: theme.accent }}>{item.count}</span>
                                             </div>
@@ -683,9 +688,9 @@ export default function ClientCOAEditor({ coaToken, coa, onComplete, themeMode }
                                             <div key={idx} className="flex items-center gap-2 text-sm">
                                                 <span style={{ color: theme.textMuted }}>
                                                     {item.device_type === 'mobile' ? '📱 Movil' :
-                                                     item.device_type === 'desktop' ? '💻 Desktop' :
-                                                     item.device_type === 'tablet' ? '📱 Tablet' :
-                                                     item.device_type}
+                                                        item.device_type === 'desktop' ? '💻 Desktop' :
+                                                            item.device_type === 'tablet' ? '📱 Tablet' :
+                                                                item.device_type}
                                                 </span>
                                                 <span className="font-medium" style={{ color: theme.text }}>{item.count}</span>
                                             </div>

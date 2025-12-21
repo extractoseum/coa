@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 
-export type ThemeMode = 'light' | 'dark' | 'tokyo';
+export type ThemeMode = 'light' | 'dark' | 'tokyo' | 'neon';
 
 export interface ThemeColors {
     bg: string;
@@ -12,6 +12,7 @@ export interface ThemeColors {
     textMuted: string;
     accent: string;
     accentHover: string;
+    accentSecondary: string;
     navBg: string;
     navBorder: string;
 }
@@ -26,6 +27,7 @@ const themes: Record<ThemeMode, ThemeColors> = {
         textMuted: '#6b7280',
         accent: '#10b981',
         accentHover: '#059669',
+        accentSecondary: '#6366f1',
         navBg: 'rgba(255, 255, 255, 0.9)',
         navBorder: '#e5e7eb',
     },
@@ -38,6 +40,7 @@ const themes: Record<ThemeMode, ThemeColors> = {
         textMuted: '#9ca3af',
         accent: '#10b981',
         accentHover: '#34d399',
+        accentSecondary: '#8b5cf6',
         navBg: 'rgba(17, 24, 39, 0.95)',
         navBorder: '#374151',
     },
@@ -50,9 +53,23 @@ const themes: Record<ThemeMode, ThemeColors> = {
         textMuted: '#a0a0c0',
         accent: '#00f5d4',
         accentHover: '#00d4b8',
+        accentSecondary: '#bd93f9',
         navBg: 'rgba(26, 26, 46, 0.95)',
         navBorder: '#4a4a8a',
     },
+    neon: {
+        bg: '#020205',
+        cardBg: '#050510',
+        cardBg2: '#0a0a1f',
+        border: 'rgba(236, 72, 153, 0.2)',
+        text: '#ffffff',
+        textMuted: '#94a3b8',
+        accent: '#ec4899', // Pink Neon
+        accentHover: '#f472b6',
+        accentSecondary: '#8b5cf6', // Purple Neon
+        navBg: 'rgba(2, 2, 5, 0.9)',
+        navBorder: 'rgba(139, 92, 246, 0.3)',
+    }
 };
 
 interface ThemeContextType {
@@ -69,10 +86,10 @@ const THEME_STORAGE_KEY = 'coa-theme-mode';
 export function ThemeProvider({ children }: { children: ReactNode }) {
     const [themeMode, setThemeModeState] = useState<ThemeMode>(() => {
         const saved = localStorage.getItem(THEME_STORAGE_KEY);
-        if (saved && (saved === 'light' || saved === 'dark' || saved === 'tokyo')) {
+        if (saved && (saved === 'light' || saved === 'dark' || saved === 'tokyo' || saved === 'neon')) {
             return saved as ThemeMode;
         }
-        return 'dark';
+        return 'tokyo'; // Default to Tokyo/Neon since it's the premium look
     });
 
     const theme = themes[themeMode];
@@ -88,6 +105,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         document.documentElement.style.setProperty('--theme-text-muted', theme.textMuted);
         document.documentElement.style.setProperty('--theme-accent', theme.accent);
         document.documentElement.style.setProperty('--theme-accent-hover', theme.accentHover);
+        document.documentElement.style.setProperty('--theme-accent-secondary', theme.accentSecondary);
         document.documentElement.style.setProperty('--theme-nav-bg', theme.navBg);
         document.documentElement.style.setProperty('--theme-nav-border', theme.navBorder);
     }, [themeMode, theme]);
@@ -100,6 +118,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         setThemeModeState((prev) => {
             if (prev === 'light') return 'dark';
             if (prev === 'dark') return 'tokyo';
+            if (prev === 'tokyo') return 'neon';
             return 'light';
         });
     };

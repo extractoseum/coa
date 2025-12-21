@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Download, Plus, Loader2, QrCode } from 'lucide-react';
-
-type ThemeMode = 'light' | 'dark' | 'tokyo';
+import type { ThemeMode } from '../contexts/ThemeContext';
 
 interface CVVGeneratorProps {
     token: string;
@@ -53,6 +52,17 @@ export default function CVVGenerator({ token, themeMode = 'dark' }: CVVGenerator
             inputBg: '#0f0f1f',
             inputBorder: '#4a4a8a',
             accent: '#00f5d4',
+        },
+        neon: {
+            cardBg: '#05001a',
+            cardBg2: '#080025',
+            cardBg3: '#0c0032',
+            border: '#1a1033',
+            text: '#f8fafc',
+            textMuted: '#94a3b8',
+            inputBg: '#05001a',
+            inputBorder: '#1a1033',
+            accent: '#ec4899',
         },
     };
     const theme = themes[themeMode];
