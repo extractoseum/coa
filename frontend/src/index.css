@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+/* CRITICAL: Override Tailwind's base reset for inputs */
+/* Tailwind sets background-color: transparent (#0000) on inputs */
+/* This makes them show the white browser default background */
+input:where(:not([type="checkbox"]):not([type="radio"])),
+textarea,
+select {
+  background-color: #1f2937 !important;
+}
+
+@theme {
+  --color-primary: #10B981;
+  --color-secondary: #064E3B;
+  --color-dark: #111827;
+  --color-light: #F9FAFB;
+  --font-sans: Inter, sans-serif;
+}
+
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color-scheme: light dark;
+  background-color: #111827;
+  color: rgba(255, 255, 255, 0.87);
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+/*
+ * FORM ELEMENTS FIX - Must come AFTER Tailwind imports
+ * Force dark theme colors on all form inputs
+ */
+@layer utilities {
+  input:not([type="checkbox"]):not([type="radio"]),
+  textarea,
+  select {
+    background-color: var(--theme-card-bg2, #1f2937) !important;
+    color: var(--theme-text, #ffffff) !important;
+    border-color: var(--theme-border, #374151) !important;
+  }
+}
+
+/* Select options */
+select {
+  color-scheme: light dark;
+}
+
+select option {
+  background-color: var(--theme-card-bg2, #1f2937);
+  color: var(--theme-text, #ffffff);
+}
+
+/* Placeholders */
+input::placeholder,
+textarea::placeholder {
+  color: var(--theme-text-muted, #9ca3af);
+  opacity: 0.7;
+}
+
+/* Date picker icon */
+input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.8);
+}
+
+/* Checkbox accent */
+input[type="checkbox"] {
+  accent-color: var(--theme-accent, #10b981);
+}

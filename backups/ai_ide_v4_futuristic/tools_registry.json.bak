@@ -1,0 +1,337 @@
+[
+    {
+        "category": "orders",
+        "name": "get_recent_orders",
+        "description": "Retrieves the most recent orders from the system.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "number",
+                    "description": "Number of orders to return (default 10)"
+                }
+            }
+        },
+        "examples": [
+            {
+                "name": "get_recent_orders",
+                "args": {
+                    "limit": 5
+                }
+            }
+        ]
+    },
+    {
+        "category": "users",
+        "name": "search_clients",
+        "description": "Search for clients in the local database by name, email or phone.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search term"
+                }
+            },
+            "required": [
+                "query"
+            ]
+        },
+        "examples": [
+            {
+                "name": "search_clients",
+                "args": {
+                    "query": "Juan Perez"
+                }
+            }
+        ]
+    },
+    {
+        "category": "system",
+        "name": "get_system_health",
+        "description": "Verifies the integrity of the database using the internal ledger.",
+        "input_schema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "category": "files",
+        "name": "read_file_content",
+        "description": "Read the content of a file (code, config, logs) from the backend server.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Relative path from project root (e.g. \"src/index.ts\")"
+                }
+            },
+            "required": [
+                "file_path"
+            ]
+        }
+    },
+    {
+        "category": "files",
+        "name": "list_directory",
+        "description": "List files and folders in a directory.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "dir_path": {
+                    "type": "string",
+                    "description": "Relative path directory (default \"./\")"
+                }
+            }
+        }
+    },
+    {
+        "category": "system",
+        "name": "get_logs",
+        "description": "Retrieve recent server logs.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "enum": [
+                        "error",
+                        "out"
+                    ],
+                    "description": "Log type (error or out)"
+                },
+                "lines": {
+                    "type": "number",
+                    "description": "Number of lines to retrieve"
+                }
+            }
+        }
+    },
+    {
+        "category": "users",
+        "name": "get_active_clients_count_today",
+        "description": "Returns the count of active clients in the last 24h.",
+        "input_schema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "category": "coa",
+        "name": "get_recent_scans_details",
+        "description": "Returns a detailed list of recent COA scans.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "number",
+                    "description": "Number of recent scans to fetch (default 10)."
+                }
+            }
+        }
+    },
+    {
+        "category": "system",
+        "name": "restart_backend_service",
+        "description": "Restarts the backend server process (PM2). Use with caution.",
+        "input_schema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "category": "shopping-bag",
+        "name": "search_products_db",
+        "description": "Search for products in the local database. Returns name, price, stock status, and purchase link.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Product name, effect, or keyword"
+                }
+            },
+            "required": [
+                "query"
+            ]
+        }
+    },
+    {
+        "category": "shopping-cart",
+        "name": "create_checkout_link",
+        "description": "Creates a Shopify Draft Order and generates a payment link (invoice_url).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "variant_id": {
+                                "type": "number",
+                                "description": "The specific variant ID"
+                            },
+                            "quantity": {
+                                "type": "number",
+                                "description": "Quantity"
+                            }
+                        },
+                        "required": [
+                            "variant_id",
+                            "quantity"
+                        ]
+                    }
+                }
+            },
+            "required": [
+                "items"
+            ]
+        }
+    },
+    {
+        "category": "search",
+        "name": "search_knowledge_base",
+        "description": "Search for relevant information in the knowledge base using vector search.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query"
+                }
+            },
+            "required": [
+                "query"
+            ]
+        }
+    },
+    {
+        "category": "whatsapp",
+        "name": "send_whatsapp_message",
+        "description": "Send a WhatsApp message via Whapi. Format number with 521.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "to": {
+                    "type": "string",
+                    "description": "Phone number (e.g. 5215512345678)"
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Message content"
+                }
+            },
+            "required": [
+                "to",
+                "body"
+            ]
+        }
+    },
+    {
+        "category": "mail",
+        "name": "send_email",
+        "description": "Send a professional email to a client.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "to": {
+                    "type": "string",
+                    "description": "Email address"
+                },
+                "subject": {
+                    "type": "string",
+                    "description": "Email subject"
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Email body (HTML or text)"
+                }
+            },
+            "required": [
+                "to",
+                "subject",
+                "message"
+            ]
+        }
+    },
+    {
+        "category": "shopify",
+        "name": "search_shopify_customers",
+        "description": "Search for customers in Shopify by name or email.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Name or email to search"
+                }
+            },
+            "required": [
+                "query"
+            ]
+        }
+    },
+    {
+        "category": "shopify",
+        "name": "get_shopify_order",
+        "description": "Get details for a specific Shopify order.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "order_id": {
+                    "type": "string",
+                    "description": "Shopify order ID"
+                }
+            },
+            "required": [
+                "order_id"
+            ]
+        }
+    },
+    {
+        "category": "bell",
+        "name": "send_push_notification",
+        "description": "Send a push notification to a specific client via OneSignal.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "client_id": {
+                    "type": "string",
+                    "description": "Local client ID"
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Notification title"
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Notification message"
+                }
+            },
+            "required": [
+                "client_id",
+                "title",
+                "message"
+            ]
+        }
+    },
+    {
+        "category": "truck",
+        "name": "update_tracking",
+        "description": "Force a refresh of the tracking status for an order.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "order_id": {
+                    "type": "string",
+                    "description": "Local order ID"
+                }
+            },
+            "required": [
+                "order_id"
+            ]
+        }
+    }
+]
