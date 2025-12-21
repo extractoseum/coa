@@ -40,6 +40,7 @@ export const ROUTES = {
     adminNavigation: '/admin/navigation',
     adminKnowledge: '/admin/knowledge',
     adminCrm: '/admin/crm',
+    adminTelemetry: '/admin/telemetry',
 } as const;
 
 // Helper functions to generate dynamic routes safely

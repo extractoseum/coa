@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /dashboard
+Disallow: /my-orders
+
+Sitemap: https://coa.extractoseum.com/api/v1/sitemap.xml
