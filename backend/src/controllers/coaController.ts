@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { COA } from '../types/coa';
 import { supabase } from '../config/supabase';
 import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
 import { generateBasicChromatogram } from '../services/chromatogramGenerator';
 import { COAExtractor } from '../services/coaExtractor';
 import axios from 'axios';
@@ -226,9 +227,20 @@ export const getCOAByToken = async (req: Request, res: Response) => {
         }
 
         // Transform badges structure
+        // Generate signed QR URL for the frontend
+        const verificationUrl = process.env.VERIFICATION_URL || 'https://coa.extractoseum.com/verify';
+        const jwtPayload = {
+            t: data.public_token,
+            b: data.batch_id,
+            iat: Math.floor(Date.now() / 1000)
+        };
+        const signedToken = jwt.sign(jwtPayload, process.env.JWT_SECRET || 'dev_secret_key_12345', { expiresIn: '1y' });
+        const qr_code_secure_url = `${verificationUrl}?src=qr&sig=${signedToken}`;
+
         const transformedData = {
             ...data,
-            badges
+            badges,
+            qr_code_secure_url // Add this field for the frontend
         };
 
         res.json({
