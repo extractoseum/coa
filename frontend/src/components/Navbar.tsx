@@ -1,29 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import {
-    Home,
-    ShoppingBag,
-    Mail, MessageCircle,
-    Briefcase,
-    FileText,
-    Sun,
-    Moon,
-    Sparkles,
-    User,
-    LogOut,
-    Settings,
-    Upload,
-    FolderOpen,
-    LayoutDashboard,
-    ChevronUp,
-    Shield,
-    Image,
-    Award,
-    FileCode,
-    Box,
-    Menu,
-    X
-} from 'lucide-react';
+import { Menu, X, Home, User, Settings, LogOut, ChevronDown, LayoutDashboard, Database, Upload, Shield, Award, Calendar, FileText, Image as ImageIcon, BarChart3, HelpCircle, MessageCircle, FolderOpen, ShoppingBag, Brain, Briefcase, Sun, Moon, Sparkles, ChevronUp, FileCode, Box } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { ROUTES } from '../routes';
@@ -42,6 +19,16 @@ interface NavItem {
     adminOnly?: boolean;
     authOnly?: boolean;
 }
+
+import { UI } from '../telemetry/uiMap';
+
+// Helper to look up testid by route
+const getTestIdForRoute = (route: string) => {
+    // Basic reverse lookup
+    const entry = Object.values(UI).find((e: any) => e.route === route);
+    return entry ? entry.testid : undefined;
+};
+
 
 export default function Navbar() {
     const { theme, themeMode, toggleTheme, setThemeMode } = useTheme();
@@ -81,13 +68,15 @@ export default function Navbar() {
 
     const themeIcon = themeMode === 'light' ? <Sun size={20} /> :
         themeMode === 'dark' ? <Moon size={20} /> :
-            <Sparkles size={20} />;
+            themeMode === 'tokyo' ? <Sparkles size={20} /> :
+                <LucideIcons.Zap size={20} />;
 
     // Theme options
     const themeOptions = [
         { mode: 'light' as const, label: 'Claro', icon: <Sun size={18} /> },
         { mode: 'dark' as const, label: 'Oscuro', icon: <Moon size={18} /> },
-        { mode: 'tokyo' as const, label: 'Tokyo', icon: <Sparkles size={18} /> },
+        { mode: 'tokyo' as const, label: 'Tokyo (Blue)', icon: <Sparkles size={18} /> },
+        { mode: 'neon' as const, label: 'Neon (Premium)', icon: <LucideIcons.Zap size={18} /> },
     ];
 
     // State for navigation items
@@ -98,6 +87,7 @@ export default function Navbar() {
     ]);
     const [userMenuItems, setUserMenuItems] = useState<NavItem[]>([
         { label: 'Dashboard', icon: <LayoutDashboard size={18} />, href: ROUTES.dashboard, authOnly: true },
+        { label: 'Mis Pedidos', icon: <ShoppingBag size={18} />, href: ROUTES.myOrders, authOnly: true },
         { label: 'Mis Carpetas', icon: <FolderOpen size={18} />, href: ROUTES.folders, authOnly: true },
     ]);
     const [adminMenuItems, setAdminMenuItems] = useState<NavItem[]>([
@@ -197,6 +187,7 @@ export default function Navbar() {
                     href={item.href}
                     target="_blank"
                     rel="noopener noreferrer"
+                    data-testid={getTestIdForRoute(item.href)}
                     className={`${baseClasses} text-left w-full`}
                     style={{ color: theme.text }}
                     onMouseEnter={(e) => {
@@ -216,10 +207,12 @@ export default function Navbar() {
 
         if (item.href) {
             const isActive = location.pathname === item.href;
+            const testid = getTestIdForRoute(item.href);
             return (
                 <Link
                     key={item.label}
                     to={item.href}
+                    data-testid={testid}
                     className={baseClasses}
                     style={{
                         color: isActive ? theme.accent : theme.text,
@@ -273,7 +266,8 @@ export default function Navbar() {
         menuId: string,
         items: NavItem[],
         buttonContent: React.ReactNode,
-        buttonLabel: string
+        buttonLabel: string,
+        testId?: string
     ) => (
         <div
             ref={(el) => { menuRefs.current[menuId] = el; }}
@@ -281,6 +275,7 @@ export default function Navbar() {
         >
             <button
                 onClick={() => toggleMenu(menuId)}
+                data-testid={testId}
                 className="flex items-center gap-2 px-3 py-2 rounded-lg transition-all duration-200"
                 style={{
                     color: openMenu === menuId ? theme.accent : theme.text,
@@ -305,23 +300,21 @@ export default function Navbar() {
                 />
             </button>
 
-            {openMenu === menuId && (
-                <div
-                    className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 min-w-[180px] rounded-xl shadow-xl overflow-hidden backdrop-blur-md"
-                    style={{
-                        backgroundColor: theme.navBg,
-                        border: `1px solid ${theme.border}`,
-                    }}
-                >
-                    <div className="py-2">
-                        {items.map((item) => (
-                            <div key={item.label} className="px-2">
-                                {renderNavLink(item, true)}
-                            </div>
-                        ))}
-                    </div>
+            <div
+                className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 min-w-[180px] rounded-xl shadow-xl overflow-hidden backdrop-blur-md ${openMenu === menuId ? '' : 'hidden'}`}
+                style={{
+                    backgroundColor: theme.navBg,
+                    border: `1px solid ${theme.border}`,
+                }}
+            >
+                <div className="py-2">
+                    {items.map((item) => (
+                        <div key={item.label} className="px-2">
+                            {renderNavLink(item, true)}
+                        </div>
+                    ))}
                 </div>
-            )}
+            </div>
         </div>
     );
 
@@ -392,7 +385,8 @@ export default function Navbar() {
                                 },
                             ],
                             <User size={20} />,
-                            'Menu de usuario'
+                            'Menu de usuario',
+                            'nav.user.menu_button'
                         )}
 
                         {/* Admin Menu */}
@@ -400,7 +394,8 @@ export default function Navbar() {
                             'admin',
                             adminMenuItems,
                             <Settings size={20} />,
-                            'Menu de administrador'
+                            'Menu de administrador',
+                            'nav.admin.menu_button'
                         )}
                     </>
                 ) : (

@@ -72,6 +72,8 @@ function Home() {
     switch (themeMode) {
       case 'tokyo':
         return '#00f5d4'; // Cyan neon
+      case 'neon':
+        return '#ec4899'; // Pink neon
       case 'dark':
         return '#ffffff'; // White
       case 'light':
@@ -289,11 +291,14 @@ import { QAOverlay } from './telemetry/QAOverlay';
 
 // ... (keep Home component imports and logic the same, explicitly ensuring we don't break it)
 
+import { ThemeSwitcher } from './components/ThemeSwitcher';
+
 function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
         <ThemeProvider>
+          <ThemeSwitcher />
           <Screen id="app.root">
             <Suspense fallback={
               <div className="min-h-screen flex items-center justify-center bg-gray-900">
