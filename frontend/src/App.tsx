@@ -1,8 +1,12 @@
-```typescript
 import { useState, useEffect, lazy, Suspense } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { Info, Brain, Terminal } from 'lucide-react';
+import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
+import {
+  Info, Brain, Terminal, FileText, Upload, Box, Award, Image,
+  FileCode, Bell, LayoutDashboard, Settings, FolderOpen, Package,
+  Heart, ShieldCheck, Leaf
+} from 'lucide-react';
 import DOMPurify from 'isomorphic-dompurify';
+
 // Lazy load heavy pages
 const COADetails = lazy(() => import('./pages/COADetails'));
 const COAPreview = lazy(() => import('./pages/COAPreview'));
@@ -25,6 +29,7 @@ const PublicFolderView = lazy(() => import('./pages/PublicFolderView'));
 const MyCollection = lazy(() => import('./pages/MyCollection'));
 const MyOrders = lazy(() => import('./pages/MyOrders'));
 const VerifyMember = lazy(() => import('./pages/VerifyMember'));
+const DownloadApp = lazy(() => import('./pages/DownloadApp'));
 
 import Login from './pages/Login';
 import ShopifyCallback from './pages/ShopifyCallback';
@@ -99,20 +104,21 @@ function Home() {
     // 2. Theme Application
     // Replace the specific EUM logo color
     processed = processed
-      .replace(/fill:\s*#221914/gi, `fill: ${ color } `)
-      .replace(/fill="#221914"/gi, `fill = "${color}"`)
+      .replace(/fill:\s*#221914/gi, `fill:${color}`)
+      .replace(/fill="#221914"/gi, `fill="${color}"`)
       // Replace black fills
-      .replace(/fill="#000000"/gi, `fill = "${color}"`)
-      .replace(/fill="#000"/gi, `fill = "${color}"`)
-      .replace(/fill="black"/gi, `fill = "${color}"`);
+      .replace(/fill="#000000"/gi, `fill="${color}"`)
+      .replace(/fill="#000"/gi, `fill="${color}"`)
+      .replace(/fill="black"/gi, `fill="${color}"`);
 
     // Also update the <style> block if present
     processed = processed.replace(
       /\.st0\s*\{\s*fill:\s*#221914;\s*\}/gi,
-      `.st0 { fill: ${ color }; } `
+      `.st0 { fill: ${color}; }`
     );
 
-    return processed;
+    // XSS Protection via DOMPurify before rendering
+    return DOMPurify.sanitize(processed);
   };
 
   const adminItems = [
@@ -145,7 +151,7 @@ function Home() {
           className="max-w-md w-full rounded-2xl shadow-xl overflow-hidden"
           style={{
             backgroundColor: theme.cardBg,
-            border: `1px solid ${ theme.border } `,
+            border: `1px solid ${theme.border}`,
           }}
         >
           {/* Header with Company Logo */}
@@ -191,16 +197,16 @@ function Home() {
                 <button
                   key={item.path}
                   onClick={() => navigate(item.path)}
-                  data-testid={`nav.user.${ item.label.toLowerCase().replace(/\s/g, '_') } `}
+                  data-testid={`nav.user.${item.label.toLowerCase().replace(/\s/g, '_')}`}
                   className="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200"
                   style={{
                     backgroundColor: theme.cardBg2,
-                    border: `1px solid ${ theme.border } `,
+                    border: `1px solid ${theme.border}`,
                     color: theme.text,
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.borderColor = item.color;
-                    e.currentTarget.style.backgroundColor = `${ item.color } 15`;
+                    e.currentTarget.style.backgroundColor = `${item.color}15`;
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.borderColor = theme.border;
@@ -231,16 +237,16 @@ function Home() {
                     <button
                       key={item.path}
                       onClick={() => navigate(item.path)}
-                      data-testid={`nav.admin.${ item.label.toLowerCase().replace(/\s/g, '_') } `}
+                      data-testid={`nav.admin.${item.label.toLowerCase().replace(/\s/g, '_')}`}
                       className="flex flex-col items-center gap-2 px-3 py-4 rounded-xl transition-all duration-200"
                       style={{
                         backgroundColor: theme.cardBg2,
-                        border: `1px solid ${ theme.border } `,
+                        border: `1px solid ${theme.border}`,
                         color: theme.text,
                       }}
                       onMouseEnter={(e) => {
                         e.currentTarget.style.borderColor = item.color;
-                        e.currentTarget.style.backgroundColor = `${ item.color } 15`;
+                        e.currentTarget.style.backgroundColor = `${item.color}15`;
                       }}
                       onMouseLeave={(e) => {
                         e.currentTarget.style.borderColor = theme.border;
@@ -290,13 +296,8 @@ function Home() {
 
 import { ROUTES, to } from './routes';
 import { BuildStamp } from './components/BuildStamp';
-import { Terminal } from 'lucide-react';
-import DOMPurify from 'isomorphic-dompurify';
 import { Screen } from './telemetry/Screen';
-import QAOverlay from './telemetry/QAOverlay';
-
-// ... (keep Home component imports and logic the same, explicitly ensuring we don't break it)
-
+import { QAOverlay } from './telemetry/QAOverlay';
 import { ThemeSwitcher } from './components/ThemeSwitcher';
 
 function App() {
@@ -415,6 +416,7 @@ function App() {
                     <MyOrders />
                   </ProtectedRoute>
                 } />
+                <Route path={ROUTES.appDownload} element={<DownloadApp />} />
                 <Route path={ROUTES.verifyMember} element={<VerifyMember />} />
               </Routes>
 

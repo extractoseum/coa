@@ -16,6 +16,7 @@ import { Screen } from '../telemetry/Screen';
 import ClientCOAEditor from '../components/ClientCOAEditor';
 import ChromatogramSVG from '../components/ChromatogramSVG';
 import { InAppBrowser } from '../components/InAppBrowser';
+import { SmartAppBanner } from '../components/SmartAppBanner';
 
 // Analytics tracking helper
 const trackCOAAccess = async (token: string, accessType: string, linkSource?: string, cvvCode?: string) => {
@@ -638,6 +639,7 @@ export default function COADetails() {
 
     return (
         <Screen id="COADetails">
+            <SmartAppBanner />
             <Layout>
                 <div
                     className="min-h-screen font-sans print:bg-white print:text-black transition-colors duration-300"

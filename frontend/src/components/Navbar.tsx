@@ -18,6 +18,7 @@ interface NavItem {
     children?: NavItem[];
     adminOnly?: boolean;
     authOnly?: boolean;
+    testid?: string;
 }
 
 import { UI } from '../telemetry/uiMap';

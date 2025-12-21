@@ -14,6 +14,7 @@ export const ROUTES = {
     shopifyCallback: '/auth/shopify/callback',
     coaDetails: '/coa/:token',
     coaDetailsApp: '/apps/coa/:token',
+    appDownload: '/app',
     coaPreview: '/preview/:token',
     qrPreview: '/preview/qr/:qr_token',
     verifyCVV: '/verify/:cvv',
