@@ -155,10 +155,13 @@ export class CRMService {
 
         console.log(`[CRMService] [DEBUG] Insert Success. ID: ${insertedMsg.id}`);
 
-        // Update conversation timestamp
+        // Update conversation timestamp and summary preview
         await supabase
             .from('conversations')
-            .update({ last_message_at: new Date().toISOString() })
+            .update({
+                last_message_at: new Date().toISOString(),
+                summary: msg.content.substring(0, 160)
+            })
             .eq('id', msg.conversation_id);
 
         // REAL DISPATCH: If outbound, send to actual WhatsApp/Email
@@ -358,7 +361,7 @@ export class CRMService {
         // 2. Fetch snapshots
         const { data: snapshots } = await supabase
             .from('crm_contact_snapshots')
-            .select('handle, name, ltv, risk_level')
+            .select('handle, name, ltv, risk_level, tags')
             .in('handle', handles);
 
         // 3. Merge snapshots into conversations for UI enrichment
@@ -371,7 +374,8 @@ export class CRMService {
             ...conv,
             contact_name: snapshotMap[conv.contact_handle]?.name || null,
             ltv: snapshotMap[conv.contact_handle]?.ltv || 0,
-            risk_level: snapshotMap[conv.contact_handle]?.risk_level || 'low'
+            risk_level: snapshotMap[conv.contact_handle]?.risk_level || 'low',
+            tags: snapshotMap[conv.contact_handle]?.tags || []
         }));
     }
 

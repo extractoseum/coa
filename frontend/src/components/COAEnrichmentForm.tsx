@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Upload, Image, Link as LinkIcon, FileText, Plus, X, Loader2, Award, RefreshCw, EyeOff, Eye, BarChart2, Monitor, Smartphone, Tablet, Globe, MapPin, Palette, Check, Star, MessageSquare } from 'lucide-react';
 import type { PurchaseLink, COA, Badge } from '../types/coa';
-import { authFetch } from '../contexts/AuthContext';
+import { authFetch, useAuth } from '../contexts/AuthContext';
+import type { ThemeMode } from '../contexts/ThemeContext';
+import StepUpModal from './StepUpModal';
 
-type ThemeMode = 'light' | 'dark' | 'tokyo';
 
 interface Template {
     id: string;
@@ -23,6 +24,8 @@ interface EnrichmentFormProps {
 }
 
 export default function COAEnrichmentForm({ coaToken, coa, onComplete, themeMode = 'dark' }: EnrichmentFormProps) {
+    const { isAuthenticated } = useAuth();
+
     // Theme colors - 3 modes
     const themes = {
         light: {
@@ -72,6 +75,22 @@ export default function COAEnrichmentForm({ coaToken, coa, onComplete, themeMode
             statGreen: '#39ff14',   // Verde neon
             statYellow: '#ffbe0b',  // Amarillo neon
             statPurple: '#ff00ff',  // Magenta neon
+        },
+        neon: {
+            bg: '#030014',
+            cardBg: '#05001a',
+            cardBg2: '#080025',
+            border: '#1a1033',
+            text: '#f8fafc',
+            textMuted: '#94a3b8',
+            inputBg: '#05001a',
+            inputBorder: '#1a1033',
+            accent: '#ec4899', // Pink neon
+            // Analytics colors - neon vibrant
+            statBlue: '#3b82f6',
+            statGreen: '#39ff14',
+            statYellow: '#ffbe0b',
+            statPurple: '#8b5cf6', // Purple neon
         }
     };
     const theme = themes[themeMode];
@@ -142,6 +161,10 @@ export default function COAEnrichmentForm({ coaToken, coa, onComplete, themeMode
     const [savingReviewSettings, setSavingReviewSettings] = useState(false);
     const [pendingReviews, setPendingReviews] = useState<any[]>([]);
     const [loadingPendingReviews, setLoadingPendingReviews] = useState(false);
+
+    // Step Up Verification
+    const [showStepUp, setShowStepUp] = useState(false);
+    const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
 
     // Load analytics data
     useEffect(() => {
@@ -334,8 +357,9 @@ export default function COAEnrichmentForm({ coaToken, coa, onComplete, themeMode
         }
     };
 
-    const handleReExtract = async () => {
-        if (!confirm('¿Deseas re-extraer los datos del PDF? Esto actualizará los cannabinoides y datos de cromatografía.')) {
+    const handleReExtract = async (isRetry = false) => {
+        // If not a retry, confirm is needed. If retry (after step-up), skip confirm.
+        if (!isRetry && !confirm('¿Deseas re-extraer los datos del PDF? Esto actualizará los cannabinoides y datos de cromatografía.')) {
             return;
         }
 
@@ -355,10 +379,20 @@ export default function COAEnrichmentForm({ coaToken, coa, onComplete, themeMode
                 });
                 if (onComplete) onComplete();
             } else {
-                setReExtractResult({
-                    success: false,
-                    message: 'Error: ' + data.error
-                });
+                // Check for Step-Up Requirement
+                if (data.error === 'step_up_required') {
+                    setReExtractResult({
+                        success: false,
+                        message: 'Requiere verificación de seguridad...'
+                    });
+                    setPendingAction(() => () => handleReExtract(true));
+                    setShowStepUp(true);
+                } else {
+                    setReExtractResult({
+                        success: false,
+                        message: 'Error: ' + data.error
+                    });
+                }
             }
         } catch (error) {
             console.error(error);
@@ -653,6 +687,22 @@ export default function COAEnrichmentForm({ coaToken, coa, onComplete, themeMode
 
     return (
         <div className="space-y-6">
+            {/* Step Up Modal */}
+            {showStepUp && (
+                <StepUpModal
+                    onClose={() => {
+                        setShowStepUp(false);
+                        setPendingAction(null);
+                        setReExtractResult({ success: false, message: 'Verificación cancelada' });
+                    }}
+                    onSuccess={() => {
+                        setShowStepUp(false);
+                        if (pendingAction) pendingAction();
+                        setPendingAction(null);
+                    }}
+                    actionLabel="Confirmar acción sensible"
+                />
+            )}
             {/* Re-Extract Section */}
             <div className="rounded-xl p-6 border transition-colors duration-300" style={{ backgroundColor: theme.cardBg, borderColor: theme.border }}>
                 <h3 className="font-semibold mb-4 flex items-center" style={{ color: theme.text }}>
@@ -663,7 +713,7 @@ export default function COAEnrichmentForm({ coaToken, coa, onComplete, themeMode
                     Re-procesa los archivos PDF originales para actualizar los cannabinoides y datos de cromatografía con el extractor más reciente.
                 </p>
                 <button
-                    onClick={handleReExtract}
+                    onClick={() => handleReExtract(false)}
                     disabled={reExtracting}
                     className="hover:opacity-90 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm flex items-center transition-all"
                     style={{ backgroundColor: '#6366f1' }}
@@ -829,39 +879,39 @@ export default function COAEnrichmentForm({ coaToken, coa, onComplete, themeMode
 
                         {/* PDF Link Source Breakdown */}
                         {(analyticsData.by_pdf_link_source?.batch_id > 0 ||
-                          analyticsData.by_pdf_link_source?.token > 0 ||
-                          analyticsData.by_pdf_link_source?.product_image > 0 ||
-                          analyticsData.by_pdf_link_source?.coa_number > 0) && (
-                            <div className="p-4 rounded-lg" style={{ backgroundColor: theme.cardBg2 }}>
-                                <p className="text-sm font-medium mb-3" style={{ color: theme.text }}>Clicks desde PDF</p>
-                                <div className="grid grid-cols-2 gap-2">
-                                    {analyticsData.by_pdf_link_source?.batch_id > 0 && (
-                                        <div className="flex justify-between items-center text-xs p-2 rounded" style={{ backgroundColor: theme.cardBg }}>
-                                            <span style={{ color: theme.textMuted }}>Lote</span>
-                                            <span className="font-medium" style={{ color: theme.text }}>{analyticsData.by_pdf_link_source.batch_id}</span>
-                                        </div>
-                                    )}
-                                    {analyticsData.by_pdf_link_source?.token > 0 && (
-                                        <div className="flex justify-between items-center text-xs p-2 rounded" style={{ backgroundColor: theme.cardBg }}>
-                                            <span style={{ color: theme.textMuted }}>Token</span>
-                                            <span className="font-medium" style={{ color: theme.text }}>{analyticsData.by_pdf_link_source.token}</span>
-                                        </div>
-                                    )}
-                                    {analyticsData.by_pdf_link_source?.product_image > 0 && (
-                                        <div className="flex justify-between items-center text-xs p-2 rounded" style={{ backgroundColor: theme.cardBg }}>
-                                            <span style={{ color: theme.textMuted }}>Imagen</span>
-                                            <span className="font-medium" style={{ color: theme.text }}>{analyticsData.by_pdf_link_source.product_image}</span>
-                                        </div>
-                                    )}
-                                    {analyticsData.by_pdf_link_source?.coa_number > 0 && (
-                                        <div className="flex justify-between items-center text-xs p-2 rounded" style={{ backgroundColor: theme.cardBg }}>
-                                            <span style={{ color: theme.textMuted }}>Número COA</span>
-                                            <span className="font-medium" style={{ color: theme.text }}>{analyticsData.by_pdf_link_source.coa_number}</span>
-                                        </div>
-                                    )}
+                            analyticsData.by_pdf_link_source?.token > 0 ||
+                            analyticsData.by_pdf_link_source?.product_image > 0 ||
+                            analyticsData.by_pdf_link_source?.coa_number > 0) && (
+                                <div className="p-4 rounded-lg" style={{ backgroundColor: theme.cardBg2 }}>
+                                    <p className="text-sm font-medium mb-3" style={{ color: theme.text }}>Clicks desde PDF</p>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {analyticsData.by_pdf_link_source?.batch_id > 0 && (
+                                            <div className="flex justify-between items-center text-xs p-2 rounded" style={{ backgroundColor: theme.cardBg }}>
+                                                <span style={{ color: theme.textMuted }}>Lote</span>
+                                                <span className="font-medium" style={{ color: theme.text }}>{analyticsData.by_pdf_link_source.batch_id}</span>
+                                            </div>
+                                        )}
+                                        {analyticsData.by_pdf_link_source?.token > 0 && (
+                                            <div className="flex justify-between items-center text-xs p-2 rounded" style={{ backgroundColor: theme.cardBg }}>
+                                                <span style={{ color: theme.textMuted }}>Token</span>
+                                                <span className="font-medium" style={{ color: theme.text }}>{analyticsData.by_pdf_link_source.token}</span>
+                                            </div>
+                                        )}
+                                        {analyticsData.by_pdf_link_source?.product_image > 0 && (
+                                            <div className="flex justify-between items-center text-xs p-2 rounded" style={{ backgroundColor: theme.cardBg }}>
+                                                <span style={{ color: theme.textMuted }}>Imagen</span>
+                                                <span className="font-medium" style={{ color: theme.text }}>{analyticsData.by_pdf_link_source.product_image}</span>
+                                            </div>
+                                        )}
+                                        {analyticsData.by_pdf_link_source?.coa_number > 0 && (
+                                            <div className="flex justify-between items-center text-xs p-2 rounded" style={{ backgroundColor: theme.cardBg }}>
+                                                <span style={{ color: theme.textMuted }}>Número COA</span>
+                                                <span className="font-medium" style={{ color: theme.text }}>{analyticsData.by_pdf_link_source.coa_number}</span>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
-                        )}
+                            )}
 
                         {/* Recent Scans */}
                         {analyticsData.recent_scans && analyticsData.recent_scans.length > 0 && (
@@ -933,14 +983,12 @@ export default function COAEnrichmentForm({ coaToken, coa, onComplete, themeMode
                         <button
                             type="button"
                             onClick={() => setIsHidden(!isHidden)}
-                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                                isHidden ? 'bg-purple-600' : 'bg-gray-400'
-                            }`}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${isHidden ? 'bg-purple-600' : 'bg-gray-400'
+                                }`}
                         >
                             <span
-                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                    isHidden ? 'translate-x-6' : 'translate-x-1'
-                                }`}
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isHidden ? 'translate-x-6' : 'translate-x-1'
+                                    }`}
                             />
                         </button>
                     </div>
@@ -988,14 +1036,12 @@ export default function COAEnrichmentForm({ coaToken, coa, onComplete, themeMode
                         <button
                             type="button"
                             onClick={() => setReviewsEnabled(!reviewsEnabled)}
-                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                                reviewsEnabled ? 'bg-amber-500' : 'bg-gray-400'
-                            }`}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${reviewsEnabled ? 'bg-amber-500' : 'bg-gray-400'
+                                }`}
                         >
                             <span
-                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                    reviewsEnabled ? 'translate-x-6' : 'translate-x-1'
-                                }`}
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${reviewsEnabled ? 'translate-x-6' : 'translate-x-1'
+                                    }`}
                             />
                         </button>
                     </div>
@@ -1024,14 +1070,12 @@ export default function COAEnrichmentForm({ coaToken, coa, onComplete, themeMode
                             <button
                                 type="button"
                                 onClick={() => setReviewsRequireApproval(!reviewsRequireApproval)}
-                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                                    reviewsRequireApproval ? 'bg-amber-500' : 'bg-gray-400'
-                                }`}
+                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${reviewsRequireApproval ? 'bg-amber-500' : 'bg-gray-400'
+                                    }`}
                             >
                                 <span
-                                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                        reviewsRequireApproval ? 'translate-x-6' : 'translate-x-1'
-                                    }`}
+                                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${reviewsRequireApproval ? 'translate-x-6' : 'translate-x-1'
+                                        }`}
                                 />
                             </button>
                         </div>

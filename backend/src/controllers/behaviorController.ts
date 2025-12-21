@@ -28,9 +28,9 @@ export const trackBehaviorEvent = async (req: Request, res: Response) => {
             let query = supabase.from('clients').select('id');
 
             if (isEmail) {
-                query = query.eq('email', handle);
+                query = query.ilike('email', handle);
             } else {
-                query = query.eq('phone', handle);
+                query = query.ilike('phone', `%${handle.slice(-10)}`);
             }
 
             const { data: client } = await query.maybeSingle();
@@ -54,11 +54,10 @@ export const trackBehaviorEvent = async (req: Request, res: Response) => {
 
         if (error) {
             console.error('[Behavior] Database error:', error.message);
-            // We return 200 even on error to avoid breaking store scripts? 
-            // Or 500 if we want strictness. Let's do 500 for internal tracking.
             return res.status(500).json({ success: false, error: 'Database insertion failed' });
         }
 
+        console.log(`[Behavior] Event tracked successfully for ${handle || 'anonymous'}`);
         res.status(200).json({ success: true });
     } catch (error: any) {
         console.error('[Behavior] Controller error:', error.message);
@@ -100,14 +99,13 @@ export const getClientActivity = async (req: Request, res: Response) => {
             if (requesterRole !== 'super_admin' && client.id !== requesterId) {
                 return res.status(403).json({ success: false, error: 'Forbidden' });
             }
-            query = query.or(`client_id.eq.${client.id},handle.eq.${handle}`);
+            query = query.or(`client_id.eq.${client.id},handle.ilike.${handle}`);
         } else {
             // If searching by handle string and no client found, only admin can search arbitrary handles?
-            // Or if handle matches my email?
-            if (requesterRole !== 'super_admin' && handle !== (req as any).userEmail) {
+            if (requesterRole !== 'super_admin' && handle.toLowerCase() !== (req as any).userEmail?.toLowerCase()) {
                 return res.status(403).json({ success: false, error: 'Forbidden' });
             }
-            query = query.eq('handle', handle);
+            query = query.ilike('handle', handle);
         }
 
         const { data, error } = await query;
