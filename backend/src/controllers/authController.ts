@@ -4,7 +4,14 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { supabase } from '../config/supabase';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+    if (process.env.NODE_ENV === 'production') {
+        throw new Error('FATAL: JWT_SECRET is not defined in production environment.');
+    }
+    console.warn('WARNING: Using default insecure JWT_SECRET. Do not use this in production.');
+}
+const SAFE_SECRET = JWT_SECRET || 'dev-secret-unsafe';
 const JWT_EXPIRES_IN = '24h';
 const REFRESH_TOKEN_EXPIRES_DAYS = 7;
 
@@ -52,13 +59,13 @@ const generateTokens = (client: { id: string; email: string; role: string; tags?
 
     const accessToken = jwt.sign(
         { clientId: client.id, email: client.email, role: effectiveRole },
-        JWT_SECRET,
+        SAFE_SECRET,
         { expiresIn: JWT_EXPIRES_IN }
     );
 
     const refreshToken = jwt.sign(
         { clientId: client.id, type: 'refresh' },
-        JWT_SECRET,
+        SAFE_SECRET,
         { expiresIn: `${REFRESH_TOKEN_EXPIRES_DAYS}d` }
     );
 
@@ -157,7 +164,7 @@ export const refreshToken = async (req: Request, res: Response) => {
         // Verify refresh token
         let decoded: any;
         try {
-            decoded = jwt.verify(token, JWT_SECRET);
+            decoded = jwt.verify(token, SAFE_SECRET) as any;
         } catch (err) {
             return res.status(401).json({
                 success: false,

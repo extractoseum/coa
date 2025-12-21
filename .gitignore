@@ -28,6 +28,13 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Security
+backend/.env
+backend/certs/
+*.keystore
+*.jks
+**/oauth-secrets.json
+
 # Editor
 .vscode/
 .idea/
