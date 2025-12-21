@@ -756,7 +756,11 @@ export default function COADetails() {
                                         onClick={downloadQR}
                                     >
                                         <div ref={qrRef} className="bg-white p-2 rounded mb-2">
-                                            <QRCode value={`https://coa.extractoseum.com/coa/${token}`} size={48} viewBox={`0 0 256 256`} />
+                                            <QRCode
+                                                value={(coa as any).qr_code_secure_url || `https://coa.extractoseum.com/coa/${token}`}
+                                                size={48}
+                                                viewBox={`0 0 256 256`}
+                                            />
                                         </div>
                                         <span className="text-[10px] flex items-center print:hidden" style={{ color: theme.textMuted }}>
                                             <Download className="w-3 h-3 mr-1" /> Descargar QR
