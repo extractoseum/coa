@@ -1,0 +1,10 @@
+{
+    "label": "Support Representative",
+    "default_tools": [
+        "get_shopify_order",
+        "search_shopify_customers",
+        "update_tracking",
+        "search_knowledge_base"
+    ],
+    "description": "Specialist in customer support and order verification."
+}

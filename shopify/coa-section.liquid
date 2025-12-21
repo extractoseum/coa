@@ -1,0 +1,370 @@
+{% comment %}
+  COA System - Customer COAs Display
+  Namespace: coa_system
+  Keys: assigned_coas (JSON), dashboard_url, coa_count
+{% endcomment %}
+
+{% assign coas_json = customer.metafields.coa_system.assigned_coas.value %}
+{% assign dashboard_url = customer.metafields.coa_system.dashboard_url.value %}
+{% assign coa_count = customer.metafields.coa_system.coa_count.value %}
+
+{% if coas_json and coas_json != blank %}
+  <div class="coa-section">
+    <div class="coa-container">
+      <div class="coa-header">
+        <h2>Mis Certificados de Análisis (COA)</h2>
+        {% if coa_count %}
+          <span class="coa-badge">{{ coa_count }} COA{% if coa_count != "1" %}s{% endif %}</span>
+        {% endif %}
+      </div>
+
+      {% if dashboard_url %}
+        <a href="{{ dashboard_url }}" class="dashboard-link" target="_blank">
+          Ver Dashboard Completo →
+        </a>
+      {% endif %}
+
+      <div class="coa-list">
+        {% for coa in coas_json %}
+          <div class="coa-card">
+            <div class="coa-card-content">
+              {% if coa.image %}
+                <div class="coa-image">
+                  <img src="{{ coa.image }}" alt="{{ coa.name | default: 'Producto' }}" loading="lazy">
+                </div>
+              {% else %}
+                <div class="coa-image coa-image--placeholder">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                    <polyline points="10 9 9 9 8 9"></polyline>
+                  </svg>
+                </div>
+              {% endif %}
+
+              <div class="coa-info">
+                <div class="coa-card-header">
+                  {% if coa.name %}
+                    <h3 class="coa-name">{{ coa.name }}</h3>
+                  {% elsif coa.title %}
+                    <h3 class="coa-name">{{ coa.title }}</h3>
+                  {% else %}
+                    <h3 class="coa-name">Sin nombre</h3>
+                  {% endif %}
+
+                  <span class="coa-status coa-status--{{ coa.status }}">
+                    {% case coa.status %}
+                      {% when 'pass' %}
+                        ✓ Aprobado
+                      {% when 'fail' %}
+                        ✗ No Aprobado
+                      {% when 'pending' %}
+                        ◐ Pendiente
+                      {% else %}
+                        {{ coa.status }}
+                    {% endcase %}
+                  </span>
+                </div>
+
+                <div class="coa-details">
+                  {% if coa.batch %}
+                    <span class="coa-detail">Lote: {{ coa.batch }}</span>
+                  {% endif %}
+                  {% if coa.coa_number %}
+                    <span class="coa-detail">COA: {{ coa.coa_number }}</span>
+                  {% endif %}
+                  {% if coa.date %}
+                    <span class="coa-detail">{{ coa.date }}</span>
+                  {% endif %}
+                </div>
+              </div>
+
+              {% if coa.url %}
+                <a href="{{ coa.url }}" class="coa-view-btn" target="_blank">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                    <polyline points="15 3 21 3 21 9"></polyline>
+                    <line x1="10" y1="14" x2="21" y2="3"></line>
+                  </svg>
+                </a>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <style>
+    .coa-section {
+      background: #111827;
+      padding: 40px 20px;
+      margin: 20px 0;
+    }
+
+    .coa-container {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .coa-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 15px;
+    }
+
+    .coa-header h2 {
+      margin: 0;
+      font-size: 1.5rem;
+      color: #ffffff;
+      font-weight: 600;
+    }
+
+    .coa-badge {
+      background: #10b981;
+      color: white;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+
+    .dashboard-link {
+      display: inline-block;
+      color: #10b981;
+      text-decoration: none;
+      font-weight: 500;
+      margin-bottom: 24px;
+      transition: color 0.2s;
+    }
+
+    .dashboard-link:hover {
+      color: #34d399;
+    }
+
+    .coa-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .coa-card {
+      background: #1f2937;
+      border: 1px solid #374151;
+      border-radius: 12px;
+      overflow: hidden;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .coa-card:hover {
+      border-color: #4b5563;
+      background: #263244;
+    }
+
+    .coa-card-content {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 16px;
+    }
+
+    .coa-image {
+      width: 56px;
+      height: 56px;
+      border-radius: 8px;
+      overflow: hidden;
+      flex-shrink: 0;
+      background: #374151;
+    }
+
+    .coa-image img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .coa-image--placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #6b7280;
+    }
+
+    .coa-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .coa-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 12px;
+      margin-bottom: 6px;
+    }
+
+    .coa-name {
+      margin: 0;
+      font-size: 1rem;
+      color: #ffffff;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .coa-status {
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .coa-status--pass {
+      background: rgba(16, 185, 129, 0.2);
+      color: #34d399;
+    }
+
+    .coa-status--fail {
+      background: rgba(239, 68, 68, 0.2);
+      color: #f87171;
+    }
+
+    .coa-status--pending {
+      background: rgba(251, 191, 36, 0.2);
+      color: #fbbf24;
+    }
+
+    .coa-details {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      color: #9ca3af;
+      font-size: 0.875rem;
+    }
+
+    .coa-detail {
+      white-space: nowrap;
+    }
+
+    .coa-view-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+      height: 40px;
+      background: transparent;
+      color: #6b7280;
+      border-radius: 8px;
+      text-decoration: none;
+      transition: color 0.2s, background 0.2s;
+      flex-shrink: 0;
+    }
+
+    .coa-view-btn:hover {
+      background: #374151;
+      color: #10b981;
+    }
+
+    @media (max-width: 600px) {
+      .coa-section {
+        padding: 24px 16px;
+      }
+
+      .coa-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+      }
+
+      .coa-header h2 {
+        font-size: 1.25rem;
+      }
+
+      .coa-card-content {
+        flex-wrap: wrap;
+      }
+
+      .coa-card-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+      }
+
+      .coa-info {
+        width: calc(100% - 72px);
+      }
+
+      .coa-view-btn {
+        margin-left: auto;
+      }
+    }
+  </style>
+{% else %}
+  <div class="coa-section">
+    <div class="coa-container">
+      <div class="coa-empty">
+        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="coa-empty-icon">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+          <line x1="16" y1="13" x2="8" y2="13"></line>
+          <line x1="16" y1="17" x2="8" y2="17"></line>
+        </svg>
+        <p>No tienes certificados de análisis asignados.</p>
+        <a href="https://extractoseum.com/collections/analisis-coa" class="coa-buy-btn">
+          Ver Analisis y Hologramas COA
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    .coa-section {
+      background: #111827;
+      padding: 40px 20px;
+      margin: 20px 0;
+    }
+
+    .coa-container {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .coa-empty {
+      text-align: center;
+      padding: 60px 20px;
+    }
+
+    .coa-empty-icon {
+      color: #4b5563;
+      margin-bottom: 16px;
+    }
+
+    .coa-empty p {
+      color: #9ca3af;
+      margin-bottom: 20px;
+      font-size: 1rem;
+    }
+
+    .coa-buy-btn {
+      display: inline-block;
+      background: #10b981;
+      color: white;
+      padding: 14px 28px;
+      border-radius: 10px;
+      text-decoration: none;
+      font-weight: 600;
+      transition: background 0.2s;
+    }
+
+    .coa-buy-btn:hover {
+      background: #059669;
+      color: white;
+    }
+  </style>
+{% endif %}

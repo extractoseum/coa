@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.extractoseum.backup</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/bdelatorre8/COA Viewer 2.0/ops/sync_to_local.sh</string>
+    </array>
+
+    <!-- Ejecutar todos los días a las 10:00 AM -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>10</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <!-- Si la laptop estaba apagada a las 10 AM, ejecutar en cuanto se "despierte" -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Logs para saber si funcionó -->
+    <key>StandardOutPath</key>
+    <string>/tmp/extractoseum_backup.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/extractoseum_backup_error.log</string>
+</dict>
+</plist>

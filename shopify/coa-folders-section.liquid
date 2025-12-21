@@ -1,0 +1,833 @@
+{% comment %}
+  COA System - Customer Folders & COAs Display (API-based)
+  Este Liquid llama a la API de coa.extractoseum.com para obtener
+  las carpetas y COAs del cliente basándose en su email.
+
+  Instrucciones de instalación:
+  1. Ir a Shopify Admin > Online Store > Themes > Edit code
+  2. Crear una nueva sección: sections/coa-folders.liquid
+  3. Pegar este código
+  4. Agregar la sección desde el Theme Customizer o en el JSON del template
+  5. IMPORTANTE: Configurar la API Key en los ajustes de la sección
+{% endcomment %}
+
+{% if customer %}
+<div class="coa-folders-section" id="coa-folders-app">
+  <div class="coa-folders-container">
+    <div class="coa-folders-header">
+      <h2>Mis Certificados de Análisis (COA)</h2>
+      <a href="https://coa.extractoseum.com/dashboard" class="coa-dashboard-link" target="_blank">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+          <line x1="3" y1="9" x2="21" y2="9"></line>
+          <line x1="9" y1="21" x2="9" y2="9"></line>
+        </svg>
+        Administrar Carpetas
+      </a>
+    </div>
+
+    <!-- Tabs -->
+    <div class="coa-tabs" id="coa-tabs">
+      <button class="coa-tab active" data-tab="all" onclick="switchTab('all')">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="7" height="7"></rect>
+          <rect x="14" y="3" width="7" height="7"></rect>
+          <rect x="14" y="14" width="7" height="7"></rect>
+          <rect x="3" y="14" width="7" height="7"></rect>
+        </svg>
+        Todos los COAs
+        <span class="coa-tab-count" id="tab-count-all">0</span>
+      </button>
+      <button class="coa-tab" data-tab="folders" onclick="switchTab('folders')">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+        </svg>
+        Por Carpetas
+        <span class="coa-tab-count" id="tab-count-folders">0</span>
+      </button>
+    </div>
+
+    <div class="coa-loading" id="coa-loading">
+      <div class="coa-spinner"></div>
+      <p>Cargando tus certificados...</p>
+    </div>
+
+    <div class="coa-content" id="coa-content" style="display: none;">
+      <!-- Tab: All COAs -->
+      <div class="coa-tab-content active" id="tab-content-all">
+        <div class="coa-all-grid" id="coa-all-list"></div>
+      </div>
+
+      <!-- Tab: By Folders -->
+      <div class="coa-tab-content" id="tab-content-folders">
+        <div class="coa-folders-list" id="coa-folders-list"></div>
+        <div class="coa-unfiled" id="coa-unfiled" style="display: none;">
+          <div class="coa-unfiled-header">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+            </svg>
+            <h3>Sin carpeta</h3>
+          </div>
+          <div class="coa-unfiled-list" id="coa-unfiled-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="coa-empty" id="coa-empty" style="display: none;">
+      <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+        <polyline points="14 2 14 8 20 8"></polyline>
+        <line x1="16" y1="13" x2="8" y2="13"></line>
+        <line x1="16" y1="17" x2="8" y2="17"></line>
+      </svg>
+      <p>No tienes certificados de análisis asignados.</p>
+      <a href="https://extractoseum.com/collections/analisis-coa" class="coa-buy-btn">
+        Ver Análisis y Hologramas COA
+      </a>
+    </div>
+
+    <div class="coa-error" id="coa-error" style="display: none;">
+      <p>Error al cargar los certificados. <button onclick="loadCOAFolders()">Reintentar</button></p>
+    </div>
+  </div>
+</div>
+
+<style>
+  .coa-folders-section {
+    background: #ffffff;
+    padding: 40px 20px;
+    margin: 20px 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  .coa-folders-container {
+    max-width: 960px;
+    margin: 0 auto;
+  }
+
+  .coa-folders-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .coa-folders-header h2 {
+    margin: 0;
+    font-size: 1.5rem;
+    color: #1f2937;
+    font-weight: 600;
+  }
+
+  .coa-dashboard-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #10b981;
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 0.9rem;
+    padding: 8px 16px;
+    border: 1px solid #10b981;
+    border-radius: 8px;
+    transition: all 0.2s;
+  }
+
+  .coa-dashboard-link:hover {
+    background: #10b981;
+    color: #ffffff;
+  }
+
+  /* Tabs */
+  .coa-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 24px;
+    border-bottom: 2px solid #e5e7eb;
+    padding-bottom: 0;
+  }
+
+  .coa-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 20px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    color: #6b7280;
+    font-size: 0.95rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .coa-tab:hover {
+    color: #1f2937;
+  }
+
+  .coa-tab.active {
+    color: #10b981;
+    border-bottom-color: #10b981;
+  }
+
+  .coa-tab svg {
+    flex-shrink: 0;
+  }
+
+  .coa-tab-count {
+    background: #e5e7eb;
+    color: #4b5563;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .coa-tab.active .coa-tab-count {
+    background: #d1fae5;
+    color: #059669;
+  }
+
+  .coa-tab-content {
+    display: none;
+  }
+
+  .coa-tab-content.active {
+    display: block;
+  }
+
+  /* Loading */
+  .coa-loading {
+    text-align: center;
+    padding: 60px 20px;
+  }
+
+  .coa-spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid #e5e7eb;
+    border-top-color: #10b981;
+    border-radius: 50%;
+    animation: coa-spin 0.8s linear infinite;
+    margin: 0 auto 16px;
+  }
+
+  @keyframes coa-spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .coa-loading p {
+    color: #6b7280;
+    margin: 0;
+  }
+
+  /* All COAs Grid */
+  .coa-all-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
+  }
+
+  /* Folders */
+  .coa-folders-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .coa-folder {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .coa-folder-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+
+  .coa-folder-header:hover {
+    background: #f3f4f6;
+  }
+
+  .coa-folder-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .coa-folder-icon {
+    color: #f59e0b;
+  }
+
+  .coa-folder-name {
+    font-weight: 600;
+    color: #1f2937;
+    font-size: 1rem;
+  }
+
+  .coa-folder-count {
+    background: #e5e7eb;
+    color: #4b5563;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .coa-folder-toggle {
+    color: #9ca3af;
+    transition: transform 0.2s;
+  }
+
+  .coa-folder.open .coa-folder-toggle {
+    transform: rotate(180deg);
+  }
+
+  .coa-folder-content {
+    display: none;
+    padding: 0 20px 20px;
+  }
+
+  .coa-folder.open .coa-folder-content {
+    display: block;
+  }
+
+  /* COA Cards */
+  .coa-cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+  }
+
+  .coa-card {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    text-decoration: none;
+  }
+
+  .coa-card:hover {
+    border-color: #10b981;
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.15);
+  }
+
+  .coa-card-image {
+    width: 56px;
+    height: 56px;
+    border-radius: 8px;
+    overflow: hidden;
+    flex-shrink: 0;
+    background: #f3f4f6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .coa-card-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .coa-card-image svg {
+    color: #9ca3af;
+  }
+
+  .coa-card-info {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .coa-card-name {
+    font-weight: 500;
+    color: #1f2937;
+    font-size: 0.95rem;
+    margin: 0 0 4px 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .coa-card-details {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 0.8rem;
+    color: #6b7280;
+  }
+
+  .coa-card-status {
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 0.7rem;
+    font-weight: 600;
+  }
+
+  .coa-card-status.pass {
+    background: #d1fae5;
+    color: #059669;
+  }
+
+  .coa-card-status.fail {
+    background: #fee2e2;
+    color: #dc2626;
+  }
+
+  .coa-card-status.pending {
+    background: #fef3c7;
+    color: #d97706;
+  }
+
+  .coa-card-arrow {
+    color: #10b981;
+    flex-shrink: 0;
+  }
+
+  /* Unfiled COAs */
+  .coa-unfiled {
+    margin-top: 24px;
+    background: #fefce8;
+    border: 1px solid #fef08a;
+    border-radius: 12px;
+    padding: 20px;
+  }
+
+  .coa-unfiled-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
+  .coa-unfiled-header svg {
+    color: #ca8a04;
+  }
+
+  .coa-unfiled-header h3 {
+    font-size: 1rem;
+    color: #854d0e;
+    font-weight: 600;
+    margin: 0;
+  }
+
+  .coa-unfiled-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+  }
+
+  .coa-unfiled .coa-card {
+    background: #ffffff;
+    border-color: #fef08a;
+  }
+
+  /* Empty & Error */
+  .coa-empty, .coa-error {
+    text-align: center;
+    padding: 60px 20px;
+  }
+
+  .coa-empty svg {
+    color: #d1d5db;
+    margin-bottom: 16px;
+  }
+
+  .coa-empty p, .coa-error p {
+    color: #6b7280;
+    margin-bottom: 20px;
+  }
+
+  .coa-buy-btn {
+    display: inline-block;
+    background: #10b981;
+    color: white;
+    padding: 14px 28px;
+    border-radius: 10px;
+    text-decoration: none;
+    font-weight: 600;
+    transition: background 0.2s;
+  }
+
+  .coa-buy-btn:hover {
+    background: #059669;
+    color: white;
+  }
+
+  .coa-error button {
+    background: #10b981;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+  }
+
+  .coa-error button:hover {
+    background: #059669;
+  }
+
+  /* Subfolders */
+  .coa-subfolders {
+    margin-top: 12px;
+    padding-left: 20px;
+    border-left: 2px solid #e5e7eb;
+  }
+
+  .coa-subfolder {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    margin-bottom: 8px;
+  }
+
+  .coa-subfolder .coa-folder-header {
+    padding: 12px 16px;
+  }
+
+  .coa-subfolder .coa-folder-name {
+    font-size: 0.9rem;
+  }
+
+  /* Mobile */
+  @media (max-width: 640px) {
+    .coa-folders-section {
+      padding: 24px 16px;
+    }
+
+    .coa-folders-header {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .coa-folders-header h2 {
+      font-size: 1.25rem;
+    }
+
+    .coa-tabs {
+      width: 100%;
+    }
+
+    .coa-tab {
+      flex: 1;
+      justify-content: center;
+      padding: 10px 12px;
+      font-size: 0.85rem;
+    }
+
+    .coa-all-grid,
+    .coa-cards-grid,
+    .coa-unfiled-list {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<script>
+  var COA_API_BASE = 'https://coa.extractoseum.com/api/v1';
+  var CUSTOMER_EMAIL = '{{ customer.email | escape }}';
+  var COA_API_KEY = '{{ section.settings.api_key }}';
+  var coaData = null;
+
+  function switchTab(tabName) {
+    // Update tab buttons
+    document.querySelectorAll('.coa-tab').forEach(function(tab) {
+      tab.classList.remove('active');
+    });
+    document.querySelector('.coa-tab[data-tab="' + tabName + '"]').classList.add('active');
+
+    // Update tab content
+    document.querySelectorAll('.coa-tab-content').forEach(function(content) {
+      content.classList.remove('active');
+    });
+    document.getElementById('tab-content-' + tabName).classList.add('active');
+  }
+
+  async function loadCOAFolders() {
+    var loadingEl = document.getElementById('coa-loading');
+    var contentEl = document.getElementById('coa-content');
+    var emptyEl = document.getElementById('coa-empty');
+    var errorEl = document.getElementById('coa-error');
+    var tabsEl = document.getElementById('coa-tabs');
+    var allListEl = document.getElementById('coa-all-list');
+    var foldersListEl = document.getElementById('coa-folders-list');
+    var unfiledEl = document.getElementById('coa-unfiled');
+    var unfiledListEl = document.getElementById('coa-unfiled-list');
+
+    // Reset state
+    loadingEl.style.display = 'block';
+    contentEl.style.display = 'none';
+    emptyEl.style.display = 'none';
+    errorEl.style.display = 'none';
+    tabsEl.style.display = 'none';
+
+    try {
+      var response = await fetch(COA_API_BASE + '/folders/shopify/customer/' + encodeURIComponent(CUSTOMER_EMAIL), {
+        headers: {
+          'X-Shopify-API-Key': COA_API_KEY
+        }
+      });
+      var data = await response.json();
+
+      loadingEl.style.display = 'none';
+
+      if (!data.success) {
+        throw new Error(data.error || 'Error al cargar');
+      }
+
+      coaData = data;
+
+      // Debug: Log API response to console
+      console.log('COA API Response:', JSON.stringify(data, null, 2));
+
+      // Collect all COAs for the "All" tab
+      var allCoas = [];
+
+      // Add COAs from folders
+      if (data.folders && data.folders.length > 0) {
+        data.folders.forEach(function(folder) {
+          collectCOAsFromFolder(folder, allCoas);
+        });
+      }
+
+      // Add unfiled COAs (handle both 'unfiled_coas' and 'coas' keys for backward compatibility)
+      var unfiledCoasData = data.unfiled_coas || data.coas || [];
+      if (unfiledCoasData && unfiledCoasData.length > 0) {
+        allCoas = allCoas.concat(unfiledCoasData);
+      }
+
+      var totalCOAs = allCoas.length;
+      var folderCount = data.folders ? data.folders.length : 0;
+
+      if (totalCOAs === 0) {
+        emptyEl.style.display = 'block';
+        return;
+      }
+
+      // Update counts
+      document.getElementById('tab-count-all').textContent = totalCOAs;
+      document.getElementById('tab-count-folders').textContent = folderCount;
+
+      // Show tabs and content
+      tabsEl.style.display = 'flex';
+      contentEl.style.display = 'block';
+
+      // Render "All COAs" tab
+      allListEl.innerHTML = allCoas.map(function(coa) { return renderCOACard(coa); }).join('');
+
+      // Render "By Folders" tab
+      if (data.folders && data.folders.length > 0) {
+        foldersListEl.innerHTML = data.folders.map(function(folder) { return renderFolder(folder, false); }).join('');
+      } else {
+        foldersListEl.innerHTML = '<p style="color: #9ca3af; text-align: center; padding: 20px;">No tienes carpetas creadas. <a href="https://coa.extractoseum.com/dashboard" target="_blank" style="color: #10b981;">Crear carpetas en el Dashboard</a></p>';
+      }
+
+      // Render unfiled COAs (handle both 'unfiled_coas' and 'coas' keys)
+      if (unfiledCoasData && unfiledCoasData.length > 0) {
+        unfiledEl.style.display = 'block';
+        unfiledListEl.innerHTML = unfiledCoasData.map(function(coa) { return renderCOACard(coa); }).join('');
+      } else {
+        unfiledEl.style.display = 'none';
+      }
+
+    } catch (error) {
+      console.error('Error loading COA folders:', error);
+      loadingEl.style.display = 'none';
+      errorEl.style.display = 'block';
+    }
+  }
+
+  function collectCOAsFromFolder(folder, allCoas) {
+    if (folder.coas && folder.coas.length > 0) {
+      folder.coas.forEach(function(coa) {
+        coa.folder_name = folder.name;
+        allCoas.push(coa);
+      });
+    }
+    if (folder.subfolders && folder.subfolders.length > 0) {
+      folder.subfolders.forEach(function(subfolder) {
+        collectCOAsFromFolder(subfolder, allCoas);
+      });
+    }
+  }
+
+  function renderFolder(folder, isSubfolder) {
+    var folderClass = isSubfolder ? 'coa-subfolder' : 'coa-folder';
+    var hasSubfolders = folder.subfolders && folder.subfolders.length > 0;
+    var hasCOAs = folder.coas && folder.coas.length > 0;
+
+    var coasHtml = hasCOAs
+      ? '<div class="coa-cards-grid">' + folder.coas.map(function(coa) { return renderCOACard(coa); }).join('') + '</div>'
+      : '<p style="color: #9ca3af; font-size: 0.9rem; margin: 0;">Esta carpeta está vacía</p>';
+
+    var subfoldersHtml = hasSubfolders
+      ? '<div class="coa-subfolders">' + folder.subfolders.map(function(sf) { return renderFolder(sf, true); }).join('') + '</div>'
+      : '';
+
+    return '<div class="' + folderClass + '" data-folder-id="' + folder.id + '">' +
+      '<div class="coa-folder-header" onclick="toggleFolder(this.parentElement)">' +
+        '<div class="coa-folder-title">' +
+          '<svg class="coa-folder-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>' +
+          '<span class="coa-folder-name">' + escapeHtml(folder.name) + '</span>' +
+          '<span class="coa-folder-count">' + folder.coa_count + ' COA' + (folder.coa_count !== 1 ? 's' : '') + '</span>' +
+        '</div>' +
+        '<svg class="coa-folder-toggle" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>' +
+      '</div>' +
+      '<div class="coa-folder-content">' + coasHtml + subfoldersHtml + '</div>' +
+    '</div>';
+  }
+
+  function renderCOACard(coa) {
+    // Handle both token formats: 'token' (new) and 'public_token' (old)
+    var coaToken = coa.token || coa.public_token || '';
+    var coaUrl = 'https://coa.extractoseum.com/coa/' + coaToken;
+
+    // Handle status variations
+    var status = coa.status || coa.compliance_status || 'pending';
+    var statusClass = status;
+    var statusLabel = status === 'pass' ? 'Aprobado' : status === 'fail' ? 'No Aprobado' : 'Pendiente';
+
+    // Handle name variations
+    var coaName = coa.name || coa.custom_name || coa.custom_title || coa.product_sku || coa.lab_report_number || 'COA';
+
+    // Handle image variations
+    var coaImage = coa.image || coa.product_image_url || '';
+    var imageHtml = coaImage
+      ? '<img src="' + coaImage + '" alt="' + escapeHtml(coaName) + '" loading="lazy">'
+      : '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>';
+
+    // Handle batch variations
+    var coaBatch = coa.batch || coa.batch_id || (coa.metadata && coa.metadata.batch_number) || '';
+
+    var folderBadge = coa.folder_name
+      ? '<span style="background: #e0f2fe; color: #0369a1; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem;">' + escapeHtml(coa.folder_name) + '</span>'
+      : '';
+
+    return '<a href="' + coaUrl + '" class="coa-card" target="_blank">' +
+      '<div class="coa-card-image">' + imageHtml + '</div>' +
+      '<div class="coa-card-info">' +
+        '<p class="coa-card-name">' + escapeHtml(coaName) + '</p>' +
+        '<div class="coa-card-details">' +
+          (coaBatch ? '<span>Lote: ' + escapeHtml(coaBatch) + '</span>' : '') +
+          folderBadge +
+          '<span class="coa-card-status ' + statusClass + '">' + statusLabel + '</span>' +
+        '</div>' +
+      '</div>' +
+      '<svg class="coa-card-arrow" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>' +
+    '</a>';
+  }
+
+  function toggleFolder(folderEl) {
+    folderEl.classList.toggle('open');
+  }
+
+  function escapeHtml(text) {
+    if (!text) return '';
+    var div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  // Load on page ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', loadCOAFolders);
+  } else {
+    loadCOAFolders();
+  }
+</script>
+{% else %}
+<div class="coa-folders-section">
+  <div class="coa-folders-container">
+    <div class="coa-empty">
+      <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+        <polyline points="14 2 14 8 20 8"></polyline>
+      </svg>
+      <p>Inicia sesión para ver tus certificados de análisis.</p>
+      <a href="/account/login" class="coa-buy-btn">Iniciar Sesión</a>
+    </div>
+  </div>
+</div>
+
+<style>
+  .coa-folders-section {
+    background: #ffffff;
+    padding: 40px 20px;
+    margin: 20px 0;
+  }
+  .coa-folders-container {
+    max-width: 960px;
+    margin: 0 auto;
+  }
+  .coa-empty {
+    text-align: center;
+    padding: 60px 20px;
+  }
+  .coa-empty svg {
+    color: #d1d5db;
+    margin-bottom: 16px;
+  }
+  .coa-empty p {
+    color: #6b7280;
+    margin-bottom: 20px;
+  }
+  .coa-buy-btn {
+    display: inline-block;
+    background: #10b981;
+    color: white;
+    padding: 14px 28px;
+    border-radius: 10px;
+    text-decoration: none;
+    font-weight: 600;
+    transition: background 0.2s;
+  }
+  .coa-buy-btn:hover {
+    background: #059669;
+    color: white;
+  }
+</style>
+{% endif %}
+
+{% schema %}
+{
+  "name": "COA Folders",
+  "tag": "section",
+  "class": "coa-folders-wrapper",
+  "settings": [
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Heading",
+      "default": "Mis Certificados de Análisis"
+    },
+    {
+      "type": "text",
+      "id": "api_key",
+      "label": "API Key",
+      "info": "Clave secreta para autenticar con el servidor de COAs. Solicita esta clave al administrador."
+    }
+  ],
+  "presets": [
+    {
+      "name": "COA Folders",
+      "category": "Custom"
+    }
+  ]
+}
+{% endschema %}

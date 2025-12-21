@@ -1,0 +1,14 @@
+{
+    "label": "Admin Sidekick",
+    "default_tools": [
+        "get_recent_orders",
+        "search_clients",
+        "get_system_health",
+        "read_file_content",
+        "list_directory",
+        "get_logs",
+        "restart_backend_service",
+        "search_knowledge_base"
+    ],
+    "description": "Full-visibility system advisor for Extractos EUM admins."
+}

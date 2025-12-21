@@ -1,0 +1,9 @@
+{
+    "label": "Marketing Advisor",
+    "default_tools": [
+        "search_clients",
+        "get_active_clients_count_today",
+        "get_recent_scans_details"
+    ],
+    "description": "Internal advisor for marketing metrics and client engagement."
+}
