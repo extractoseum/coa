@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { ledgerService } from '../services/ledgerService';
+import { AuditorService } from '../services/AuditorService';
 import { requireAuth, requireSuperAdmin } from '../middleware/authMiddleware';
 
 const router = Router();
@@ -44,6 +45,19 @@ router.get('/logs', requireAuth, requireSuperAdmin, async (req: Request, res: Re
 
         if (error) throw error;
         res.json({ success: true, count: data.length, logs: data });
+    } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * GET /api/v1/admin/audit/robot/stats
+ * Retrieves the operational statistics of the Auditor Robot.
+ */
+router.get('/robot/stats', requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
+    try {
+        const stats = AuditorService.getInstance().getStats();
+        res.json({ success: true, stats });
     } catch (error: any) {
         res.status(500).json({ success: false, error: error.message });
     }

@@ -14,12 +14,44 @@ export class AuditorService {
         return AuditorService.instance;
     }
 
+    private stats = {
+        lastRunAt: null as string | null,
+        status: 'idle' as 'idle' | 'running',
+        lastDurationMs: 0,
+        results: {
+            orphansFixed: 0,
+            unlinkedIdentitiesFixed: 0,
+            staleSnapshotsRefreshed: 0
+        }
+    };
+
+    public getStats() {
+        return this.stats;
+    }
+
     /**
      * The Main Audit Loop
      * Runs various forensic checks.
      */
     public async runAudit() {
+        if (this.stats.status === 'running') {
+            logger.warn('[Auditor] Audit already in progress. Skipping.');
+            return;
+        }
+
+        this.stats.status = 'running';
+        const startTime = Date.now();
         const correlationId = logger.startTrace();
+
+        // Reset counters for this run? 
+        // Strategy: Accumulate? No, stats usually show "Last Run Results".
+        // Let's reset results for "Last Run" context.
+        this.stats.results = {
+            orphansFixed: 0,
+            unlinkedIdentitiesFixed: 0,
+            staleSnapshotsRefreshed: 0
+        };
+
         logger.info('[Auditor] Starting system forensics...', { correlation_id: correlationId });
 
         try {
@@ -28,9 +60,16 @@ export class AuditorService {
             await this.checkStaleSnapshots(correlationId);
         } catch (error) {
             logger.error('[Auditor] Forensic scan failed', error, { correlation_id: correlationId });
+        } finally {
+            this.stats.status = 'idle';
+            this.stats.lastRunAt = new Date().toISOString();
+            this.stats.lastDurationMs = Date.now() - startTime;
+            logger.info('[Auditor] System forensics completed.', {
+                correlation_id: correlationId,
+                duration_ms: this.stats.lastDurationMs,
+                results: this.stats.results
+            });
         }
-
-        logger.info('[Auditor] System forensics completed.', { correlation_id: correlationId });
     }
 
     /**
@@ -66,6 +105,8 @@ export class AuditorService {
                 fixedCount++;
             }
         }
+
+        this.stats.results.orphansFixed += fixedCount;
 
         if (fixedCount > 0) {
             logger.info(`[Auditor] Auto-recalibrated ${fixedCount} conversations.`, { correlation_id: correlationId });
@@ -109,6 +150,8 @@ export class AuditorService {
                     phone: cleanPhone,
                     name: conv.facts?.user_name || 'Unknown (Auditor Recovered)'
                 }, { onConflict: 'email' });
+
+                this.stats.results.unlinkedIdentitiesFixed++;
             }
         }
     }
@@ -140,6 +183,7 @@ export class AuditorService {
                     // Refresh WA snapshot (default channel)
                     await CRMService.getInstance().syncContactSnapshot(client.phone, 'WA');
                     await new Promise(resolve => setTimeout(resolve, 1000)); // 1s throttle
+                    this.stats.results.staleSnapshotsRefreshed++;
                 } catch (e) {
                     logger.warn(`[Auditor] Failed to refresh snapshot for ${client.phone}`, e, { correlation_id: correlationId });
                 }

@@ -3,7 +3,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useAuthHeaders } from '../contexts/AuthContext';
 import Layout from '../components/Layout';
 import { Screen } from '../telemetry/Screen';
-import { AlertCircle, AlertTriangle, Info, Terminal, RefreshCw, XCircle } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Info, Terminal, RefreshCw, XCircle, ShieldCheck } from 'lucide-react';
 
 import { InsightsSummary } from '../components/InsightsSummary';
 import type { InsightSignal } from '../components/InsightsSummary';
@@ -22,6 +22,7 @@ export default function AdminTelemetry() {
     const authHeaders = useAuthHeaders();
     const [logs, setLogs] = useState<Log[]>([]);
     const [signals, setSignals] = useState<InsightSignal[]>([]);
+    const [auditorStats, setAuditorStats] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState<'all' | 'error' | 'warn' | 'info'>('all');
 
@@ -59,6 +60,17 @@ export default function AdminTelemetry() {
             }
 
             if (insightsData.success) setSignals(insightsData.signals);
+
+            // Fetch Auditor Stats
+            try {
+                const auditRes = await fetch('/api/v1/admin/audit/robot/stats', { headers: authHeaders });
+                const auditData = await auditRes.json();
+                if (auditData.success) {
+                    setAuditorStats(auditData.stats);
+                }
+            } catch (ignore) {
+                // Auditor stats are optional
+            }
 
         } catch (error: any) {
             console.error('Failed to fetch telemetry', error);
@@ -113,6 +125,51 @@ export default function AdminTelemetry() {
 
                     {/* Insights HUD */}
                     <InsightsSummary signals={signals} loading={loading} />
+
+                    {/* Auditor Robot Status */}
+                    {auditorStats && (
+                        <div className="mb-6 rounded-xl border p-4 flex items-center justify-between"
+                            style={{
+                                background: `linear-gradient(to right, ${theme.cardBg}, rgba(147, 51, 234, 0.05))`,
+                                borderColor: 'rgba(147, 51, 234, 0.2)'
+                            }}>
+                            <div className="flex items-center gap-4">
+                                <div className="p-3 rounded-full bg-purple-500/10 text-purple-400">
+                                    <ShieldCheck size={24} />
+                                </div>
+                                <div>
+                                    <h3 className="font-bold text-white text-sm">Auditor Robot</h3>
+                                    <p className="text-xs opacity-50">System Auto-Correction & Forensics</p>
+                                </div>
+                            </div>
+
+                            <div className="flex gap-8">
+                                <div className="text-center">
+                                    <p className="text-xl font-bold font-mono text-purple-400">{auditorStats.results?.orphansFixed || 0}</p>
+                                    <p className="text-[10px] uppercase opacity-50 tracking-wider">Orphans</p>
+                                </div>
+                                <div className="text-center">
+                                    <p className="text-xl font-bold font-mono text-blue-400">{auditorStats.results?.unlinkedIdentitiesFixed || 0}</p>
+                                    <p className="text-[10px] uppercase opacity-50 tracking-wider">Identities</p>
+                                </div>
+                                <div className="text-center">
+                                    <p className="text-xl font-bold font-mono text-green-400">{auditorStats.results?.staleSnapshotsRefreshed || 0}</p>
+                                    <p className="text-[10px] uppercase opacity-50 tracking-wider">Snapshots</p>
+                                </div>
+                            </div>
+
+                            <div className="text-right">
+                                <div className={`inline-flex items-center gap-2 px-2 py-1 rounded-full text-[10px] font-bold uppercase ${auditorStats.status === 'running' ? 'bg-yellow-500/10 text-yellow-500' : 'bg-green-500/10 text-green-500'
+                                    }`}>
+                                    <div className={`w-1.5 h-1.5 rounded-full ${auditorStats.status === 'running' ? 'bg-yellow-500 animate-ping' : 'bg-green-500'}`} />
+                                    {auditorStats.status || 'Idle'}
+                                </div>
+                                <p className="text-[9px] opacity-30 mt-1 font-mono">
+                                    Last Run: {auditorStats.lastRunAt ? new Date(auditorStats.lastRunAt).toLocaleTimeString() : 'Never'}
+                                </p>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Filters */}
                     <div className="flex gap-2 mb-6">
