@@ -1,0 +1,10 @@
+#!/usr/bin/expect -f
+set timeout 60
+set password ")l2fyDHz60u,nTAd,@tD"
+
+spawn ssh root@148.230.88.203 "pm2 logs coa-backend --lines 20 --nostream"
+expect {
+    "password:" { send "$password\r" }
+    "yes/no" { send "yes\r"; exp_continue }
+}
+expect eof

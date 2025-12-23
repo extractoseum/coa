@@ -3,6 +3,7 @@ import { Apple, Smartphone, Monitor, ChevronRight, ShieldCheck, Zap, Download } 
 import { useTheme } from '../contexts/ThemeContext';
 import Layout from '../components/Layout';
 import QRCode from 'react-qr-code';
+import { trackEvent } from '../services/telemetryService';
 
 export default function DownloadApp() {
     const { theme } = useTheme();
@@ -18,7 +19,7 @@ export default function DownloadApp() {
     }, []);
 
     const iOSLink = "https://testflight.apple.com/join/YOUR_TESTFLIGHT_ID"; // Placeholder
-    const androidLink = "#"; // Placeholder for APK or Play Store
+    const androidLink = "/android/eum-viewer-2.0.apk"; // Direct APK download
 
     return (
         <Layout>
@@ -40,7 +41,7 @@ export default function DownloadApp() {
                         </div>
 
                         <h1 className="text-3xl font-black tracking-tight">
-                            SWIS Watch <span style={{ color: theme.accent }}>2.0</span>
+                            EUM Viewer <span style={{ color: theme.accent }}>2.0</span>
                         </h1>
                         <p className="text-sm opacity-70 leading-relaxed">
                             La herramienta definitiva de integridad y control para laboratorios modernos.
@@ -73,6 +74,7 @@ export default function DownloadApp() {
                                         href={iOSLink}
                                         target="_blank"
                                         rel="noopener noreferrer"
+                                        onClick={() => trackEvent('app_download_click', { os: 'ios', version: '2.0-beta' })}
                                         className="w-full py-3 rounded-lg font-bold text-sm bg-blue-600 text-white shadow-lg hover:bg-blue-500 transition-colors flex items-center justify-center gap-2"
                                     >
                                         <Download size={16} />
@@ -93,6 +95,7 @@ export default function DownloadApp() {
                                     </p>
                                     <a
                                         href={androidLink}
+                                        onClick={() => trackEvent('app_download_click', { os: 'android', version: '2.0' })}
                                         className="w-full py-3 rounded-lg font-bold text-sm bg-green-600 text-white shadow-lg hover:bg-green-500 transition-colors flex items-center justify-center gap-2"
                                     >
                                         <Download size={16} />

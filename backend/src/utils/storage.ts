@@ -45,15 +45,33 @@ export async function uploadFileToStorage(
         try {
             const pipeline = sharp(finalBuffer);
 
-            // Convert everything to JPEG for consistent browser support
-            // This also handles HEIC if the underlying libvips has heif support
-            finalBuffer = await pipeline
-                .jpeg({ quality: 80, mozjpeg: true })
-                .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
-                .toBuffer();
+            // Special handling for 'badges' bucket: Preserve PNG/WebP to keep transparency
+            if (bucket === 'badges' && (ext === 'png' || ext === 'webp')) {
+                if (ext === 'png') {
+                    finalBuffer = await pipeline
+                        .png({ quality: 90, compressionLevel: 9 })
+                        .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
+                        .toBuffer();
+                    contentType = 'image/png';
+                    // ext remains 'png'
+                } else if (ext === 'webp') {
+                    finalBuffer = await pipeline
+                        .webp({ quality: 90 })
+                        .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
+                        .toBuffer();
+                    contentType = 'image/webp';
+                    // ext remains 'webp'
+                }
+            } else {
+                // Default: Convert everything to JPEG for consistent browser support (good for photos/scans)
+                finalBuffer = await pipeline
+                    .jpeg({ quality: 80, mozjpeg: true })
+                    .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
+                    .toBuffer();
 
-            ext = 'jpg';
-            contentType = 'image/jpeg';
+                ext = 'jpg';
+                contentType = 'image/jpeg';
+            }
         } catch (sharpError) {
             console.error('Sharp processing error:', sharpError);
             // Fallback to original buffer if sharp fails (e.g. missing HEIF dependencies)

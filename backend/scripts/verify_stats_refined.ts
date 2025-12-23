@@ -1,0 +1,46 @@
+import { supabase } from '../src/config/supabase';
+
+async function verifyRefinedStats() {
+    console.log('--- REFINED STATS VERIFICATION ---');
+    const window24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+    // 1. Unique Scanners (IPs)
+    const { data: scans } = await supabase
+        .from('coa_scans')
+        .select('ip_hash')
+        .gte('scanned_at', window24h);
+    const uniqueIps = new Set(scans?.map(s => s.ip_hash) || []);
+
+    // 2. Unique Orderers (USING shopify_created_at)
+    const { data: orders } = await supabase
+        .from('orders')
+        .select('client_id, order_number, shopify_created_at')
+        .gte('shopify_created_at', window24h);
+    const uniqueOrderers = new Set(orders?.map(o => o.client_id).filter(Boolean) || []);
+
+    // 3. Unique Logins (Client IDs)
+    const { data: logins } = await supabase
+        .from('clients')
+        .select('id')
+        .gte('last_login_at', window24h);
+    const uniqueLogins = new Set(logins?.map(l => l.id) || []);
+
+    // Total registered active
+    const totalRegisteredActive = new Set([...Array.from(uniqueOrderers), ...Array.from(uniqueLogins)]);
+
+    console.log(`Report Window: Since ${window24h}`);
+    console.log(`Unique Anonymous Scanners: ${uniqueIps.size}`);
+    console.log(`Unique Orderers (Shopify Time): ${uniqueOrderers.size}`);
+    console.log(`Orders Found (Shopify Time): ${orders?.length || 0}`);
+    console.log(`Unique Logins: ${uniqueLogins.size}`);
+    console.log(`Total Registered Active: ${totalRegisteredActive.size}`);
+    console.log(`Grand Total (Reported by Tool): ${totalRegisteredActive.size + uniqueIps.size}`);
+
+    if (orders && orders.length > 0) {
+        console.log('\nOrders Included:');
+        orders.sort((a, b) => b.shopify_created_at.localeCompare(a.shopify_created_at))
+            .forEach(o => console.log(`  - ${o.order_number} (${o.shopify_created_at})`));
+    }
+}
+
+verifyRefinedStats();

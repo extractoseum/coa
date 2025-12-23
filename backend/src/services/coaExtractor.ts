@@ -5,13 +5,18 @@ const pdf = typeof pdfLib === 'function' ? pdfLib : pdfLib.default;
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const fs = require('fs');
 const path = require('path');
-import { Cannabinoid } from '../types/coa';
+import { Cannabinoid, Terpene, SampleInfo, Technician, COAClientInfo } from '../types/coa';
 
 interface ExtractedData {
     lab_name?: string;
     analysis_date?: string;
     batch_id?: string;
     cannabinoids: Cannabinoid[];
+    terpenes?: Terpene[];
+    terpenes_status?: 'pass' | 'fail' | 'not_tested';
+    sample_info?: SampleInfo;
+    technicians?: Technician[];
+    client_info?: COAClientInfo;
     thc_compliance_flag: boolean;
     compliance_status: 'pass' | 'fail';
     heavy_metals_status?: 'pass' | 'fail' | 'not_tested';
@@ -169,6 +174,11 @@ export class COAExtractor {
         const pesticidesStatus = this.checkPesticidesTested(text);
         const residualSolventsStatus = this.checkResidualSolventsTested(text);
         const foreignMatterStatus = this.checkForeignMatter(text);
+        const terpenesStatus = this.checkTerpenesTested(text);
+        const terpenes = this.extractTerpenes(text);
+        const sampleInfo = this.extractSampleInfo(text);
+        const technicians = this.extractTechnicians(text);
+        const clientInfo = this.extractClientInfo(text);
 
         // 9. THC Alert Calculation
         const compliance = this.calculateTHCAlert(cannabinoids);
@@ -178,6 +188,11 @@ export class COAExtractor {
             analysis_date: analysisDate,
             batch_id: batchId,
             cannabinoids,
+            terpenes,
+            terpenes_status: terpenesStatus,
+            sample_info: sampleInfo,
+            technicians,
+            client_info: clientInfo,
             heavy_metals_status: heavyMetalsStatus,
             pesticides_status: pesticidesStatus,
             residual_solvents_status: residualSolventsStatus,
@@ -701,6 +716,254 @@ export class COAExtractor {
         }
 
         return results.sort((a, b) => (parseFloat(b.result_pct) || 0) - (parseFloat(a.result_pct) || 0));
+    }
+
+    private extractTerpenes(text: string): Terpene[] {
+        const results: Terpene[] = [];
+        const processed = new Set<string>();
+
+        // Only proceed if Terpenes section is detected
+        if (!/Terpenes by|Terpene Profile/i.test(text)) return [];
+
+        const rawLines = text.split('\n');
+        let start = -1;
+        let end = rawLines.length;
+
+        // Locate start
+        for (let i = 0; i < rawLines.length; i++) {
+            const l = rawLines[i];
+            if (l.includes('Terpene Profile') || l.includes('Terpenes by')) {
+                start = i;
+                break;
+            }
+            if (/Analyte/i.test(l) && /Terpenes/i.test(text.substring(Math.max(0, text.indexOf(l) - 200), text.indexOf(l)))) {
+                // Context check: ensure we are in terpene section not cannabinoids
+                // (Simple check: if we haven't found cannabinoids first, this might conflict, so careful)
+                // Better: Rely on 'Terpenes by' header
+            }
+        }
+
+        if (start === -1) return [];
+
+        // Locate end (Next section)
+        for (let i = start + 1; i < rawLines.length; i++) {
+            const l = rawLines[i];
+            if (/Heavy Metals|Pesticides|Residual Solvents|Microbials|KCA Laboratories|North Plaza|Summary|Cannabinoids/i.test(l)) {
+                end = i;
+                break;
+            }
+        }
+
+        const lines = this.normalizeTableLines(rawLines.slice(start, end));
+
+        // Pattern: Name LOD LOQ Res% ResMg
+        // Similar to cannabinoids but analytes might have different names
+        const rowFive = /^(.+?)\s+(ND|<LO[QD]|\d+(?:\.\d+)?)\s+(ND|<LO[QD]|\d+(?:\.\d+)?)\s+(ND|<LO[QD]|\d+(?:\.\d+)?)\s+(ND|<LO[QD]|\d+(?:\.\d+)?)$/i;
+        const rowTotals = /^Total Terpenes\s+(ND|<LO[QD]|\d+(?:\.\d+)?)\s+(ND|<LO[QD]|\d+(?:\.\d+)?)$/i;
+
+        for (const raw of lines) {
+            const line = raw.trim().replace(/\s+/g, ' ');
+            if (!line || /^(Analyte|LOD|LOQ|Result|\(mg\/g\)|ND =|NT =)/i.test(line)) continue;
+
+            let m = line.match(rowFive);
+
+            // Check for total line
+            if (!m && rowTotals.test(line)) {
+                // Ignore total for array, but good for validation
+                continue;
+            }
+
+            if (!m) continue;
+
+            const name = m[1].trim();
+            const pct = m[4];
+            const mg = m[5];
+
+            // Known common terpenes (validation heuristic)
+            const isTerpene = /ene|ol|one|oxide|mene|lene/i.test(name) || /Guaiol|Bisabolol|Eucalyptol|Camphene|Carene|Cymene/i.test(name);
+
+            const isDetected = (v: string) => v && !/^ND$|^<LO[QD]$/i.test(v) && !isNaN(parseFloat(v)) && parseFloat(v) > 0;
+
+            if (isTerpene && isDetected(pct) && !processed.has(name)) {
+                processed.add(name);
+                results.push({
+                    analyte: name,
+                    result_pct: pct,
+                    result_mg_g: mg,
+                    detected: true
+                });
+                this.logDebug(`[Terpene Extracted]: ${name} -> ${pct}%`);
+            }
+        }
+
+        return results.sort((a, b) => (parseFloat(b.result_pct) || 0) - (parseFloat(a.result_pct) || 0));
+    }
+
+    private extractSampleInfo(text: string): SampleInfo {
+        const info: SampleInfo = {};
+
+        // 1. Sample Type (Matrix)
+        const typeMatch = text.match(/Matrix:\s*([^\n\r]+)/i) || text.match(/Sample Type:\s*([^\n\r]+)/i);
+        if (typeMatch) {
+            info.sample_type = typeMatch[1].trim();
+        }
+
+        // 2. Moisture Content
+        if (/Moisture/i.test(text)) {
+            // Pattern: Moisture Content 12.5 %
+            const moistureMatch = text.match(/Moisture Content\s*[:\-\s]\s*(\d+(?:\.\d+)?)\s*%/i);
+            if (moistureMatch) {
+                info.moisture_content = parseFloat(moistureMatch[1]);
+            }
+        }
+
+        // 3. Water Activity
+        if (/Water Activity/i.test(text)) {
+            // Pattern: Water Activity 0.55 aw
+            const awMatch = text.match(/Water Activity\s*[:\-\s]\s*(\d+(?:\.\d+)?)\s*(?:aw)?/i);
+            if (awMatch) {
+                info.water_activity = parseFloat(awMatch[1]);
+            }
+        }
+
+        // 4. Unit Mass (g)
+        // Pattern: Unit Mass (g): 10.5
+        // Pattern 2: Unit Mass (g): <empty>
+        const unitMassMatch = text.match(/Unit Mass\s*(?:\(g\))?\s*[:\-\s]\s*(\d+(?:\.\d+)?)/i);
+        if (unitMassMatch) {
+            info.unit_mass_g = parseFloat(unitMassMatch[1]);
+        }
+
+        return info;
+    }
+
+    private extractTechnicians(text: string): Technician[] {
+        const technicians: Technician[] = [];
+
+        // 1. "Generated By: [Name]\n[Role]\nDate: [Date]"
+        // Regex: Generated By:\s*([^\n\r]+)(?:\n([^\n\r]+))?(?:\nDate:\s*(\d{2}\/\d{2}\/\d{4}))?
+
+        // KCA Format:
+        // Generated By: Alex Morris
+        // Quality Manager
+        // Date: 09/22/2025
+
+        const generatedByRegex = /Generated By:\s*([^\n\r]+)(?:\s*\r?\n\s*([^\n\r]+))?(?:\s*\r?\n\s*Date:\s*(\d{2}\/\d{2}\/\d{4}))?/i;
+        const genMatch = text.match(generatedByRegex);
+
+        if (genMatch) {
+            technicians.push({
+                name: genMatch[1].trim(),
+                role: genMatch[2] ? genMatch[2].trim() : 'Unknown Role',
+                date: genMatch[3] || undefined,
+                signature_type: 'Generated By'
+            });
+        }
+
+        // 2. "Tested By: [Name]\n[Role]\nDate: [Date]"
+        const testedByRegex = /Tested By:\s*([^\n\r]+)(?:\s*\r?\n\s*([^\n\r]+))?(?:\s*\r?\n\s*Date:\s*(\d{2}\/\d{2}\/\d{4}))?/i;
+        const testMatch = text.match(testedByRegex);
+
+        if (testMatch) {
+            technicians.push({
+                name: testMatch[1].trim(),
+                role: testMatch[2] ? testMatch[2].trim() : 'Unknown Role',
+                date: testMatch[3] || undefined,
+                signature_type: 'Tested By'
+            });
+        }
+
+        return technicians;
+    }
+
+    private extractClientInfo(text: string): COAClientInfo | undefined {
+        // Detect "Client" block
+        // Heuristic: Looks for "Client" keyword followed by lines of text before other details
+
+        // Normalize text to process line by line
+        const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+        // Find line index containing "Client" standing alone or as a header
+        // Relaxed matching: Allow "Client" or "Analyzed For" with optional colons, case-insensitive
+        const clientHeaderIndex = lines.findIndex(l => {
+            const normalized = l.toLowerCase();
+            return normalized === 'client' ||
+                normalized === 'analyzed for' ||
+                normalized.startsWith('client:') ||
+                normalized.startsWith('analyzed for:');
+        });
+
+        if (clientHeaderIndex === -1 || clientHeaderIndex + 1 >= lines.length) {
+            return undefined;
+        }
+
+        // KCA Labs Structure:
+        // Client
+        // <Name>
+        // <Address Line 1>
+        // <Address Line 2 (City, State, Zip)>
+        // <Country> (Optional)
+        // <License> (Optional)
+
+        // We capture up to 4 lines after the header, stopping if we hit another keyword
+        const capturedLines: string[] = [];
+        const stopKeywords = ['Sample ID', 'Batch', 'Type', 'Matrix', 'Received', 'Completed', 'Unit Mass'];
+
+        for (let i = clientHeaderIndex + 1; i < lines.length && i < clientHeaderIndex + 6; i++) {
+            const line = lines[i];
+            // Stop if we hit a keyword or a date-like visual separator
+            if (stopKeywords.some(kw => line.startsWith(kw))) break;
+            if (line.includes('https://') || line.includes('Lic.#')) {
+                // Sometimes license is mixed in, we can treat it as part of client info or handle separately
+            }
+            capturedLines.push(line);
+        }
+
+        if (capturedLines.length === 0) return undefined;
+
+        // Parse captured lines
+        // Assumption: Line 0 is Name, Last non-license line is country if it is "USA" or "Mexico"
+        const name = capturedLines[0];
+        let address = '';
+        let city_state_zip = '';
+        let country = 'USA'; // Default for KCA Labs
+        const licenses: string[] = [];
+
+        if (capturedLines.length > 1) {
+            address = capturedLines[1];
+        }
+
+        if (capturedLines.length > 2) {
+            // Check if line 2 is city/state/zip or address part 2
+            city_state_zip = capturedLines[2];
+        }
+
+        if (capturedLines.length > 3) {
+            if (['USA', 'United States', 'Mexico'].includes(capturedLines[3])) {
+                country = capturedLines[3];
+            } else {
+                // Maybe it's a license line or extra address info
+                if (capturedLines[3].includes('Lic')) {
+                    licenses.push(capturedLines[3]);
+                }
+            }
+        }
+
+        // Simple cleanup
+        return {
+            name,
+            address,
+            city_state_zip,
+            country,
+            licenses: licenses.length > 0 ? licenses : undefined
+        };
+    }
+    private checkTerpenesTested(text: string): 'pass' | 'fail' | 'not_tested' {
+        if (/Terpenes by|Terpene Profile/i.test(text)) {
+            if (/Terpenes[\s\S]{0,100}Not Tested/i.test(text)) return 'not_tested';
+            return 'pass';
+        }
+        return 'not_tested';
     }
 
 

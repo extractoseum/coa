@@ -1,17 +1,29 @@
-
-
-import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
+import { telemetry } from '../services/telemetryService';
 import {
-    Layout as LucideLayout, MessageSquare, Brain, User, Clock,
-    MoreVertical, Send, Filter, Search, Plus,
-    Instagram, Facebook, Mail, Globe, AlertCircle,
-    CheckCircle2, PauseCircle, ChevronRight,
-    ShoppingBag, ShoppingCart, Bell, Truck, Database,
-    FileBox, Activity, Wrench, MessageCircle, Archive, Zap, X, Package, Code, Loader2, ExternalLink, Eye
+    Activity, ArrowLeft, ArrowRight, Brain, Calendar, Check, ChevronDown, ChevronLeft, ChevronRight,
+    ChevronUp, Circle, Clock, Copy, Edit2, ExternalLink, Eye, Filter, Grid,
+    LayoutGrid, Loader2, Mail, MessageCircle, MessageSquare, MoreHorizontal, MoreVertical,
+    Paperclip, Phone, PhoneCall, Plus, Search, Send, Settings, Share2, ShoppingBag, ShoppingCart,
+    Trash2, User, Users, X, PanelRightOpen, PanelRightClose, Play, Pause, AlertTriangle, Zap,
+    FileText, Instagram, Ticket, Volume2, Mic, Archive, CreditCard,
+    Upload, LogOut, Inbox, Image as ImageIcon, Video, CheckCircle, Hash, Shield, Info, Download,
+    RefreshCw, BarChart2, Layout as LucideLayout, MapPin, Smartphone, Lock, Globe, Database, Server,
+    Cpu, Thermometer, Truck, Package, DollarSign, Menu, LayoutDashboard, Sliders, Layers,
+    PauseCircle, PlayCircle, StopCircle, Maximize2, File, FilePlus, Folder, FolderPlus, Save, Edit,
+    Flag, AlertCircle, HelpCircle, LifeBuoy, Wrench, List, Columns, Sidebar, Monitor, Tablet,
+    Wifi, Battery, Signal, Bluetooth, Cast, Radio, Cloud, CloudRain, CloudSnow, CloudLightning, Sun,
+    Moon, Wind, Droplet, Bell, Bookmark, Camera, Headphones, Speaker, MicOff, VideoOff, PhoneMissed,
+    PhoneOutgoing, PhoneIncoming, PhoneForwarded, Voicemail, Tag, Gift, Percent, TrendingUp,
+    TrendingDown, PieChart, Activity as Pulse, // Activity alias
+    Award, Star, Heart, ThumbsUp, ThumbsDown, Smile, Frown, FileBox, Facebook
 } from 'lucide-react';
+import { MessageAudioPlayer } from '../components/MessageAudioPlayer';
 import ToolEditor from '../components/ToolEditor';
+import OrchestratorConfig from '../components/OrchestratorConfig';
+import { VoiceSelector } from '../components/VoiceSelector';
+import type { VoiceProfileConfig } from '../components/VoiceSelector';
 import { useNavigate } from 'react-router-dom';
 import { Screen } from '../telemetry/Screen';
 import AppLayout from '../components/Layout';
@@ -30,8 +42,11 @@ interface Column {
     name: string;
     mode: 'AI_MODE' | 'HUMAN_MODE' | 'HYBRID';
     position: number;
+    assigned_agent_id?: string;
+    objectives?: string;
+    voice_profile?: string | VoiceProfileConfig;
     config?: {
-        agent_id?: string;
+        agent_id?: string; // Legacy/Fallback
         model?: string;
         tools_policy?: {
             mode: 'inherit' | 'override';
@@ -70,6 +85,7 @@ interface Conversation {
     tags?: string[];
     facts?: any; // e.g. { action_plan: [] }
     contact_name?: string;
+    avatar_url?: string;
     ltv?: number;
     risk_level?: string;
 }
@@ -91,10 +107,10 @@ interface ContactSnapshot {
     summary_bullets?: string[];
 }
 
-const AdminCRM = () => {
+const AdminCRM: React.FC = () => {
     // Build version: 2025-12-20-16-05
-    const { theme } = useTheme();
-    const { isSuperAdmin } = useAuth();
+    const { theme, setThemeMode: setTheme } = useTheme(); // Aliased for compatibility
+    const { client: user, isSuperAdmin } = useAuth(); // Client aliased to user for compatibility
     const navigate = useNavigate();
     const token = localStorage.getItem('accessToken');
 
@@ -102,6 +118,16 @@ const AdminCRM = () => {
     const [conversations, setConversations] = useState<Conversation[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedConv, setSelectedConv] = useState<Conversation | null>(null);
+
+    // Hide global navigation on mobile when chat is open
+    useEffect(() => {
+        if (selectedConv) {
+            document.body.classList.add('mobile-chat-active');
+        } else {
+            document.body.classList.remove('mobile-chat-active');
+        }
+        return () => document.body.classList.remove('mobile-chat-active');
+    }, [selectedConv]);
     const [selectedTab, setSelectedTab] = useState<'chat' | 'client' | 'orders' | 'insights'>('chat');
     const [selectedColumn, setSelectedColumn] = useState<Column | null>(null);
     const [isSaving, setIsSaving] = useState(false);
@@ -109,10 +135,13 @@ const AdminCRM = () => {
     const [toolsRegistry, setToolsRegistry] = useState<ToolRegistryItem[]>([]);
     const [messages, setMessages] = useState<any[]>([]);
     const [sendingMessage, setSendingMessage] = useState(false);
+    const [showResourceDock, setShowResourceDock] = useState(false);
+    const [resourceDockTab, setResourceDockTab] = useState<'tools' | 'client' | 'orders' | 'insights' | 'behavior'>('tools');
     const [newMessage, setNewMessage] = useState('');
     const [contactSnapshot, setContactSnapshot] = useState<ContactSnapshot | null>(null);
     const [loadingSnapshot, setLoadingSnapshot] = useState(false);
     const [showToolEditor, setShowToolEditor] = useState(false);
+    const [showOrchestrator, setShowOrchestrator] = useState(false);
     const [clientOrders, setClientOrders] = useState<any[]>([]);
     const [loadingOrders, setLoadingOrders] = useState(false);
     const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
@@ -122,19 +151,83 @@ const AdminCRM = () => {
     const [browsingEvents, setBrowsingEvents] = useState<any[]>([]);
     const [loadingEvents, setLoadingEvents] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
+    const [sidePanelWidth, setSidePanelWidth] = useState(() => {
+        const saved = localStorage.getItem('crm_sidePanelWidth');
+        return saved ? parseInt(saved, 10) : 800;
+    });
+    const [resourceDockWidth, setResourceDockWidth] = useState(() => {
+        const saved = localStorage.getItem('crm_resourceDockWidth');
+        return saved ? parseInt(saved, 10) : 384;
+    });
+    const [isResizingSidePanel, setIsResizingSidePanel] = useState(false);
+    const [isResizingResourceDock, setIsResizingResourceDock] = useState(false);
 
     const filteredConversations = useMemo(() => {
         if (!searchTerm) return conversations;
         const s = searchTerm.toLowerCase();
-        return conversations.filter(c =>
-            c.contact_handle?.toLowerCase().includes(s) ||
-            c.contact_name?.toLowerCase().includes(s) ||
-            c.summary?.toLowerCase().includes(s) ||
-            c.tags?.some(t => t.toLowerCase().includes(s))
-        );
+        const rawSearch = searchTerm.replace(/\D/g, ''); // Extract only digits for phone matching
+
+        return conversations.filter(c => {
+            const handle = c.contact_handle?.toLowerCase() || '';
+            const rawHandle = handle.replace(/\D/g, '');
+            const name = (c.contact_name || c.facts?.user_name || '').toLowerCase();
+            const email = (c.facts?.user_email || '').toLowerCase();
+            const summary = (c.summary || '').toLowerCase();
+
+            return handle.includes(s) ||
+                (rawSearch && rawHandle.includes(rawSearch)) ||
+                name.includes(s) ||
+                email.includes(s) ||
+                summary.includes(s) ||
+                c.tags?.some(t => t.toLowerCase().includes(s));
+        });
     }, [conversations, searchTerm]);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    // Persistence Logic
+    useEffect(() => {
+        localStorage.setItem('crm_sidePanelWidth', sidePanelWidth.toString());
+    }, [sidePanelWidth]);
+
+    useEffect(() => {
+        localStorage.setItem('crm_resourceDockWidth', resourceDockWidth.toString());
+    }, [resourceDockWidth]);
+
+    // Resizing Logic
+    useEffect(() => {
+        const handleMouseMove = (e: MouseEvent) => {
+            if (isResizingSidePanel) {
+                const newWidth = window.innerWidth - e.clientX;
+                setSidePanelWidth(Math.max(400, Math.min(newWidth, window.innerWidth - 100)));
+            }
+            if (isResizingResourceDock) {
+                const newDockWidth = window.innerWidth - e.clientX;
+                // Ensure dock doesn't exceed panel width minus minimal chat space
+                const maxDockWidth = sidePanelWidth - 300;
+                setResourceDockWidth(Math.max(250, Math.min(newDockWidth, maxDockWidth)));
+            }
+        };
+
+        const handleMouseUp = () => {
+            setIsResizingSidePanel(false);
+            setIsResizingResourceDock(false);
+            document.body.style.cursor = 'default';
+        };
+
+        if (isResizingSidePanel || isResizingResourceDock) {
+            window.addEventListener('mousemove', handleMouseMove);
+            window.addEventListener('mouseup', handleMouseUp);
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+        }
+
+        return () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+            document.body.style.userSelect = 'auto';
+        };
+    }, [isResizingSidePanel, isResizingResourceDock, sidePanelWidth]);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -147,16 +240,21 @@ const AdminCRM = () => {
     }, [messages, selectedTab]);
 
     useEffect(() => {
-        if (selectedTab === 'orders' && selectedConv) {
-            fetchClientOrders(selectedConv.contact_handle);
+        if (resourceDockTab === 'orders' && selectedConv && showResourceDock) {
+            // Check for email in facts or contact info
+            const email = selectedConv.facts?.user_email || (selectedConv.contact_handle.includes('@') ? selectedConv.contact_handle : undefined);
+            fetchClientOrders(selectedConv.contact_handle, email);
         }
-    }, [selectedTab, selectedConv]);
+    }, [resourceDockTab, selectedConv, showResourceDock]);
 
-    const fetchClientOrders = async (handle: string) => {
+    const fetchClientOrders = async (handle: string, email?: string) => {
         if (!handle) return;
         setLoadingOrders(true);
         try {
-            const res = await fetch(`/api/v1/crm/contacts/${encodeURIComponent(handle)}/orders`, {
+            let url = `/api/v1/crm/contacts/${encodeURIComponent(handle)}/orders`;
+            if (email) url += `?email=${encodeURIComponent(email)}`;
+
+            const res = await fetch(url, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             const data = await res.json();
@@ -324,7 +422,42 @@ const AdminCRM = () => {
         }
     };
 
+    // Keep selected conversation in sync with the list (for facts updates)
     useEffect(() => {
+        if (selectedConv) {
+            const updated = conversations.find(c => c.id === selectedConv.id);
+            if (updated) {
+                const hasChanged =
+                    updated.contact_name !== selectedConv.contact_name ||
+                    updated.status !== selectedConv.status ||
+                    updated.column_id !== selectedConv.column_id ||
+                    updated.summary !== selectedConv.summary ||
+                    JSON.stringify(updated.facts) !== JSON.stringify(selectedConv.facts);
+
+                if (hasChanged) {
+                    setSelectedConv(updated);
+                }
+            }
+        }
+    }, [conversations, selectedConv]);
+
+    // Lazy Analysis on Selection - PHASE 30
+    useEffect(() => {
+        if (selectedConv && !loadingEvents) {
+            const lacksAnalysis = !selectedConv.facts ||
+                !selectedConv.facts.action_plan ||
+                selectedConv.facts.action_plan.length === 0 ||
+                !selectedConv.facts.emotional_vibe;
+
+            if (lacksAnalysis) {
+                console.log('[CRM] Selection-triggered analysis for:', selectedConv.id);
+                handleRecalibrate();
+            }
+        }
+    }, [selectedConv?.id]); // Only trigger when ID actually changes
+
+    useEffect(() => {
+        telemetry.log('AdminCRM_Viewed', { user: user?.email });
         fetchData();
     }, []);
 
@@ -353,6 +486,31 @@ const AdminCRM = () => {
 
     // Realtime Subscription
     useEffect(() => {
+        // 1. Conversations Updates (Facts, Status, etc) - PHASE 29
+        const convChannel = supabase
+            .channel('crm_conversations_sync')
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'conversations'
+                },
+                (payload: any) => {
+                    console.log('[CRM] Realtime Conversation Update:', payload.new.id);
+                    setConversations((prev) =>
+                        prev.map(c => c.id === payload.new.id ? { ...c, ...payload.new } : c)
+                    );
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(convChannel);
+        };
+    }, []);
+
+    useEffect(() => {
         if (!selectedConv) return;
 
         const channel = supabase
@@ -360,14 +518,18 @@ const AdminCRM = () => {
             .on(
                 'postgres_changes',
                 {
-                    event: 'INSERT',
+                    event: '*',
                     schema: 'public',
                     table: 'crm_messages',
                     filter: `conversation_id=eq.${selectedConv.id}`
                 },
                 (payload: any) => {
-                    setMessages((prev) => [...prev, payload.new]);
-                    setTimeout(scrollToBottom, 200);
+                    if (payload.eventType === 'INSERT') {
+                        setMessages((prev) => [...prev, payload.new]);
+                        setTimeout(scrollToBottom, 200);
+                    } else if (payload.eventType === 'UPDATE') {
+                        setMessages((prev) => prev.map(m => m.id === payload.new.id ? payload.new : m));
+                    }
                 }
             )
             .subscribe();
@@ -379,16 +541,23 @@ const AdminCRM = () => {
 
     // Customer 360 Fetcher
     useEffect(() => {
-        if (selectedConv && selectedTab === 'insights') {
-            fetchBrowsingEvents(selectedConv.contact_handle);
+        if (selectedConv && resourceDockTab === 'insights' && showResourceDock) {
+            // fetchBrowsingEvents(selectedConv.contact_handle); // Moved to 'behavior' tab
         }
-    }, [selectedConv, selectedTab]);
+    }, [selectedConv, resourceDockTab, showResourceDock]);
 
     useEffect(() => {
-        if (selectedConv && selectedTab !== 'chat') {
+        if (resourceDockTab === 'insights' && selectedConv && showResourceDock) {
+            const email = selectedConv.facts?.user_email || (selectedConv.contact_handle.includes('@') ? selectedConv.contact_handle : undefined);
+            fetchBrowsingEvents(selectedConv.contact_handle, email);
+        }
+    }, [selectedConv, resourceDockTab, showResourceDock]);
+
+    useEffect(() => {
+        if (selectedConv && resourceDockTab === 'client' && showResourceDock) {
             fetchSnapshot(selectedConv.contact_handle, selectedConv.channel);
         }
-    }, [selectedConv, selectedTab]);
+    }, [selectedConv, resourceDockTab, showResourceDock]);
 
     const fetchSnapshot = async (handle: string, channel: string) => {
         setLoadingSnapshot(true);
@@ -407,11 +576,36 @@ const AdminCRM = () => {
         }
     };
 
-    const fetchBrowsingEvents = async (handle: string) => {
+    const handleRecalibrate = async () => {
+        if (!selectedConv) return;
+        setLoadingEvents(true);
+        try {
+            const res = await fetch(`/api/v1/crm/conversations/${selectedConv.id}/sync-facts`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            if (res.ok) {
+                // Refresh conversations to get new facts (Sidebar)
+                await fetchData();
+                // Browsing events might have changed too (if linked newly)
+                const email = selectedConv.facts?.user_email;
+                fetchBrowsingEvents(selectedConv.contact_handle, email);
+            }
+        } catch (e) {
+            console.error('Failed to recalibrate', e);
+        } finally {
+            setLoadingEvents(false);
+        }
+    };
+
+    const fetchBrowsingEvents = async (handle: string, email?: string) => {
         if (!handle) return;
         setLoadingEvents(true);
         try {
-            const res = await fetch(`/api/v1/behavior/activity/${encodeURIComponent(handle)}`, {
+            let url = `/api/v1/behavior/activity/${encodeURIComponent(handle)}`;
+            if (email) url += `?email=${encodeURIComponent(email)}`;
+
+            const res = await fetch(url, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             const data = await res.json();
@@ -426,13 +620,122 @@ const AdminCRM = () => {
     };
 
     const parseMediaContent = (content: string) => {
+        // 1. Link Preview
+        if (content.startsWith('[Link Preview]')) {
+            // format: [Link Preview] [Title](Url)\n> Description
+            const linkMatch = content.match(/\[Link Preview\] \[(.*?)\]\((.*?)\)(\n> (.*))?/s);
+            if (linkMatch) {
+                const title = linkMatch[1];
+                const url = linkMatch[2];
+                const desc = linkMatch[4];
+                return (
+                    <div className="mt-1 mb-1">
+                        <a href={url} target="_blank" rel="noopener noreferrer" className="block bg-black/20 rounded-xl overflow-hidden border border-white/10 hover:border-pink-500/30 transition-all group">
+                            <div className="p-3 bg-white/5 border-b border-white/5">
+                                <h4 className="text-sm font-bold text-pink-400 group-hover:underline truncate">{title}</h4>
+                                {desc && <p className="text-[10px] opacity-70 mt-1 line-clamp-2">{desc}</p>}
+                            </div>
+                            <div className="px-3 py-2 bg-black/10 flex items-center justify-between">
+                                <span className="text-[9px] opacity-40 truncate flex-1">{new URL(url).hostname}</span>
+                                <ExternalLink size={10} className="opacity-40" />
+                            </div>
+                        </a>
+                    </div>
+                );
+            }
+        }
+
+        // 2. Location
+        if (content.startsWith('[Ubicación]')) {
+            // format: [Ubicación](Url) Lat: x, Long: y
+            const locMatch = content.match(/\[Ubicación\]\((.*?)\) Lat: (.*?), Long: (.*)/);
+            if (locMatch) {
+                const url = locMatch[1];
+                return (
+                    <div className="mt-1">
+                        <a href={url} target="_blank" rel="noopener noreferrer" className="block w-64 h-32 bg-gray-800 rounded-xl overflow-hidden relative group border border-white/10">
+                            {/* Fake Map Preview with Gradient if no real API */}
+                            <div className="absolute inset-0 bg-[url('https://maps.googleapis.com/maps/api/staticmap?center=40.714728,-73.998672&zoom=12&size=400x400&key=YOUR_API_KEY')] bg-cover bg-center opacity-50 group-hover:opacity-70 transition-opacity flex items-center justify-center">
+                                <MapPin size={32} className="text-red-500 drop-shadow-lg" />
+                            </div>
+                            <div className="absolute bottom-0 inset-x-0 bg-black/60 backdrop-blur-sm p-2 text-[10px] text-white font-mono truncate">
+                                📍 Ubicación Compartida
+                            </div>
+                        </a>
+                    </div>
+                );
+            }
+        }
+
+        // 3. Order
+        if (content.startsWith('[Pedido WhatsApp]')) {
+            // format: [Pedido WhatsApp]: 2x Item (Total: ...)
+            return (
+                <div className="mt-2 p-3 bg-white/5 rounded-xl border border-dashed border-pink-500/30 flex items-center gap-3">
+                    <div className="p-2 bg-pink-500/10 rounded-lg">
+                        <ShoppingBag size={18} className="text-pink-400" />
+                    </div>
+                    <div className="flex-1">
+                        <p className="text-xs font-bold text-white">Pedido WhatsApp</p>
+                        <p className="text-[10px] opacity-70 mt-0.5">{content.replace('[Pedido WhatsApp]: ', '')}</p>
+                    </div>
+                </div>
+            );
+        }
+
+        // 4. Poll
+        if (content.startsWith('[Encuesta]')) {
+            return (
+                <div className="mt-2 p-3 bg-white/5 rounded-xl border border-white/10">
+                    <div className="flex items-center gap-2 mb-2 text-xs font-bold text-cyan-400">
+                        <BarChart2 size={14} /> Encuesta
+                    </div>
+                    <p className="text-sm italic opacity-80">{content.replace('[Encuesta]: ', '')}</p>
+                </div>
+            );
+        }
+
+        // 5. Contact
+        if (content.startsWith('[Contacto Compartido]')) {
+            return (
+                <div className="mt-2 p-3 bg-white/5 rounded-xl border border-white/10 flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center text-xl">👤</div>
+                    <div>
+                        <p className="text-xs font-bold text-white">{content.replace('[Contacto Compartido]: ', '')}</p>
+                        <p className="text-[9px] opacity-50">Contacto compartido</p>
+                    </div>
+                </div>
+            );
+        }
+
+
+        // Legacy / Standard Media regex
         const urlMatch = content.match(/\[(Image|Audio|Video|File|Sticker)\]\((.*?)\)/);
         if (urlMatch) {
             const type = urlMatch[1];
             const url = urlMatch[2];
             const caption = content.replace(urlMatch[0], '').trim();
 
-            if (type === 'Audio') return <audio controls src={url} className="w-full mt-2" />;
+            if (type === 'Audio') {
+                // Check for Rich Transcript format:
+                // > 🎙️ **Transcripción:** ...
+                // > 💡 **Resumen:** ...
+                // > 🏷️ **Intención:** ...
+                const transcriptMatch = content.match(/> 🎙️ \*\*Transcripción:\*\*\s*([\s\S]*?)(?=\n>|$)/);
+                const summaryMatch = content.match(/> 💡 \*\*Resumen:\*\*\s*([\s\S]*?)(?=\n>|$)/);
+                const intentMatch = content.match(/> 🏷️ \*\*Intención:\*\*\s*([\s\S]*?)(?=\n>|$)/);
+
+                return (
+                    <div className="mt-2">
+                        <MessageAudioPlayer
+                            audioUrl={url}
+                            transcript={transcriptMatch ? transcriptMatch[1] : undefined}
+                            summary={summaryMatch ? summaryMatch[1] : undefined}
+                            intent={intentMatch ? intentMatch[1] : undefined}
+                        />
+                    </div>
+                );
+            }
             if (type === 'Image') return (
                 <div className="mt-2">
                     <img src={url} alt="Media" className="rounded-xl max-w-full max-h-60 object-cover" />
@@ -453,6 +756,23 @@ const AdminCRM = () => {
                 </a>
             );
         }
+
+        // Auto-linkify normal URLs in text if no Markdown link
+        if (!content.includes('](') && (content.includes('http') || content.includes('www'))) {
+            const parts = content.split(/(https?:\/\/[^\s]+)/g);
+            return (
+                <span>
+                    {parts.map((part, i) =>
+                        part.match(/^https?:\/\//) ? (
+                            <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="text-pink-400 hover:text-pink-300 underline break-all">
+                                {part}
+                            </a>
+                        ) : part
+                    )}
+                </span>
+            );
+        }
+
         return content;
     };
 
@@ -481,7 +801,11 @@ const AdminCRM = () => {
                 headers: { Authorization: `Bearer ${token}` }
             });
             const dataConv = await resConv.json();
-            if (dataConv.success) setConversations(dataConv.data);
+            if (dataConv.success) {
+                // Deduplicate frontend side just in case
+                const unique = Array.from(new Map(dataConv.data.map((c: Conversation) => [c.id, c])).values());
+                setConversations(unique as Conversation[]);
+            }
         } catch (err) {
             console.error('Failed to fetch CRM data');
         } finally {
@@ -576,29 +900,66 @@ const AdminCRM = () => {
     };
 
     const handleSendMessage = async () => {
-        if (!selectedConv || !newMessage.trim() || sendingMessage) return;
-
+        if (!newMessage.trim() || !selectedConv) return;
         setSendingMessage(true);
         try {
             const res = await fetch(`/api/v1/crm/conversations/${selectedConv.id}/messages`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({ content: newMessage })
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ content: newMessage, role: 'assistant' })
             });
-
             if (res.ok) {
-                const data = await res.json();
-                if (data.success) {
-                    setMessages([...messages, data.data]);
+                const updatedMsg = await res.json();
+                if (updatedMsg.success) {
+                    setMessages([...messages, updatedMsg.data]);
                     setNewMessage('');
                 }
             }
-        } catch (err) {
-            console.error('Send message error:', err);
+        } catch (e) {
+            console.error('Error sending message', e);
+            alert('Error al enviar mensaje');
         } finally {
+            setSendingMessage(false);
+        }
+    };
+
+    const isSendingRef = useRef(false);
+
+    const handleSendVoice = async () => {
+        if (!selectedConv) return;
+        if (isSendingRef.current || sendingMessage) return;
+
+        if (!newMessage.trim()) {
+            alert('🎙️ Escribe un mensaje primero para convertirlo a voz.\n\nSimplemente escribe el texto y presiona este botón para que Ara (AI) lo lea con emoción.');
+            return;
+        }
+
+        if (!window.confirm(`¿Enviar este texto como nota de voz?\n\n"${newMessage}"\n\n(Se usará la voz de Ara)`)) return;
+
+        isSendingRef.current = true;
+        setSendingMessage(true);
+        try {
+            const res = await fetch(`/api/v1/crm/conversations/${selectedConv.id}/messages/voice`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ content: newMessage, role: 'assistant' })
+            });
+            if (res.ok) {
+                const updatedMsg = await res.json();
+                if (updatedMsg.success) {
+                    setMessages([...messages, updatedMsg.data]);
+                    setNewMessage('');
+                } else {
+                    alert('Error al generar audio: ' + (updatedMsg.error || 'Unknown'));
+                }
+            } else {
+                alert('Error al generar audio');
+            }
+        } catch (e) {
+            console.error('Error sending voice message', e);
+            alert('Error de conexión');
+        } finally {
+            isSendingRef.current = false;
             setSendingMessage(false);
         }
     };
@@ -617,50 +978,64 @@ const AdminCRM = () => {
     return (
         <Screen id="screen.admin.crm">
             <AppLayout>
-                <div className="min-h-[100vh] flex flex-col overflow-hidden">
+                <div
+                    className="fixed inset-0 flex flex-col overflow-hidden transition-all duration-300 ease-in-out md:mr-[var(--panel-width)]"
+                    style={{
+                        '--panel-width': selectedConv ? `${sidePanelWidth}px` : '0px'
+                    } as React.CSSProperties}
+                >
                     {/* Header */}
-                    <div className="p-4 border-b flex items-center justify-between" style={{ backgroundColor: theme.cardBg, borderColor: theme.border }}>
-                        <div className="flex items-center gap-3">
+                    <div className="p-4 border-b flex items-center justify-between gap-4 overflow-hidden shrink-0 z-50" style={{ backgroundColor: theme.cardBg, borderColor: theme.border }}>
+                        <div className="flex items-center gap-3 min-w-0 shrink sm:shrink-0">
                             <div className="p-2 rounded-lg" style={{ backgroundColor: `${theme.accent}15` }}>
                                 <LucideLayout style={{ color: theme.accent }} size={24} />
                             </div>
-                            <div>
-                                <h1 className="text-lg font-bold" style={{ color: theme.text }}>Omnichannel CRM</h1>
-                                <p className="text-xs opacity-50" style={{ color: theme.text }}>Tablero de Conversaciones Inteligentes</p>
+                            <div className="min-w-0">
+                                <h1 className="text-sm sm:text-lg font-bold truncate" style={{ color: theme.text }}>Omnichannel CRM <span className="text-[10px] bg-purple-500 text-white px-1 rounded ml-1 align-middle animate-pulse">v2.9</span></h1>
+                                <p className="text-xs opacity-50 truncate hidden sm:block" style={{ color: theme.text }}>Tablero de Conversaciones Inteligentes</p>
                             </div>
                         </div>
 
-                        <div className="flex items-center gap-4">
-                            <div className="relative">
-                                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30" style={{ color: theme.text }} />
+                        <div className="flex items-center gap-4 min-w-0 shrink">
+                            <div className="relative shrink min-w-[20px] max-w-[250px]">
+                                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30 pointer-events-none" style={{ color: theme.text }} />
                                 <input
                                     type="text"
-                                    placeholder="Buscar contacto o tag..."
+                                    placeholder="Buscar contacto..."
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
-                                    className="bg-black/20 border rounded-full pl-9 pr-4 py-1.5 text-sm outline-none w-64 transition-all focus:border-pink-500/50"
+                                    className="bg-black/20 border rounded-full pl-9 pr-4 py-1.5 text-sm outline-none w-full transition-all focus:border-pink-500/50 focus:w-full"
                                     style={{ borderColor: theme.border, color: theme.text }}
                                 />
                             </div>
-                            <button
-                                onClick={() => setShowToolEditor(true)}
-                                className="p-2 rounded-full hover:bg-white/5 transition-colors text-pink-400"
-                                title="Editor de Herramientas IA"
-                            >
-                                <Wrench size={20} />
-                            </button>
-                            <button onClick={() => navigate(ROUTES.home)} className="px-4 py-2 rounded-lg border text-sm font-medium hover:bg-white/5 transition-colors" style={{ color: theme.text, borderColor: theme.border }}>
-                                Cerrar
-                            </button>
+                            <div className="flex items-center gap-2 shrink-0">
+                                <button
+                                    onClick={() => setShowToolEditor(true)}
+                                    className="p-2 rounded-full hover:bg-white/5 transition-colors text-pink-400"
+                                    title="Editor de Herramientas IA"
+                                >
+                                    <Wrench size={20} />
+                                </button>
+                                <button
+                                    onClick={() => setShowOrchestrator(true)}
+                                    className="p-2 rounded-full hover:bg-white/5 transition-colors text-purple-400"
+                                    title="Gestión de Orchestrator (Chips)"
+                                >
+                                    <Cpu size={20} className="stroke-[2.5px]" />
+                                </button>
+                                <button onClick={() => navigate(ROUTES.home)} className="px-3 py-1.5 rounded-lg border text-xs font-medium hover:bg-white/5 transition-colors" style={{ color: theme.text, borderColor: theme.border }}>
+                                    Cerrar
+                                </button>
+                            </div>
                         </div>
                     </div>
 
                     {/* Kanban Board */}
-                    <div className="flex-1 overflow-x-auto p-4 flex gap-4 bg-black/5 items-start">
+                    <div className="flex-1 overflow-x-auto overflow-y-hidden p-4 flex gap-4 bg-black/5">
                         {columns.map(col => (
                             <div
                                 key={col.id}
-                                className="w-80 shrink-0 flex flex-col max-h-full"
+                                className="w-80 shrink-0 flex flex-col h-full"
                                 onDragOver={handleDragOver}
                                 onDrop={(e) => handleDrop(e, col.id)}
                             >
@@ -689,7 +1064,7 @@ const AdminCRM = () => {
                                             )}
                                         </div>
                                     </div>
-                                    <MoreVertical size={14} className="opacity-0 group-hover:opacity-40" style={{ color: theme.text }} />
+                                    <Settings size={18} className="text-pink-500 hover:text-white transition-colors drop-shadow-md" />
                                 </div>
 
                                 <div className="flex-1 overflow-y-auto space-y-3 pr-1 scrollbar-thin scrollbar-thumb-white/10">
@@ -725,7 +1100,7 @@ const AdminCRM = () => {
                                                         </div>
                                                         <div className="flex flex-col min-w-0">
                                                             <span className="text-sm font-black tracking-tight truncate max-w-[140px] text-white group-hover:text-pink-200 transition-colors">
-                                                                {conv.contact_name || conv.contact_handle}
+                                                                {conv.contact_name || conv.facts?.user_name || conv.contact_handle}
                                                             </span>
                                                             {conv.contact_name && (
                                                                 <span className="text-[10px] opacity-40 truncate font-mono">{conv.contact_handle}</span>
@@ -749,9 +1124,36 @@ const AdminCRM = () => {
                                                     </div>
                                                 </div>
 
-                                                <p className="text-[11px] line-clamp-2 mb-4 leading-relaxed opacity-60 font-light mt-2 pl-1 border-l-2 border-white/5" style={{ color: theme.text }}>
+                                                <p className="text-[11px] line-clamp-2 mb-2 leading-relaxed opacity-60 font-light mt-2 pl-1 border-l-2 border-white/5" style={{ color: theme.text }}>
                                                     {conv.summary}
                                                 </p>
+
+                                                {/* Predictors layer (Phase 4) */}
+                                                {conv.facts && (conv.facts.friction_score !== undefined || conv.facts.emotional_vibe) && (
+                                                    <div className="flex items-center justify-between gap-3 mb-3 bg-black/20 p-2 rounded-lg border border-white/5">
+                                                        {conv.facts?.emotional_vibe && (
+                                                            <div className="flex items-center gap-1.5 min-w-0">
+                                                                <Smile size={10} className="text-pink-400 shrink-0" />
+                                                                <span className="text-[9px] font-bold text-pink-300 truncate tracking-tight uppercase">
+                                                                    {conv.facts.emotional_vibe}
+                                                                </span>
+                                                            </div>
+                                                        )}
+                                                        {conv.facts?.friction_score !== undefined && (
+                                                            <div className="flex flex-col items-end gap-1 shrink-0">
+                                                                <span className="text-[7px] uppercase font-bold opacity-30 tracking-widest">Friction</span>
+                                                                <div className="w-12 h-1 bg-white/10 rounded-full overflow-hidden">
+                                                                    <div
+                                                                        className={`h-full rounded-full transition-all duration-500 ${conv.facts.friction_score > 70 ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]' :
+                                                                            conv.facts.friction_score > 30 ? 'bg-yellow-500' : 'bg-green-500'
+                                                                            }`}
+                                                                        style={{ width: `${conv.facts.friction_score}%` }}
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
 
                                                 <div className="flex flex-wrap gap-1">
                                                     {conv.tags?.map(tag => (
@@ -792,9 +1194,16 @@ const AdminCRM = () => {
                     {selectedColumn && (
                         <div className="fixed inset-y-0 right-0 w-[400px] shadow-2xl z-[110] border-l flex flex-col animate-in slide-in-from-right duration-300" style={{ backgroundColor: theme.cardBg, borderColor: theme.border }}>
                             <div className="p-6 border-b flex justify-between items-center" style={{ borderColor: theme.border }}>
-                                <div>
-                                    <h2 className="text-lg font-bold" style={{ color: theme.text }}>Cerebro de Columna</h2>
-                                    <p className="text-xs opacity-50 uppercase tracking-widest" style={{ color: theme.accent }}>{selectedColumn.name}</p>
+                                <div className="flex-1 mr-4">
+                                    <input
+                                        type="text"
+                                        value={selectedColumn.name}
+                                        onChange={(e) => setSelectedColumn({ ...selectedColumn, name: e.target.value })}
+                                        className="text-lg font-bold bg-transparent border-b border-transparent focus:border-pink-500/50 outline-none w-full transition-colors"
+                                        style={{ color: theme.text }}
+                                        placeholder="Nombre de la Columna"
+                                    />
+                                    <p className="text-xs opacity-50 uppercase tracking-widest mt-1" style={{ color: theme.accent }}>Configuración de Cerebro</p>
                                 </div>
                                 <button onClick={() => setSelectedColumn(null)} className="p-2 hover:bg-white/5 rounded-full transition-colors" style={{ color: theme.textMuted }}>
                                     <MoreVertical size={20} />
@@ -824,10 +1233,10 @@ const AdminCRM = () => {
                                     <select
                                         className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-sm outline-none focus:border-pink-500/50 appearance-none"
                                         style={{ color: theme.text }}
-                                        value={selectedColumn.config?.agent_id || 'sales_ara'}
+                                        value={selectedColumn.assigned_agent_id || selectedColumn.config?.agent_id || 'sales_ara'}
                                         onChange={(e) => setSelectedColumn({
                                             ...selectedColumn,
-                                            config: { ...(selectedColumn.config || {}), agent_id: e.target.value }
+                                            assigned_agent_id: e.target.value
                                         })}
                                     >
                                         {agentsMetadata.map(agent => (
@@ -836,11 +1245,33 @@ const AdminCRM = () => {
                                             </option>
                                         ))}
                                     </select>
-                                    {agentsMetadata.find(a => a.id === (selectedColumn.config?.agent_id || 'sales_ara'))?.status === 'Broken' && (
+                                    {agentsMetadata.find(a => a.id === (selectedColumn.assigned_agent_id || selectedColumn.config?.agent_id || 'sales_ara'))?.status === 'Broken' && (
                                         <p className="text-[10px] text-red-400 mt-1 flex items-center gap-1">
-                                            <AlertCircle size={10} /> {agentsMetadata.find(a => a.id === (selectedColumn.config?.agent_id || 'sales_ara'))?.error}
+                                            <AlertCircle size={10} /> {agentsMetadata.find(a => a.id === (selectedColumn.assigned_agent_id || selectedColumn.config?.agent_id || 'sales_ara'))?.error}
                                         </p>
                                     )}
+                                </div>
+
+                                {/* Brain Objectives Section (NEW) */}
+                                <div className="space-y-3">
+                                    <label className="text-[10px] font-bold uppercase opacity-40">Objetivos Estratégicos (Capa 3)</label>
+                                    <textarea
+                                        className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-sm outline-none focus:border-pink-500/50 min-h-[100px] resize-none scrollbar-thin"
+                                        style={{ color: theme.text }}
+                                        placeholder="Define los objetivos específicos para el AI en esta columna..."
+                                        value={selectedColumn.objectives || ''}
+                                        onChange={(e) => setSelectedColumn({ ...selectedColumn, objectives: e.target.value })}
+                                    />
+                                </div>
+
+                                {/* Voice Section (NEW) */}
+                                <div className="space-y-3">
+                                    <VoiceSelector
+                                        value={typeof selectedColumn.voice_profile === 'string'
+                                            ? { provider: 'openai', voice_id: selectedColumn.voice_profile, settings: { stability: 0.5, similarity_boost: 0.75, style: 0, use_speaker_boost: true, speed: 1.0 } }
+                                            : selectedColumn.voice_profile}
+                                        onChange={(config) => setSelectedColumn({ ...selectedColumn, voice_profile: config })}
+                                    />
                                 </div>
 
                                 {/* Model Section */}
@@ -959,6 +1390,10 @@ const AdminCRM = () => {
                                                 },
                                                 body: JSON.stringify({
                                                     mode: selectedColumn.mode,
+                                                    name: selectedColumn.name,
+                                                    assigned_agent_id: selectedColumn.assigned_agent_id,
+                                                    objectives: selectedColumn.objectives,
+                                                    voice_profile: selectedColumn.voice_profile,
                                                     config: selectedColumn.config
                                                 })
                                             });
@@ -985,10 +1420,63 @@ const AdminCRM = () => {
 
                     {/* Conversation Sidebar (Drawer) */}
                     {selectedConv && (
-                        <div className="fixed inset-y-0 right-0 w-full md:w-auto md:max-w-[500px] md:min-w-[400px] shadow-2xl z-[100] border-l flex flex-col animate-in slide-in-from-right duration-300" style={{ backgroundColor: theme.cardBg, borderColor: theme.border }}>
+                        <div
+                            className="fixed inset-0 md:inset-y-0 md:left-auto md:right-0 w-full md:w-auto shadow-2xl z-[100] border-l flex flex-col animate-in slide-in-from-right duration-300"
+                            style={{
+                                backgroundColor: theme.cardBg,
+                                borderColor: theme.border,
+                                width: window.innerWidth < 768 ? '100vw' : `${sidePanelWidth}px`,
+                                maxWidth: '100vw'
+                            }}
+                        >
+                            {/* Resize Handle for Side Panel (Desktop only) */}
+                            <div
+                                className="hidden md:block absolute left-[-4px] top-0 bottom-0 w-2 cursor-col-resize hover:bg-pink-500/50 transition-colors z-[110]"
+                                onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    setIsResizingSidePanel(true);
+                                }}
+                            />
+
                             <div className="p-4 border-b flex justify-between items-center" style={{ borderColor: theme.border }}>
                                 <div className="flex items-center gap-3">
-                                    {getChannelIcon(selectedConv.channel)}
+                                    {/* Avatar in Header */}
+                                    <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${getAvatarGradient(selectedConv.contact_handle)} p-[1.5px] shadow-lg shrink-0 relative group`}>
+                                        <div className="w-full h-full rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center overflow-hidden">
+                                            {selectedConv.avatar_url ? (
+                                                <img
+                                                    src={selectedConv.avatar_url}
+                                                    alt={selectedConv.contact_handle}
+                                                    className="w-full h-full object-cover"
+                                                    onError={(e) => {
+                                                        // Fallback to icon if image fails
+                                                        (e.target as HTMLImageElement).style.display = 'none';
+                                                        e.currentTarget.parentElement?.querySelector('.fallback-icon')?.classList.remove('hidden');
+                                                    }}
+                                                />
+                                            ) : (
+                                                <>
+                                                    {selectedConv.channel === 'WA' && <MessageSquare size={18} className="text-white" />}
+                                                    {selectedConv.channel === 'IG' && <Instagram size={18} className="text-white" />}
+                                                    {selectedConv.channel === 'EMAIL' && <Mail size={18} className="text-white" />}
+                                                    {!['WA', 'IG', 'EMAIL'].includes(selectedConv.channel) && <User size={18} className="text-white" />}
+                                                </>
+                                            )}
+                                            {/* Fallback Icon Container (Hidden by default if image exists) */}
+                                            {selectedConv.avatar_url && (
+                                                <div className="fallback-icon hidden w-full h-full flex items-center justify-center absolute inset-0 bg-black/40">
+                                                    {selectedConv.channel === 'WA' && <MessageSquare size={18} className="text-white" />}
+                                                    {selectedConv.channel === 'IG' && <Instagram size={18} className="text-white" />}
+                                                    {selectedConv.channel === 'EMAIL' && <Mail size={18} className="text-white" />}
+                                                    {!['WA', 'IG', 'EMAIL'].includes(selectedConv.channel) && <User size={18} className="text-white" />}
+                                                </div>
+                                            )}
+                                        </div>
+                                        {/* Channel Badge */}
+                                        <div className="absolute -bottom-1 -right-1 bg-black rounded-full p-0.5 border border-white/10 z-10">
+                                            {getChannelIcon(selectedConv.channel)}
+                                        </div>
+                                    </div>
                                     <div>
                                         <h3 className="font-bold text-sm" style={{ color: theme.text }}>{selectedConv.contact_handle}</h3>
                                         <div className="flex items-center gap-1 text-[10px] text-green-500">
@@ -996,7 +1484,33 @@ const AdminCRM = () => {
                                         </div>
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-1">
+                                <div className="flex items-center gap-1.5 px-2">
+                                    <button
+                                        onClick={async () => {
+                                            if (!window.confirm(`¿Iniciar llamada de voz con ${selectedConv.contact_handle}?`)) return;
+                                            try {
+                                                const res = await fetch('/api/v1/vapi/call', {
+                                                    method: 'POST',
+                                                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                                                    body: JSON.stringify({
+                                                        phoneNumber: selectedConv.contact_handle,
+                                                        customerName: selectedConv.contact_name,
+                                                        conversationId: selectedConv.id
+                                                    })
+                                                });
+                                                if (res.ok) {
+                                                    alert('✅ Llamada iniciada. El teléfono del cliente sonará en breve.');
+                                                } else {
+                                                    const err = await res.json();
+                                                    alert('❌ Error: ' + err.error);
+                                                }
+                                            } catch (e) { console.error('Call error', e); alert('Error de conexión'); }
+                                        }}
+                                        className="p-2 hover:bg-white/5 rounded-full text-green-500 hover:text-green-400 transition-colors"
+                                        title="Llamar en Vivo (Vapi)"
+                                    >
+                                        <PhoneCall size={18} />
+                                    </button>
                                     <button
                                         onClick={async () => {
                                             if (!window.confirm('¿Archivar esta conversación?')) return;
@@ -1011,416 +1525,561 @@ const AdminCRM = () => {
                                                 }
                                             } catch (e) { console.error('Archive error', e); }
                                         }}
-                                        className="p-2 hover:bg-white/5 rounded-full text-gray-400 hover:text-pink-400 transition-colors"
+                                        className="p-2 hover:bg-white/5 rounded-full text-gray-400 hover:text-pink-400 transition-colors mx-0.5"
                                         title="Archivar"
                                     >
                                         <Archive size={18} />
                                     </button>
-                                    <button onClick={() => setSelectedConv(null)} className="p-2 hover:bg-white/5 rounded-full transition-colors" style={{ color: theme.textMuted }}>
+                                    <button onClick={() => setSelectedConv(null)} className="p-2 hover:bg-white/5 rounded-full transition-colors ml-1" style={{ color: theme.textMuted }}>
                                         <X size={20} />
                                     </button>
                                 </div>
                             </div>
 
-                            {/* Sidebar Tabs */}
-                            <div className="flex border-b text-[10px] font-bold uppercase tracking-wider" style={{ borderColor: theme.border, backgroundColor: 'rgba(0,0,0,0.2)' }}>
-                                {[
-                                    { id: 'chat', label: 'Chat', icon: <MessageCircle size={14} /> },
-                                    { id: 'client', label: 'Cliente 360', icon: <User size={14} /> },
-                                    { id: 'orders', label: 'Pedidos', icon: <ShoppingBag size={14} /> },
-                                    { id: 'insights', label: 'Brain', icon: <Brain size={14} /> }
-                                ].map(tab => (
-                                    <button
-                                        key={tab.id}
-                                        onClick={() => setSelectedTab(tab.id as any)}
-                                        className={`flex-1 py-3 flex items-center justify-center gap-2 border-b-2 transition-colors`}
-                                        style={{
-                                            borderColor: selectedTab === tab.id ? theme.accent : 'transparent',
-                                            color: selectedTab === tab.id ? theme.accent : undefined
-                                        }}
-                                    >
-                                        {tab.icon} {tab.label}
-                                    </button>
-                                ))}
-                            </div>
+                            {/* The Chat is now permanent in the sidebar. Metadata tabs have moved to the Resource Dock. */}
 
-                            {selectedTab === 'chat' && (
-                                <div className="flex-1 flex flex-col bg-black/20">
-                                    <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                                        {messages.map((msg, i) => (
-                                            <div key={i} className={`flex flex-col ${msg.direction === 'outbound' ? 'items-end' : 'items-start'}`}>
-                                                <div
-                                                    className={`max-w-[85%] rounded-2xl p-3 text-sm shadow-sm ${msg.direction === 'outbound' ? 'rounded-br-none' : 'bg-white/5 border border-white/10 rounded-bl-none'}`}
-                                                    style={{
-                                                        backgroundColor: msg.direction === 'outbound' ? `${theme.accent}20` : undefined,
-                                                        color: msg.direction === 'outbound' ? theme.text : undefined,
-                                                        borderColor: msg.direction === 'outbound' ? `${theme.accent}20` : undefined,
-                                                        borderWidth: msg.direction === 'outbound' ? '1px' : undefined
-                                                    }}
-                                                >
-                                                    {msg.type === 'image' && (
-                                                        <img src={msg.content} alt="Media" className="rounded-lg mb-2 max-w-full" />
-                                                    )}
-                                                    <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
-                                                </div>
-                                                <span className="text-[9px] opacity-30 mt-1 font-mono px-1">
-                                                    {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {msg.direction === 'outbound' ? 'AGENTE' : 'CLIENTE'}
-                                                </span>
+
+                            <div
+                                className="flex-1 relative min-h-0 overflow-hidden"
+                                style={{
+                                    // @ts-ignore
+                                    '--dock-width': showResourceDock ? `${resourceDockWidth}px` : '0px'
+                                }}
+                            >
+                                {/* MAIN CONTENT: ALWAYS THE CHAT */}
+                                <div
+                                    className="absolute inset-y-0 left-0 right-0 md:right-[var(--dock-width)] flex flex-col bg-black/20 min-h-0 min-w-0 overflow-hidden transition-[right] duration-300 ease-in-out"
+                                >
+                                    <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-white/10">
+                                        {messages.length === 0 ? (
+                                            <div className="h-full flex flex-col items-center justify-center opacity-20 pointer-events-none">
+                                                <MessageCircle size={48} className="mb-4" />
+                                                <p className="text-sm font-light">Comienza la conversación...</p>
                                             </div>
-                                        ))}
+                                        ) : (
+                                            messages.map((msg, i) => (
+                                                <div key={i} className={`flex flex-col ${msg.direction === 'outbound' ? 'items-end' : 'items-start'}`}>
+                                                    <div
+                                                        className={`max-w-[92%] md:max-w-[85%] rounded-2xl p-3 text-sm shadow-sm ${msg.direction === 'outbound' ? 'rounded-br-none' : 'bg-white/5 border border-white/10 rounded-bl-none'}`}
+                                                        style={{
+                                                            backgroundColor: msg.direction === 'outbound' ? `${theme.accent}20` : undefined,
+                                                            color: msg.direction === 'outbound' ? theme.text : undefined,
+                                                            borderColor: msg.direction === 'outbound' ? `${theme.accent}20` : undefined,
+                                                            borderWidth: msg.direction === 'outbound' ? '1px' : undefined
+                                                        }}
+                                                    >
+                                                        {msg.type === 'image' && msg.content && !msg.content.startsWith('[') && (
+                                                            <img src={msg.content} alt="Media" className="rounded-lg mb-2 max-w-full" onError={(e) => e.currentTarget.style.display = 'none'} />
+                                                        )}
+                                                        <div className="whitespace-pre-wrap leading-relaxed">
+                                                            {parseMediaContent(msg.content || '')}
+                                                        </div>
+                                                    </div>
+                                                    <span className="text-[9px] opacity-30 mt-1 font-mono px-1">
+                                                        {msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--'} • {msg.direction === 'outbound' ? 'AGENTE' : 'CLIENTE'}
+                                                    </span>
+                                                </div>
+                                            ))
+                                        )}
                                         <div ref={messagesEndRef} />
                                     </div>
-                                    <div className="p-3 border-t bg-black/20" style={{ borderColor: theme.border }}>
-                                        <div className="flex gap-2">
-                                            <input
-                                                type="text"
-                                                value={newMessage}
-                                                onChange={(e) => setNewMessage(e.target.value)}
-                                                onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
-                                                placeholder="Escribe un mensaje..."
-                                                className="flex-1 w-full min-w-0 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-base md:text-sm outline-none focus:border-pink-500/50 transition-all font-light"
-                                                style={{ color: theme.text }}
-                                            />
+
+                                    {/* Enhanced Input Area */}
+                                    <div className="p-3 border-t bg-black/40 backdrop-blur-sm shrink-0" style={{ borderColor: theme.border }}>
+                                        <div className="flex gap-2 items-end">
                                             <button
-                                                onClick={handleSendMessage}
-                                                disabled={!newMessage.trim() || sendingMessage}
-                                                className={`p-3 rounded-xl transition-all self-end ${!newMessage.trim() || sendingMessage ? 'opacity-20 grayscale' : 'text-white active:scale-95 shadow-lg'}`}
-                                                style={{ backgroundColor: !newMessage.trim() || sendingMessage ? undefined : theme.accent }}
-                                                title="Enviar"
+                                                onClick={() => setShowResourceDock(!showResourceDock)}
+                                                className="flex h-[44px] w-[44px] md:h-[48px] md:w-[48px] items-center justify-center rounded-xl bg-pink-500/10 hover:bg-pink-500/20 text-pink-400 hover:text-pink-300 transition-colors mr-2 shadow-sm border border-pink-500/20 shrink-0"
+                                                title={showResourceDock ? "Ocultar Herramientas" : "Mostrar Herramientas"}
                                             >
-                                                <Send size={18} className={sendingMessage ? 'animate-pulse' : ''} />
+                                                {showResourceDock ? <PanelRightClose size={20} /> : <PanelRightOpen size={20} />}
+                                            </button>
+
+                                            <div className="flex-1 relative min-w-0">
+                                                <textarea
+                                                    value={newMessage}
+                                                    onChange={(e) => setNewMessage(e.target.value)}
+                                                    onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSendMessage())}
+                                                    placeholder="Escribe un mensaje..."
+                                                    rows={3}
+                                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-base md:text-sm outline-none focus:border-pink-500/50 transition-all font-light resize-none scrollbar-thin scrollbar-thumb-white/10"
+                                                    style={{ color: theme.text }}
+                                                />
+                                            </div>
+
+                                            <div className="flex flex-col gap-1 justify-end pb-1 pl-1">
+                                                <button
+                                                    onClick={handleSendVoice}
+                                                    disabled={sendingMessage}
+                                                    className={`p-2 h-[44px] w-[44px] md:h-[48px] md:w-[48px] flex items-center justify-center rounded-xl transition-all ${sendingMessage ? 'opacity-50 grayscale cursor-not-allowed' : 'text-pink-400 bg-pink-500/10 hover:bg-pink-500/20 shadow-lg border border-pink-500/20 active:scale-95'}`}
+                                                    title="Enviar como Nota de Voz"
+                                                >
+                                                    {sendingMessage ? <Loader2 size={18} className="animate-spin" /> : <Mic size={20} />}
+                                                </button>
+
+                                                <button
+                                                    onClick={handleSendMessage}
+                                                    disabled={sendingMessage || !newMessage.trim()}
+                                                    className={`p-2 h-[44px] w-[44px] md:h-[48px] md:w-[48px] flex items-center justify-center rounded-xl transition-all text-white active:scale-95 shadow-lg ${!newMessage.trim() ? 'opacity-30 grayscale cursor-not-allowed' : ''}`}
+                                                    style={{ backgroundColor: theme.accent }}
+                                                    title="Enviar Texto"
+                                                >
+                                                    <Send size={20} className={sendingMessage ? 'animate-pulse' : ''} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* RESOURCE DOCK: NOW WITH TABS FOR ALL DATA */}
+                                <div
+                                    className={`absolute inset-y-0 right-0 z-[120] bg-black/80 md:bg-black/80 backdrop-blur-md border-l border-white/5 flex flex-col transition-all duration-300 ease-in-out ${showResourceDock ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0 pointer-events-none'}`}
+                                    style={{
+                                        width: window.innerWidth < 768 ? '100%' : `${resourceDockWidth}px`
+                                    }}
+                                >
+                                    <div className="w-full h-full flex flex-col">
+                                        {/* TAB SWITCHER IN RESOURCE DOCK */}
+                                        <div className="flex border-b text-[9px] font-bold uppercase tracking-wider overflow-x-auto scrollbar-hide min-w-0" style={{ borderColor: theme.border, backgroundColor: 'rgba(0,0,0,0.4)' }}>
+                                            {[
+                                                { id: 'tools', label: 'Recursos', icon: <Zap size={12} /> },
+                                                { id: 'client', label: 'Cliente', icon: <User size={12} /> },
+                                                { id: 'orders', label: 'Pedidos', icon: <ShoppingBag size={12} /> },
+                                                { id: 'insights', label: 'Brain', icon: <Brain size={12} /> }
+                                            ].map((tab: any) => (
+                                                <button
+                                                    key={tab.id}
+                                                    onClick={() => setResourceDockTab(tab.id as any)}
+                                                    className={`flex-1 py-3 px-1 flex flex-col items-center justify-center gap-1 border-b-2 transition-colors min-w-[60px]`}
+                                                    style={{
+                                                        borderColor: resourceDockTab === tab.id ? theme.accent : 'transparent',
+                                                        color: resourceDockTab === tab.id ? theme.accent : undefined
+                                                    }}
+                                                >
+                                                    {tab.icon}
+                                                    <span className="scale-[0.8] whitespace-nowrap">{tab.label}</span>
+                                                </button>
+                                            ))}
+                                            <button
+                                                onClick={() => setShowResourceDock(false)}
+                                                className="px-3 py-3 border-b-2 border-transparent opacity-30 hover:opacity-100 hover:text-red-400 shrink-0"
+                                            >
+                                                <X size={12} />
                                             </button>
                                         </div>
-                                    </div>
-                                </div>
-                            )}
 
-                            {selectedTab === 'client' && (
-                                <div className="flex-1 overflow-y-auto p-6 space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                                    <div className="text-center pb-6 border-b border-dashed border-white/10">
-                                        <div className="w-20 h-20 rounded-full mx-auto p-0.5 mb-3 shadow-xl"
-                                            style={{ background: `linear-gradient(to bottom right, ${theme.accent}, ${theme.accentSecondary})` }}>
-                                            <div className="w-full h-full rounded-full bg-black flex items-center justify-center">
-                                                <span className="text-2xl font-bold">{selectedConv.contact_handle[0]?.toUpperCase() || '?'}</span>
-                                            </div>
-                                        </div>
-                                        <h3 className="text-lg font-black truncate tracking-tight">{contactSnapshot?.name || selectedConv.contact_handle}</h3>
-                                        <p className="text-[10px] opacity-40 font-mono uppercase tracking-tighter">ID: {selectedConv.id.substring(0, 8)} | canal: {selectedConv.channel} | Risk: {contactSnapshot?.risk_level || 'N/A'}</p>
-                                    </div>
-
-                                    <div className="grid grid-cols-3 gap-2">
-                                        <div className="p-3 rounded-2xl bg-white/5 border border-white/5 text-center">
-                                            <p className="text-[9px] uppercase font-bold opacity-30 mb-1">LTV Total</p>
-                                            <p className="text-xl font-mono font-bold" style={{ color: theme.accent }}>${contactSnapshot?.ltv?.toLocaleString('en-US', { minimumFractionDigits: 2 }) || '0.00'}</p>
-                                        </div>
-                                        <div className="p-3 rounded-2xl bg-white/5 border border-white/5 text-center">
-                                            <p className="text-[9px] uppercase font-bold opacity-30 mb-1">Pedidos</p>
-                                            <p className="text-xl font-mono font-bold">{contactSnapshot?.orders_count || 0}</p>
-                                        </div>
-                                        <div className="p-3 rounded-2xl bg-white/5 border border-white/5 text-center flex flex-col items-center justify-center">
-                                            <p className="text-[9px] uppercase font-bold opacity-30 mb-1">Status</p>
-                                            <div className="flex gap-1 flex-wrap justify-center">
-                                                {contactSnapshot?.risk_level === 'vip' && (
-                                                    <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-500 text-[9px] font-bold border border-amber-500/20">VIP</span>
-                                                )}
-                                                {contactSnapshot?.tags?.includes('b2b') && (
-                                                    <span className="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-500 text-[9px] font-bold border border-blue-500/20">B2B</span>
-                                                )}
-                                                {contactSnapshot?.tags?.includes('Wholesale') && (
-                                                    <span className="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-500 text-[9px] font-bold border border-blue-500/20">MAYOREO</span>
-                                                )}
-                                                {contactSnapshot?.tags?.includes('Club_partner') && (
-                                                    <span className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400 text-[9px] font-bold border border-purple-500/20">CLUB PARTNER</span>
-                                                )}
-                                                {contactSnapshot?.tags?.includes('Gold_member') && (
-                                                    <span className="px-1.5 py-0.5 rounded bg-amber-300/20 text-amber-300 text-[9px] font-bold border border-amber-300/20">GOLD</span>
-                                                )}
-                                                {contactSnapshot?.tags?.includes('Platino_member') && (
-                                                    <span className="px-1.5 py-0.5 rounded bg-slate-300/20 text-slate-300 text-[9px] font-bold border border-slate-300/20">PLATINUM</span>
-                                                )}
-                                                {contactSnapshot?.tags?.includes('Black_member') && (
-                                                    <span className="px-1.5 py-0.5 rounded bg-zinc-500/20 text-zinc-300 text-[9px] font-bold border border-zinc-500/20">BLACK</span>
-                                                )}
-                                                {(!contactSnapshot?.risk_level && (!contactSnapshot?.tags || contactSnapshot.tags.length === 0)) && (
-                                                    <span className="px-1.5 py-0.5 rounded bg-gray-500/20 text-gray-400 text-[9px] font-bold border border-white/5">NUEVO</span>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div className="bg-white/5 rounded-2xl p-4 border border-white/5 relative overflow-hidden group">
-                                        <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                                            <Database size={40} />
-                                        </div>
-                                        <p className="text-[9px] uppercase font-bold opacity-30 mb-3 flex items-center gap-2">
-                                            <Activity size={10} /> Resumen Inteligente
-                                        </p>
-                                        <ul className="space-y-2 text-xs opacity-70 font-light">
-                                            {(contactSnapshot?.summary_bullets?.length ? contactSnapshot.summary_bullets : [
-                                                'Cliente nuevo sin historial previo.',
-                                                'Interés potencial en vapes desechables.',
-                                                'No se detectan riesgos de pago.'
-                                            ]).map((bullet, i) => (
-                                                <li key={i} className="flex gap-2">
-                                                    <span className="text-pink-500 mt-1">•</span>
-                                                    {bullet}
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </div>
-                                </div>
-                            )}
-
-                            {selectedTab === 'orders' && (
-                                <div className="flex-1 overflow-y-auto p-6 space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                                    {loadingOrders ? (
-                                        <div className="flex justify-center p-8"><Loader2 className="animate-spin" style={{ color: theme.accent }} /></div>
-                                    ) : clientOrders.length === 0 ? (
-                                        <div className="flex flex-col items-center justify-center opacity-30 py-10 gap-2">
-                                            <ShoppingBag size={32} />
-                                            <p className="text-xs font-mono">SIN PEDIDOS</p>
-                                        </div>
-                                    ) : (
-                                        <div className="space-y-3">
-                                            {clientOrders.map((order, i) => (
-                                                <div
-                                                    key={i}
-                                                    onClick={() => fetchOrderDetails(order.shopify_order_id)}
-                                                    className={`bg-white/5 border ${expandedOrderId === order.shopify_order_id ? 'border-pink-500/50 bg-white/10' : 'border-white/5'} p-4 rounded-xl cursor-pointer hover:border-pink-500/20 transition-all`}
-                                                >
-                                                    <div className="flex justify-between items-center">
-                                                        <div>
-                                                            <p className="text-xs font-bold text-white mb-1">Pedido {order.order_number}</p>
-                                                            <p className="text-[10px] opacity-50 font-mono">{new Date(order.shopify_created_at || order.created_at).toLocaleDateString()}</p>
+                                        <div className="flex-1 overflow-y-auto scrollbar-thin">
+                                            {resourceDockTab === 'tools' && (
+                                                <div className="p-4 space-y-6 animate-in fade-in duration-300">
+                                                    {/* Section: Quick Actions */}
+                                                    <div className="space-y-3">
+                                                        <div className="flex items-center gap-2 text-[10px] uppercase font-bold opacity-40">
+                                                            <Zap size={10} /> Acciones Rápidas
                                                         </div>
-                                                        <div className="text-right">
-                                                            <p className="text-xs font-bold font-mono text-pink-400">${order.total_amount}</p>
-                                                            <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${order.status === 'paid' ? 'bg-green-500/10 text-green-400' : 'bg-yellow-500/10 text-yellow-500'}`}>{order.status}</span>
+                                                        <div className="grid grid-cols-2 gap-2">
+                                                            {['Pedir Pago', 'Enviar Catálogo', 'Agendar Llamada', 'Crear Ticket'].map(action => (
+                                                                <button
+                                                                    key={action}
+                                                                    onClick={() => {
+                                                                        const texts: Record<string, string> = {
+                                                                            'Pedir Pago': 'Hola! Para proceder, puedes realizar tu pago aquí: [Link de Pago]',
+                                                                            'Enviar Catálogo': 'Claro, aquí tienes nuestro catálogo actualizado: [Enlace al Catálogo]',
+                                                                            'Agendar Llamada': '¿Te gustaría agendar una llamada con uno de nuestros asesores?',
+                                                                            'Crear Ticket': 'He creado un ticket de soporte para tu caso. Folio: #' + Math.floor(Math.random() * 10000)
+                                                                        };
+                                                                        setNewMessage(prev => prev + (prev ? '\n' : '') + texts[action]);
+                                                                    }}
+                                                                    className="p-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/5 text-[10px] font-medium transition-all text-left active:scale-95"
+                                                                >
+                                                                    {action}
+                                                                </button>
+                                                            ))}
                                                         </div>
                                                     </div>
 
-                                                    {expandedOrderId === order.shopify_order_id && (
-                                                        <div className="mt-4 pt-4 border-t border-white/10 animate-in fade-in zoom-in-95 duration-200">
-                                                            {loadingDetails ? (
-                                                                <div className="flex justify-center py-4"><Loader2 className="w-4 h-4 animate-spin text-pink-500" /></div>
-                                                            ) : detailsError ? (
-                                                                <div className="text-center text-[10px] opacity-40 py-2 text-red-400">
-                                                                    Error cargando detalles.<br />
-                                                                    ID: {order.shopify_order_id}<br />
-                                                                    {detailsError}
+                                                    {/* Section: Coupons */}
+                                                    <div className="space-y-3">
+                                                        <div className="flex items-center gap-2 text-[10px] uppercase font-bold opacity-40">
+                                                            <Ticket size={10} /> Cupones Activos
+                                                        </div>
+                                                        <div className="space-y-2">
+                                                            {[
+                                                                { code: 'VIP20', desc: '20% OFF en toda la tienda' },
+                                                                { code: 'ENVIO_GRATIS', desc: 'Envío gratis > $999' }
+                                                            ].map(coupon => (
+                                                                <div
+                                                                    key={coupon.code}
+                                                                    onClick={() => {
+                                                                        setNewMessage(prev => prev + (prev ? ' ' : '') + coupon.code);
+                                                                        navigator.clipboard.writeText(coupon.code);
+                                                                    }}
+                                                                    className="p-3 rounded-xl bg-gradient-to-r from-pink-500/10 to-purple-500/10 border border-white/5 cursor-pointer hover:border-pink-500/30 transition-all group active:scale-95"
+                                                                >
+                                                                    <div className="flex justify-between items-center mb-1">
+                                                                        <span className="font-mono font-bold text-xs text-pink-400">{coupon.code}</span>
+                                                                        <Copy size={10} className="opacity-0 group-hover:opacity-50" />
+                                                                    </div>
+                                                                    <p className="text-[10px] opacity-60">{coupon.desc}</p>
                                                                 </div>
-                                                            ) : orderDetails ? (
-                                                                <div className="space-y-3">
-                                                                    <div className="space-y-2">
-                                                                        {orderDetails.line_items?.map((item: any, idx: number) => (
-                                                                            <div key={idx} className="flex justify-between text-[10px] items-start">
-                                                                                <div className="flex gap-2">
-                                                                                    <div className="bg-white/5 w-4 h-4 flex items-center justify-center rounded text-xs">{item.quantity}</div>
-                                                                                    <span className="opacity-80 max-w-[180px]">{item.title} - {item.variant_title}</span>
-                                                                                </div>
-                                                                                <span className="font-mono opacity-60">${item.price}</span>
-                                                                            </div>
-                                                                        ))}
+                                                            ))}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Section: Guides & Links */}
+                                                    <div className="space-y-3">
+                                                        <div className="flex items-center gap-2 text-[10px] uppercase font-bold opacity-40">
+                                                            <FileText size={10} /> Guías y Links
+                                                        </div>
+                                                        <div className="space-y-1">
+                                                            {['Política de Envíos', 'Tabla de Cannabinoides', 'Aviso de Privacidad'].map(guide => (
+                                                                <button
+                                                                    key={guide}
+                                                                    onClick={() => {
+                                                                        const links: Record<string, string> = {
+                                                                            'Política de Envíos': 'https://extractoseum.com/pages/politica-de-envios',
+                                                                            'Tabla de Cannabinoides': 'https://extractoseum.com/pages/tabla-cannabinoides',
+                                                                            'Aviso de Privacidad': 'https://extractoseum.com/pages/aviso-de-privacidad'
+                                                                        };
+                                                                        setNewMessage(prev => prev + (prev ? '\n' : '') + links[guide]);
+                                                                    }}
+                                                                    className="w-full flex items-center justify-between p-2 rounded-lg hover:bg-white/5 text-[11px] group transition-colors active:scale-95"
+                                                                >
+                                                                    <span className="opacity-70 group-hover:opacity-100">{guide}</span>
+                                                                    <ExternalLink size={10} className="opacity-0 group-hover:opacity-50" />
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {resourceDockTab === 'client' && (
+                                                <div className="p-6 space-y-6 animate-in fade-in duration-300">
+                                                    <div className="text-center pb-6 border-b border-dashed border-white/10">
+                                                        <div className="w-16 h-16 rounded-full mx-auto p-0.5 mb-3 shadow-xl"
+                                                            style={{ background: `linear-gradient(to bottom right, ${theme.accent}, ${theme.accentSecondary})` }}>
+                                                            <div className="w-full h-full rounded-full bg-black flex items-center justify-center">
+                                                                <span className="text-xl font-bold">{selectedConv.contact_handle[0]?.toUpperCase() || '?'}</span>
+                                                            </div>
+                                                        </div>
+                                                        <h3 className="text-md font-black truncate tracking-tight">{contactSnapshot?.name || selectedConv.contact_handle}</h3>
+                                                        <p className="text-[9px] opacity-40 font-mono uppercase tracking-tighter">ID: {selectedConv.id.substring(0, 8)} | Risk: {contactSnapshot?.risk_level || 'N/A'}</p>
+                                                    </div>
+
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        <div className="p-3 rounded-2xl bg-white/5 border border-white/5 text-center">
+                                                            <p className="text-[9px] uppercase font-bold opacity-30 mb-1">LTV Total</p>
+                                                            <p className="text-lg font-mono font-bold" style={{ color: theme.accent }}>${contactSnapshot?.ltv?.toLocaleString('en-US', { minimumFractionDigits: 2 }) || '0.00'}</p>
+                                                        </div>
+                                                        <div className="p-3 rounded-2xl bg-white/5 border border-white/5 text-center">
+                                                            <p className="text-[9px] uppercase font-bold opacity-30 mb-1">Pedidos</p>
+                                                            <p className="text-lg font-mono font-bold">{contactSnapshot?.orders_count || 0}</p>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="bg-white/5 rounded-2xl p-4 border border-white/5 relative overflow-hidden group">
+                                                        <p className="text-[9px] uppercase font-bold opacity-30 mb-3 flex items-center gap-2">
+                                                            <Activity size={10} /> Resumen Inteligente
+                                                        </p>
+                                                        <ul className="space-y-2 text-xs opacity-70 font-light">
+                                                            {(contactSnapshot?.summary_bullets?.length ? contactSnapshot.summary_bullets : [
+                                                                'Cliente nuevo sin historial previo.',
+                                                                'Interés potencial en vapes desechables.',
+                                                                'No se detectan riesgos de pago.'
+                                                            ]).map((bullet: string, i: number) => (
+                                                                <li key={i} className="flex gap-2">
+                                                                    <span className="text-pink-500 mt-1">•</span>
+                                                                    {bullet}
+                                                                </li>
+                                                            ))}
+                                                        </ul>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {resourceDockTab === 'orders' && (
+                                                <div className="p-6 space-y-4 animate-in fade-in duration-300">
+                                                    {loadingOrders ? (
+                                                        <div className="flex justify-center p-8"><Loader2 className="animate-spin" style={{ color: theme.accent }} /></div>
+                                                    ) : clientOrders.length === 0 ? (
+                                                        <div className="flex flex-col items-center justify-center opacity-30 py-10 gap-2">
+                                                            <ShoppingBag size={32} />
+                                                            <p className="text-[10px] font-mono">SIN PEDIDOS</p>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="space-y-3">
+                                                            {clientOrders.map((order: any, i: number) => (
+                                                                <div
+                                                                    key={i}
+                                                                    onClick={() => fetchOrderDetails(order.shopify_order_id)}
+                                                                    className={`bg-white/5 border ${expandedOrderId === order.shopify_order_id ? 'border-pink-500/50 bg-white/10' : 'border-white/5'} p-3 rounded-xl cursor-pointer hover:border-pink-500/20 transition-all`}
+                                                                >
+                                                                    <div className="flex justify-between items-center">
+                                                                        <div>
+                                                                            <p className="text-[11px] font-bold text-white mb-0.5">#{order.order_number}</p>
+                                                                            <p className="text-[9px] opacity-50 font-mono">{new Date(order.shopify_created_at || order.created_at).toLocaleDateString()}</p>
+                                                                        </div>
+                                                                        <div className="text-right">
+                                                                            <p className="text-[11px] font-bold font-mono text-pink-400">${order.total_amount}</p>
+                                                                            <span className={`text-[8px] px-1.5 py-0.5 rounded font-bold uppercase ${order.status === 'paid' ? 'bg-green-500/10 text-green-400' : 'bg-yellow-500/10 text-yellow-500'}`}>{order.status}</span>
+                                                                        </div>
                                                                     </div>
+                                                                    {expandedOrderId === order.shopify_order_id && (
+                                                                        <div className="mt-3 pt-3 border-t border-white/10 animate-in fade-in zoom-in-95 duration-200">
+                                                                            {loadingDetails ? (
+                                                                                <div className="flex justify-center py-2"><Loader2 className="w-3 h-3 animate-spin text-pink-500" /></div>
+                                                                            ) : orderDetails ? (
+                                                                                <div className="space-y-3">
+                                                                                    {/* Financial & Fulfillment Status */}
+                                                                                    <div className="flex flex-wrap gap-2 mb-2">
+                                                                                        <span className={`text-[8px] px-1.5 py-0.5 rounded font-bold uppercase border ${orderDetails.financial_status === 'paid' ? 'border-green-500/30 text-green-400' : 'border-yellow-500/30 text-yellow-500'}`}>
+                                                                                            Pago: {orderDetails.financial_status || 'N/A'}
+                                                                                        </span>
+                                                                                        <span className={`text-[8px] px-1.5 py-0.5 rounded font-bold uppercase border ${orderDetails.fulfillment_status === 'fulfilled' ? 'border-blue-500/30 text-blue-400' : 'border-gray-500/30 text-gray-400'}`}>
+                                                                                            Envío: {orderDetails.fulfillment_status || 'Unfulfilled'}
+                                                                                        </span>
+                                                                                    </div>
 
-                                                                    <div className="bg-black/20 p-2 rounded text-[10px] space-y-1 font-mono opacity-70">
-                                                                        <div className="flex justify-between">
-                                                                            <span>Subtotal</span>
-                                                                            <span>${orderDetails.subtotal_price}</span>
-                                                                        </div>
-                                                                        <div className="flex justify-between">
-                                                                            <span>Envío</span>
-                                                                            <span>${orderDetails.total_shipping_price_set?.shop_money?.amount || '0.00'}</span>
-                                                                        </div>
-                                                                        <div className="flex justify-between text-pink-400 font-bold border-t border-white/10 pt-1 mt-1">
-                                                                            <span>Total</span>
-                                                                            <span>${orderDetails.total_price}</span>
-                                                                        </div>
-                                                                    </div>
-
-                                                                    {orderDetails.shipping_address && (
-                                                                        <div className="text-[10px] opacity-50">
-                                                                            <p className="uppercase font-bold text-[8px] mb-1">Envío a:</p>
-                                                                            <p>{orderDetails.shipping_address.address1}, {orderDetails.shipping_address.city}</p>
-                                                                            <p>{orderDetails.shipping_address.province}, {orderDetails.shipping_address.zip}</p>
-                                                                        </div>
-                                                                    )}
-
-                                                                    {orderDetails.fulfillments && orderDetails.fulfillments.length > 0 && (
-                                                                        <div className="mt-2 pt-2 border-t border-white/10">
-                                                                            <p className="uppercase font-bold text-[8px] mb-1 opacity-50 flex items-center gap-1">
-                                                                                <Truck size={10} /> Rastreo
-                                                                            </p>
-                                                                            <div className="space-y-2">
-                                                                                {orderDetails.fulfillments.map((fulfillment: any, idx: number) => (
-                                                                                    fulfillment.tracking_number && (
-                                                                                        <div key={idx} className="flex flex-col text-[10px]">
-                                                                                            {fulfillment.tracking_company && <span className="opacity-70 text-[9px] mb-0.5">{fulfillment.tracking_company}</span>}
-                                                                                            <a
-                                                                                                href={fulfillment.tracking_url}
-                                                                                                target="_blank"
-                                                                                                rel="noopener noreferrer"
-                                                                                                className="text-cyan-400 hover:text-cyan-300 hover:underline flex items-center gap-1 font-mono break-all"
-                                                                                            >
-                                                                                                {fulfillment.tracking_number}
-                                                                                                <ExternalLink size={8} />
-                                                                                            </a>
+                                                                                    {/* Line Items */}
+                                                                                    {orderDetails.line_items && orderDetails.line_items.length > 0 ? (
+                                                                                        <div className="space-y-2">
+                                                                                            {orderDetails.line_items.map((item: any, idx: number) => (
+                                                                                                <div key={idx} className="flex justify-between text-[9px] items-start opacity-80">
+                                                                                                    <span className="max-w-[70%]">{item.quantity}x {item.title || item.name || 'Producto desconocido'}</span>
+                                                                                                    <span className="font-mono">${item.price}</span>
+                                                                                                </div>
+                                                                                            ))}
                                                                                         </div>
-                                                                                    )
-                                                                                ))}
-                                                                            </div>
+                                                                                    ) : (
+                                                                                        <div className="py-2 text-center opacity-40">
+                                                                                            <p className="text-[9px] italic">No hay ítems registrados</p>
+                                                                                        </div>
+                                                                                    )}
+
+                                                                                    {/* Shipping Lines */}
+                                                                                    {orderDetails.shipping_lines?.map((shipping: any, sIdx: number) => (
+                                                                                        <div key={`ship-${sIdx}`} className="flex justify-between text-[9px] text-blue-300 items-center border-t border-white/5 pt-1">
+                                                                                            <span>Envío ({shipping.title})</span>
+                                                                                            <span className="font-mono">${shipping.price}</span>
+                                                                                        </div>
+                                                                                    ))}
+
+                                                                                    {/* Totals Breakdown */}
+                                                                                    <div className="border-t border-white/10 pt-2 space-y-1">
+                                                                                        <div className="flex justify-between text-[9px] opacity-60">
+                                                                                            <span>Subtotal</span>
+                                                                                            <span className="font-mono">${orderDetails.current_subtotal_price || orderDetails.subtotal_price}</span>
+                                                                                        </div>
+                                                                                        {parseFloat(orderDetails.total_tax) > 0 && (
+                                                                                            <div className="flex justify-between text-[9px] opacity-60">
+                                                                                                <span>Impuestos</span>
+                                                                                                <span className="font-mono">${orderDetails.total_tax}</span>
+                                                                                            </div>
+                                                                                        )}
+                                                                                        {parseFloat(orderDetails.total_discounts) > 0 && (
+                                                                                            <div className="flex justify-between text-[9px] text-green-400">
+                                                                                                <span>Descuento</span>
+                                                                                                <span className="font-mono">-${orderDetails.total_discounts}</span>
+                                                                                            </div>
+                                                                                        )}
+                                                                                        <div className="flex justify-between text-[10px] font-bold text-pink-400 pt-1">
+                                                                                            <span>Total</span>
+                                                                                            <span className="font-mono">${orderDetails.total_price}</span>
+                                                                                        </div>
+                                                                                    </div>
+
+                                                                                    {/* Fulfillments / Tracking */}
+                                                                                    {orderDetails.fulfillments && orderDetails.fulfillments.length > 0 && (
+                                                                                        <div className="mt-2 pt-2 border-t border-white/5 space-y-2">
+                                                                                            <p className="text-[9px] font-bold opacity-70">Envíos / Rastreo:</p>
+                                                                                            {orderDetails.fulfillments.map((fill: any, fIdx: number) => (
+                                                                                                <div key={fIdx} className="bg-white/5 p-2 rounded flex flex-col gap-1">
+                                                                                                    <div className="flex justify-between text-[9px]">
+                                                                                                        <span className="opacity-70">{fill.tracking_company || 'Paquetería'}</span>
+                                                                                                        <span className={`uppercase font-bold ${fill.shipment_status === 'delivered' ? 'text-green-400' : 'text-blue-400'}`}>
+                                                                                                            {fill.shipment_status || fill.status || 'En camino'}
+                                                                                                        </span>
+                                                                                                    </div>
+                                                                                                    {fill.tracking_number && (
+                                                                                                        <div className="flex items-center justify-between text-[10px]">
+                                                                                                            <span className="font-mono text-white/80 select-all">{fill.tracking_number}</span>
+                                                                                                            {fill.tracking_url && (
+                                                                                                                <a
+                                                                                                                    href={fill.tracking_url}
+                                                                                                                    target="_blank"
+                                                                                                                    rel="noreferrer"
+                                                                                                                    className="text-pink-400 hover:text-pink-300 underline flex items-center gap-1"
+                                                                                                                    onClick={(e) => e.stopPropagation()}
+                                                                                                                >
+                                                                                                                    Rastrear <ExternalLink size={8} />
+                                                                                                                </a>
+                                                                                                            )}
+                                                                                                        </div>
+                                                                                                    )}
+                                                                                                </div>
+                                                                                            ))}
+                                                                                        </div>
+                                                                                    )}
+
+                                                                                    {/* Shipping Address */}
+                                                                                    {orderDetails.shipping_address && (
+                                                                                        <div className="mt-2 pt-2 border-t border-white/5 opacity-50 text-[8px]">
+                                                                                            <p className="font-bold mb-0.5">Dirección de Envío:</p>
+                                                                                            <p>{orderDetails.shipping_address.address1}, {orderDetails.shipping_address.city}</p>
+                                                                                            <p>{orderDetails.shipping_address.zip}, {orderDetails.shipping_address.country}</p>
+                                                                                        </div>
+                                                                                    )}
+                                                                                </div>
+                                                                            ) : (
+                                                                                <div className="py-2 text-center opacity-40">
+                                                                                    <p className="text-[9px] italic">No se pudo cargar la información del pedido.</p>
+                                                                                </div>
+                                                                            )}
                                                                         </div>
                                                                     )}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+
+                                            {resourceDockTab === 'insights' && (
+                                                <div className="p-6 space-y-8 animate-in fade-in duration-300">
+                                                    <div className="space-y-4">
+                                                        <div className="flex justify-between items-center">
+                                                            <h4 className="text-[10px] font-bold uppercase tracking-widest opacity-60" style={{ color: theme.accent }}>Comportamiento en Tienda</h4>
+                                                            <button
+                                                                onClick={() => selectedConv && fetchBrowsingEvents(selectedConv.contact_handle)}
+                                                                className="p-1 hover:bg-white/10 rounded transition-colors text-white/30 hover:text-white"
+                                                                title="Actualizar actividad"
+                                                            >
+                                                                <Activity size={12} className={loadingEvents ? 'animate-spin' : ''} />
+                                                            </button>
+                                                        </div>
+                                                        <div className="bg-white/[0.02] p-4 rounded-3xl border border-white/5 max-h-60 overflow-y-auto scrollbar-thin">
+                                                            {loadingEvents ? (
+                                                                <div className="flex justify-center py-4"><Loader2 className="w-4 h-4 animate-spin text-pink-500" /></div>
+                                                            ) : browsingEvents.length > 0 ? (
+                                                                <div className="space-y-3">
+                                                                    {browsingEvents.map((event: any, i: number) => {
+                                                                        let icon = <Activity size={12} className="text-gray-400" />;
+                                                                        let effectiveType = event.metadata?.original_event_type || event.event_type;
+                                                                        let text = `Evento: ${effectiveType}`;
+
+                                                                        switch (effectiveType) {
+                                                                            case 'view_product':
+                                                                                icon = <Eye size={12} className="text-blue-400" />;
+                                                                                text = `Vio ${event.metadata?.product_name || 'Producto'}`;
+                                                                                break;
+                                                                            case 'search':
+                                                                                icon = <Search size={12} className="text-cyan-400" />;
+                                                                                text = `Buscó: "${event.metadata?.query || '...'}"`;
+                                                                                break;
+                                                                            case 'add_to_cart':
+                                                                                icon = <ShoppingCart size={12} className="text-green-500 animate-pulse" />;
+                                                                                text = `Agregó al Carrito`;
+                                                                                break;
+                                                                            case 'view_cart':
+                                                                                icon = <ShoppingBag size={12} className="text-purple-400" />;
+                                                                                text = `Revisando su Carrito`;
+                                                                                break;
+                                                                            case 'initiate_checkout':
+                                                                                icon = <CreditCard size={12} className="text-pink-500 animate-bounce" />;
+                                                                                text = `¡INICIÓ PAGO!`;
+                                                                                break;
+                                                                            case 'click_contact':
+                                                                                icon = <MessageCircle size={12} className="text-green-400" />;
+                                                                                text = `Clic en Contacto (${event.metadata?.channel || 'WA'})`;
+                                                                                break;
+                                                                            case 'view_collection':
+                                                                                icon = <LayoutGrid size={12} className="text-orange-400" />;
+                                                                                text = `Vio Colección: ${event.metadata?.collection_name || '...'}`;
+                                                                                break;
+                                                                            default:
+                                                                                // Hooks universales (Voz, Custom)
+                                                                                if (event.event_type.includes('voice')) {
+                                                                                    icon = <Mic size={12} className="text-red-400" />;
+                                                                                    text = `Voz: ${JSON.stringify(event.metadata)}`;
+                                                                                }
+                                                                        }
+
+                                                                        return (
+                                                                            <div key={i} className="flex gap-3 items-start border-l-2 border-white/5 pl-3 py-1">
+                                                                                <div className="mt-1">{icon}</div>
+                                                                                <div className="flex-1 min-w-0">
+                                                                                    <div className="flex justify-between items-baseline">
+                                                                                        <p className="text-[11px] font-bold truncate">{text}</p>
+                                                                                        <span className="text-[8px] opacity-30 font-mono">{new Date(event.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+                                                                    })}
                                                                 </div>
                                                             ) : (
-                                                                <div className="text-center text-[10px] opacity-40 py-2 text-red-400">
-                                                                    Error cargando detalles.<br />
-                                                                    ID: {order.shopify_order_id}<br />
-                                                                    {orderDetails?.error || 'Sin respuesta del servidor'}
+                                                                <div className="text-center py-6 opacity-20 flex flex-col items-center gap-2">
+                                                                    <Activity size={20} />
+                                                                    <p className="text-[10px] uppercase font-bold tracking-widest">Sin actividad</p>
                                                                 </div>
                                                             )}
                                                         </div>
-                                                    )}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            )}
+                                                    </div>
 
-                            {selectedTab === 'insights' && (
-                                <div className="flex-1 overflow-y-auto p-6 space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                                    <div className="space-y-4">
-                                        <h4 className="text-[10px] font-bold uppercase tracking-widest opacity-60" style={{ color: theme.accent }}>Insights y Comportamiento</h4>
-                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                            <div className="bg-white/[0.02] p-4 rounded-3xl border border-white/5">
-                                                <p className="text-[9px] uppercase font-bold opacity-30 mb-2">Personalidad</p>
-                                                <div className="flex flex-wrap gap-1">
-                                                    {selectedConv.facts?.personality && selectedConv.facts.personality.length > 0 ? (
-                                                        selectedConv.facts.personality.map((p: string) => (
-                                                            <span key={p} className="px-2 py-0.5 text-[9px] rounded-md font-bold" style={{ backgroundColor: `${theme.accent}15`, color: theme.accent }}>{p}</span>
-                                                        ))
-                                                    ) : (
-                                                        ['Directo', 'Frio', 'Potencial'].map(p => (
-                                                            <span key={p} className="px-2 py-0.5 bg-pink-500/10 text-pink-500 text-[9px] rounded-md font-bold">{p}</span>
-                                                        ))
-                                                    )}
-                                                </div>
-                                            </div>
-                                            <div className="bg-white/[0.02] p-4 rounded-3xl border border-white/5">
-                                                <p className="text-[9px] uppercase font-bold opacity-30 mb-2">Insignias / Tags</p>
-                                                <div className="flex flex-wrap gap-1">
-                                                    {/* Merge Shopify Tags and Local CRM Tags */}
-                                                    {(() => {
-                                                        const shopifyTags = selectedConv.tags || [];
-                                                        const localTags = selectedConv.facts?.tags || [];
-                                                        const allTags = Array.from(new Set([...shopifyTags, ...localTags]));
-
-                                                        if (allTags.length > 0) {
-                                                            return allTags.map((tag: string) => (
-                                                                <span key={tag} className={`px-2 py-0.5 text-[9px] rounded-md font-bold border ${getTagColor(tag)}`}>{tag}</span>
-                                                            ));
-                                                        }
-                                                        return <span className="text-[9px] opacity-30 italic">Sin etiquetas</span>;
-                                                    })()}
-                                                </div>
-                                            </div>
-                                            <div className="bg-white/[0.02] p-4 rounded-3xl border border-white/5">
-                                                <p className="text-[9px] uppercase font-bold opacity-30 mb-2">Interés</p>
-                                                <p className="text-xs font-bold">
-                                                    {selectedConv.facts?.interests ? selectedConv.facts.interests.join(', ') : 'Vapes, Gummies'}
-                                                </p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="space-y-4">
-                                        <div className="flex justify-between items-center">
-                                            <h4 className="text-[10px] font-bold uppercase tracking-widest text-pink-500/60">Comportamiento en Tienda</h4>
-                                            <button
-                                                onClick={() => selectedConv && fetchBrowsingEvents(selectedConv.contact_handle)}
-                                                className="p-1 hover:bg-white/10 rounded transition-colors text-pink-500/40 hover:text-pink-500"
-                                                title="Actualizar actividad"
-                                            >
-                                                <Activity size={12} className={loadingEvents ? 'animate-spin' : ''} />
-                                            </button>
-                                        </div>
-                                        <div className="bg-white/[0.02] p-4 rounded-3xl border border-white/5 max-h-60 overflow-y-auto scrollbar-thin">
-                                            {loadingEvents ? (
-                                                <div className="flex justify-center py-4"><Loader2 className="w-4 h-4 animate-spin text-pink-500" /></div>
-                                            ) : browsingEvents.length > 0 ? (
-                                                <div className="space-y-3">
-                                                    {browsingEvents.map((event, i) => (
-                                                        <div key={i} className="flex gap-3 items-start border-l-2 border-white/5 pl-3 py-1">
-                                                            <div className="mt-1">
-                                                                {event.event_type === 'view_product' ? <Eye size={12} className="text-blue-400" /> : <Search size={12} className="text-cyan-400" />}
+                                                    <div className="space-y-4 pt-4 border-t border-emerald-500/10">
+                                                        <div className="flex justify-between items-center group/header">
+                                                            <div className="flex items-center gap-2">
+                                                                <div className="w-1.5 h-1.5 rounded-full bg-pink-500 animate-pulse" />
+                                                                <h4 className="text-[10px] font-bold uppercase tracking-widest text-pink-500 font-black">Plan de Acción AI</h4>
+                                                                {loadingEvents && <Loader2 size={10} className="animate-spin text-pink-400" />}
                                                             </div>
-                                                            <div className="flex-1 min-w-0">
-                                                                <div className="flex justify-between items-baseline">
-                                                                    <p className="text-[11px] font-bold truncate">
-                                                                        {event.event_type === 'view_product' ? `Vio ${event.metadata?.product_name || 'Producto'}` : `Buscó: "${event.metadata?.query || '...'}"`}
+                                                            <button
+                                                                onClick={handleRecalibrate}
+                                                                disabled={loadingEvents}
+                                                                className="px-2.5 py-1.5 rounded-full bg-pink-500/10 hover:bg-pink-500/20 text-pink-400 flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-50 border border-pink-500/30 shadow-lg shadow-pink-500/5"
+                                                            >
+                                                                <RefreshCw size={10} className={loadingEvents ? 'animate-spin' : ''} />
+                                                                <span className="text-[9px] font-bold">{loadingEvents ? 'Analizando...' : 'Recalibrar'}</span>
+                                                            </button>
+                                                        </div>
+                                                        <div className="space-y-2">
+                                                            {selectedConv.facts?.action_plan && selectedConv.facts.action_plan.length > 0 ? (
+                                                                selectedConv.facts.action_plan.map((action: any, j: number) => (
+                                                                    <button
+                                                                        key={j}
+                                                                        onClick={() => handleActionClick(action)}
+                                                                        className="w-full text-left p-3 rounded-xl bg-black/40 border border-white/5 group hover:border-pink-500/40 transition-all flex justify-between items-center"
+                                                                    >
+                                                                        <div className="flex flex-col">
+                                                                            <span className="text-xs font-bold group-hover:text-pink-400">{action.label}</span>
+                                                                            <span className="text-[8px] opacity-30 font-mono">{action.meta}</span>
+                                                                        </div>
+                                                                        <Plus size={12} className="opacity-40" />
+                                                                    </button>
+                                                                ))
+                                                            ) : (
+                                                                <div className="text-center py-6 border border-dashed border-white/5 rounded-2xl bg-white/[0.01]">
+                                                                    <p className="text-[10px] opacity-30 italic px-4">
+                                                                        {loadingEvents ? 'Procesando comportamiento reciente y chat para generar recomendaciones...' : 'No se detectaron acciones inmediatas. Pulsa "Recalibrar" para re-analizar.'}
                                                                     </p>
-                                                                    <span className="text-[8px] opacity-30 font-mono">
-                                                                        {new Date(event.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                                    </span>
                                                                 </div>
-                                                                <p className="text-[9px] opacity-40 truncate">{event.url || 'Shopify Store'}</p>
-                                                            </div>
+                                                            )}
                                                         </div>
-                                                    ))}
-                                                </div>
-
-                                            ) : (
-                                                <div className="text-center py-6 opacity-20 flex flex-col items-center gap-2">
-                                                    <Activity size={20} />
-                                                    <p className="text-[10px] uppercase font-bold tracking-widest">Sin actividad reciente</p>
-                                                    {isSuperAdmin && (
-                                                        <button
-                                                            onClick={handleSimulateVisit}
-                                                            className="mt-2 px-3 py-1 rounded bg-white/10 hover:bg-white/20 text-[9px] font-mono transition-colors"
-                                                        >
-                                                            [DEV] SIMULAR VISITA
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    <div className="space-y-4">
-                                        <h4 className="text-[10px] font-bold uppercase tracking-widest text-pink-500/60">Acciones Recomendadas (AI)</h4>
-                                        <div className="space-y-2">
-                                            {selectedConv.facts?.action_plan && selectedConv.facts.action_plan.length > 0 ? (
-                                                selectedConv.facts.action_plan.map((action: any, j: number) => (
-                                                    <button
-                                                        key={j}
-                                                        onClick={() => handleActionClick(action)}
-                                                        className="w-full text-left p-4 rounded-2xl bg-black/20 border border-white/5 group hover:border-pink-500/40 transition-all flex items-center justify-between"
-                                                    >
-                                                        <div className="flex flex-col gap-0.5">
-                                                            <span className="text-xs font-bold group-hover:text-pink-400 transition-colors">{action.label}</span>
-                                                            <span className="text-[9px] opacity-30 uppercase font-mono">{action.meta}</span>
-                                                        </div>
-                                                        <div className="p-2 rounded-xl bg-white/5 group-hover:bg-pink-500 group-hover:text-white transition-all">
-                                                            <Plus size={14} />
-                                                        </div>
-                                                    </button>
-                                                ))
-                                            ) : (
-                                                <div className="text-center opacity-30 text-[10px] py-4 border border-dashed border-white/10 rounded-xl">
-                                                    Esperando análisis de Cortex...
+                                                    </div>
                                                 </div>
                                             )}
                                         </div>
                                     </div>
                                 </div>
-                            )}
+                            </div>
                         </div>
                     )}
 
                     {showToolEditor && <ToolEditor onClose={() => setShowToolEditor(false)} />}
+                    {showOrchestrator && <OrchestratorConfig onClose={() => setShowOrchestrator(false)} />}
                 </div>
             </AppLayout>
-        </Screen>
+        </Screen >
     );
 };
 

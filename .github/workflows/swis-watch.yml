@@ -1,6 +1,22 @@
 name: SWIS Watch Guardrails
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [main, develop, 'feature/**']
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - 'e2e/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/**'
+  pull_request:
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - 'e2e/**'
+      - 'package.json'
+      - 'package-lock.json'
 
 jobs:
   validate:
@@ -10,6 +26,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
       - run: npm ci
       - run: node scripts/validate-uimap.js
       
@@ -21,8 +38,26 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
       - run: npm ci
-      - run: npx playwright install --with-deps
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
+      - name: Install Playwright
+        run: npx playwright install --with-deps
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+      
+      - name: Install Playwright Deps (if cache hit)
+        run: npx playwright install-deps
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+
       - run: npx playwright test e2e/verify-beacons.spec.ts
       - uses: actions/upload-artifact@v4
         if: failure()

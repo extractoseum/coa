@@ -39,14 +39,26 @@ export const trackBehaviorEvent = async (req: Request, res: Response) => {
             }
         }
 
-        // 2. Insert event
+        // 2. Map event_type if not in DB allowed list to prevent constraint violation
+        // Allowed: ('view_product', 'search_view', 'collection_view', 'add_to_cart')
+        const allowedTypes = ['view_product', 'search_view', 'collection_view', 'add_to_cart'];
+        let finalEventType = event_type;
+        let finalMetadata = { ...metadata };
+
+        if (!allowedTypes.includes(event_type)) {
+            console.log(`[Behavior] Event type "${event_type}" not allowed by DB constraint. Mapping to "view_product" with metadata.`);
+            finalEventType = 'view_product';
+            finalMetadata.original_event_type = event_type;
+        }
+
+        // 3. Insert event
         const { error } = await supabase
             .from('browsing_events')
             .insert({
                 client_id: clientId,
-                event_type,
+                event_type: finalEventType,
                 handle: handle || null,
-                metadata,
+                metadata: finalMetadata,
                 session_id: session_id || null,
                 url: url || null,
                 created_at: new Date().toISOString()
@@ -71,6 +83,7 @@ export const trackBehaviorEvent = async (req: Request, res: Response) => {
 export const getClientActivity = async (req: Request, res: Response) => {
     try {
         const { handle } = req.params;
+        const { email: queryEmail } = req.query;
 
         // Security Check: Must be admin or the user themselves
         // Note: This relies on requireAuth middleware being upstream
@@ -81,12 +94,31 @@ export const getClientActivity = async (req: Request, res: Response) => {
             return res.status(401).json({ success: false, error: 'Unauthorized' });
         }
 
-        // Find client first to get UUID
-        const { data: client } = await supabase
-            .from('clients')
-            .select('id')
-            .or(`email.eq.${handle},phone.eq.${handle}`)
-            .maybeSingle();
+        // Find client first to get UUID with flexible matching
+        const isEmail = handle.includes('@');
+        let clientLookup = supabase.from('clients').select('id, email');
+
+        const filters = [];
+        if (isEmail) {
+            filters.push(`email.ilike.${handle}`);
+        } else {
+            const last10 = handle.replace(/\D/g, '').slice(-10);
+            if (last10.length >= 10) {
+                filters.push(`phone.ilike.%${last10}`);
+            } else {
+                filters.push(`email.eq.${handle}`);
+            }
+        }
+
+        if (queryEmail) {
+            filters.push(`email.eq.${queryEmail}`);
+        }
+
+        if (filters.length > 0) {
+            clientLookup = clientLookup.or(filters.join(','));
+        }
+
+        const { data: client } = await clientLookup.maybeSingle();
 
         let query = supabase
             .from('browsing_events')
@@ -94,24 +126,39 @@ export const getClientActivity = async (req: Request, res: Response) => {
             .order('created_at', { ascending: false })
             .limit(20);
 
+        const last10Digits = handle.replace(/\D/g, '').slice(-10);
+        let handleMatch = isEmail ? `handle.ilike.${handle}` : `handle.ilike.%${last10Digits || handle}%`;
+
+        // --- IDENTITY BRIDGE: Also search for the email directly in events handle ---
+        if (queryEmail) {
+            handleMatch += `,handle.eq.${queryEmail}`;
+        }
+
+        // --- IDENTITY BRIDGE: If we found a client with an email, search for that too! ---
+        if (client?.email && !handleMatch.includes(client.email)) {
+            handleMatch += `,handle.eq.${client.email}`;
+        }
+
         if (client) {
             // Check ownership
-            if (requesterRole !== 'super_admin' && client.id !== requesterId) {
+            const allowedRoles = ['super_admin', 'admin', 'staff'];
+            if (!allowedRoles.includes(requesterRole) && client.id !== requesterId) {
                 return res.status(403).json({ success: false, error: 'Forbidden' });
             }
-            query = query.or(`client_id.eq.${client.id},handle.ilike.${handle}`);
+            query = query.or(`client_id.eq.${client.id},${handleMatch}`);
         } else {
-            // If searching by handle string and no client found, only admin can search arbitrary handles?
-            if (requesterRole !== 'super_admin' && handle.toLowerCase() !== (req as any).userEmail?.toLowerCase()) {
+            // If searching by handle string and no client found
+            const allowedRoles = ['super_admin', 'admin', 'staff'];
+            if (!allowedRoles.includes(requesterRole) && handle.toLowerCase() !== (req as any).userEmail?.toLowerCase()) {
                 return res.status(403).json({ success: false, error: 'Forbidden' });
             }
-            query = query.ilike('handle', handle);
+            query = query.or(`handle.ilike.${handle},${handleMatch}`);
         }
 
         const { data, error } = await query;
-
         if (error) throw error;
 
+        console.log(`[Behavior] Found ${data?.length || 0} events for handle: ${handle}`);
         res.json({ success: true, events: data || [] });
     } catch (error: any) {
         console.error('[Behavior] Get activity error:', error.message);

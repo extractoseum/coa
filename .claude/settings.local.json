@@ -5,7 +5,9 @@
       "Bash(npm run build:*)",
       "Bash(find:*)",
       "Bash(curl:*)",
-      "Bash(npx cap sync)"
+      "Bash(npx cap sync)",
+      "Bash(cd:*)",
+      "Bash(npx tsc:*)"
     ]
   }
 }

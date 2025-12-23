@@ -1,0 +1,19 @@
+#!/usr/bin/expect -f
+set timeout 300
+set password ")l2fyDHz60u,nTAd,@tD"
+
+# 1. Sync Files
+spawn rsync -avz --exclude "node_modules" --exclude ".env" --exclude ".git" ./ root@148.230.88.203:/var/www/coa-viewer/backend/
+expect {
+    "password:" { send "$password\r" }
+    "yes/no" { send "yes\r"; exp_continue }
+}
+expect eof
+
+# 2. Install dependencies and Restart PM2
+spawn ssh root@148.230.88.203 "cd /var/www/coa-viewer/backend && npm install --production && pm2 restart coa-backend"
+expect {
+    "password:" { send "$password\r" }
+    "yes/no" { send "yes\r"; exp_continue }
+}
+expect eof

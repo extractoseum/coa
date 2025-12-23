@@ -1,0 +1,29 @@
+#!/usr/bin/expect -f
+set timeout -1
+set host "148.230.88.203"
+set user "root"
+set password "Mv+7c#dQ4U9ALV4Lup#p"
+set dest "/var/www/coa-viewer/backend/dist/"
+
+# Deploy Backend Files
+spawn scp -o StrictHostKeyChecking=no -r backend/dist $user@$host:/var/www/coa-viewer/backend/
+expect {
+    "password:" {
+        send "$password\r"
+        exp_continue
+    }
+    eof
+}
+
+# Restart PM2
+spawn ssh -o StrictHostKeyChecking=no $user@$host "pm2 restart coa-backend"
+expect {
+    "password:" {
+        send "$password\r"
+        exp_continue
+    }
+    eof
+}
+
+catch wait result
+exit [lindex $result 3]

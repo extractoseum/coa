@@ -1,0 +1,18 @@
+#!/usr/bin/expect -f
+set timeout -1
+set host "148.230.88.203"
+set user "root"
+set password "Mv+7c#dQ4U9ALV4Lup#p"
+set dest "/var/www/coa-viewer/"
+
+# Deploy
+spawn scp -o StrictHostKeyChecking=no -r frontend/dist/assets frontend/dist/index.html frontend/dist/logo_full.svg frontend/dist/robots.txt frontend/dist/routeManifest.json frontend/dist/OneSignalSDKWorker.js frontend/dist/vite.svg frontend/dist/agentMap.json $user@$host:$dest
+expect {
+    "password:" {
+        send "$password\r"
+        exp_continue
+    }
+    eof
+}
+catch wait result
+exit [lindex $result 3]

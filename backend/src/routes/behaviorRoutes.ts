@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { trackBehaviorEvent, getClientActivity } from '../controllers/behaviorController';
+import { requireAuth } from '../middleware/authMiddleware';
 
 const router = Router();
 
@@ -7,6 +8,6 @@ const router = Router();
 router.post('/track', trackBehaviorEvent);
 
 // Admin-only or internally used
-router.get('/activity/:handle', getClientActivity);
+router.get('/activity/:handle', requireAuth, getClientActivity);
 
 export default router;

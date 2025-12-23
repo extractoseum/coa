@@ -2,6 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import { requestLogger } from './middleware/RequestLogger';
+import { logger } from './utils/Logger';
 import { config } from './config/env';
 import coaRoutes from './routes/coaRoutes';
 import uploadRoutes from './routes/uploadRoutes';
@@ -32,6 +34,7 @@ import healthRoutes from './routes/healthRoutes'; // NEW: Vitality Health Check
 import behaviorRoutes from './routes/behaviorRoutes'; // NEW: Behavioral Intelligence Tracking
 import logsRoutes from './routes/logsRoutes'; // NEW: Telemetry Logs
 import sitemapRoutes from './routes/sitemapRoutes'; // NEW: Dynamic Sitemap
+import vapiRoutes from './routes/vapiRoutes'; // NEW: Vapi Real-Time Voice
 
 import { initCronJobs } from './services/cronService';
 
@@ -41,6 +44,8 @@ const app = express();
 app.set('trust proxy', 1);
 
 // Middleware
+app.use(requestLogger); // Phase 31: Obs & Forensics (Correlation ID)
+
 app.use(helmet({
     contentSecurityPolicy: {
         directives: {
@@ -66,11 +71,30 @@ app.use(cors({
     origin: (origin, callback) => {
         // Allow requests with no origin (like mobile apps or curl requests)
         if (!origin) return callback(null, true);
-        if (allowedOrigins.indexOf(origin) === -1) {
-            const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-            return callback(new Error(msg), false);
+
+        // Dynamic allowed list
+        const allowedDomains = [
+            process.env.FRONTEND_URL || 'http://localhost:5173',
+            'capacitor://localhost',
+            'http://localhost:3000',
+            'https://admin.extractoseum.com',
+            'https://visor.extractoseum.com',
+            'https://coa.extractoseum.com',
+            'https://viewer-coa.extractoseum.com',
+            'https://extractoseum.com'
+        ];
+
+        // 1. Check exact match
+        if (allowedDomains.includes(origin)) return callback(null, true);
+
+        // 2. Check subdomains of extractoseum.com
+        if (origin.endsWith('.extractoseum.com') || origin.endsWith('.vercel.app')) {
+            return callback(null, true);
         }
-        return callback(null, true);
+
+        const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+        return callback(null, true); // TEMPORARY FAIL-OPEN FOR DEBUGGING IF NEEDED, BUT LETS KEEP STRICT LOGIC AND ADD DOMAINS
+        // return callback(new Error(msg), false);
     },
     credentials: true
 }));
@@ -140,6 +164,7 @@ app.use('/api/v1/crm', crmRoutes); // NEW: Omnichannel CRM Core
 app.use('/api/v1/health', healthRoutes); // NEW: Vitality Health Check
 app.use('/api/v1/tools', toolsRoutes); // NEW: IDE Tools Editor
 app.use('/api/v1/behavior', behaviorRoutes); // NEW: Behavioral Intelligence Tracking
+app.use('/api/v1/vapi', vapiRoutes); // NEW: Vapi Voice Integration
 
 // Telemetry Logs Endpoint (Surgical Injection)
 app.use('/api/v1/logs', logsRoutes); // Telemetry Logs

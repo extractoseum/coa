@@ -10,20 +10,24 @@ export const ingestLog = async (req: Request, res: Response) => {
     try {
         const { event, trace_id, level = 'info', ...metadata } = req.body;
 
-        // Persist to Supabase
+        const payload = {
+            ...metadata,
+            trace_id: trace_id || `trace-${Date.now()}`
+        };
+
+        // Persist to Supabase using actual schema
         const { error } = await supabase
             .from('system_logs')
             .insert({
-                event,
-                trace_id: trace_id || `trace-${Date.now()}`, // Fallback if missing
-                level,
-                metadata: metadata,
+                category: 'telemetry',
+                event_type: event,
+                severity: level,
+                payload: payload,
                 created_at: new Date().toISOString()
             });
 
         if (error) {
             console.error('Failed to persist log:', error);
-            // Don't block the client, just log the error internally
         }
 
         // Still log to stdout for real-time monitoring
@@ -48,19 +52,30 @@ export const getSystemLogs = async (req: Request, res: Response) => {
             .order('created_at', { ascending: false })
             .limit(Number(limit));
 
-        if (level) {
-            query = query.eq('level', level);
+        if (level && level !== 'all') {
+            query = query.eq('severity', level);
         }
 
         const { data, error } = await query;
 
         if (error) throw error;
 
+        // Map DB schema back to Frontend interface
+        const logs = data?.map(row => ({
+            id: row.id,
+            created_at: row.created_at,
+            level: row.severity,
+            event: row.event_type || row.category, // Fallback for CRM logs
+            trace_id: row.payload?.trace_id || row.id,
+            metadata: row.payload
+        }));
+
         res.json({
             success: true,
-            logs: data
+            logs: logs || []
         });
     } catch (error: any) {
+        console.error('Get logs error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 };
@@ -87,8 +102,18 @@ export const exportSystemLogs = async (req: Request, res: Response) => {
 
         // CSV Body
         data.forEach(row => {
+            // Map DB schema to CSV format
+            const mappedRow: any = {
+                id: row.id,
+                created_at: row.created_at,
+                level: row.severity,
+                event: row.event_type || row.category,
+                trace_id: row.payload?.trace_id || row.id,
+                metadata: row.payload
+            };
+
             const line = fields.map(field => {
-                let cell = row[field];
+                let cell = mappedRow[field];
                 if (typeof cell === 'object') {
                     // Flatten JSON for metadata
                     cell = JSON.stringify(cell).replace(/"/g, '""'); // Escape double quotes
@@ -97,7 +122,7 @@ export const exportSystemLogs = async (req: Request, res: Response) => {
                 if (typeof cell === 'string' && (cell.includes(',') || cell.includes('"') || cell.includes('\n'))) {
                     return `"${cell}"`;
                 }
-                return cell;
+                return cell || '';
             });
             csv += line.join(',') + '\n';
         });
@@ -109,5 +134,18 @@ export const exportSystemLogs = async (req: Request, res: Response) => {
     } catch (error: any) {
         console.error('[Export Logs] Error:', error);
         res.status(500).send('Export failed');
+    }
+};
+
+export const getSystemInsights = async (req: Request, res: Response) => {
+    try {
+        const insights = await getInsights();
+        res.json({
+            success: true,
+            signals: insights || []
+        });
+    } catch (error: any) {
+        console.error('Get insights error:', error);
+        res.status(500).json({ success: false, error: 'Failed to generate insights' });
     }
 };

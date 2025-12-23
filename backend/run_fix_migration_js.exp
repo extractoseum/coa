@@ -1,0 +1,20 @@
+#!/usr/bin/expect -f
+set timeout 60
+set password ")l2fyDHz60u,nTAd,@tD"
+
+# Upload JS file (just in case)
+spawn scp src/scripts/execute_sql.js root@148.230.88.203:/var/www/coa-viewer/backend/src/scripts/
+expect {
+    "password:" { send "$password\r" }
+    "yes/no" { send "yes\r"; exp_continue }
+}
+expect eof
+
+# Run execution script with 3RD ALTERNATIVE PASSWORD
+# ExtractosEUM2025! -> encoded: ExtractosEUM2025%21
+spawn ssh root@148.230.88.203 "cd /var/www/coa-viewer/backend && DATABASE_URL='postgresql://postgres:ExtractosEUM2025%21@db.vbnpcospodhwuzvxejui.supabase.co:5432/postgres' node src/scripts/execute_sql.js 037_fix_chip_schema.sql"
+expect {
+    "password:" { send "$password\r" }
+    "yes/no" { send "yes\r"; exp_continue }
+}
+expect eof

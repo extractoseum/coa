@@ -38,7 +38,7 @@ export const SmartAppBanner = ({ onClose }: SmartAppBannerProps) => {
 
     return (
         <div
-            className="fixed bottom-0 left-0 right-0 z-50 p-4 border-t shadow-2xl transition-transform duration-300 transform translate-y-0"
+            className="fixed bottom-[70px] md:bottom-0 left-0 right-0 z-[9999] p-4 border-t shadow-2xl transition-transform duration-300 transform translate-y-0"
             style={{
                 backgroundColor: theme.cardBg,
                 borderColor: theme.border,
@@ -52,11 +52,11 @@ export const SmartAppBanner = ({ onClose }: SmartAppBannerProps) => {
                         style={{ backgroundColor: theme.bg }}
                     >
                         {/* App Icon Placeholder */}
-                        <div className="text-2xl font-bold" style={{ color: theme.accent }}>S</div>
+                        <div className="text-2xl font-bold" style={{ color: theme.accent }}>E</div>
                     </div>
                     <div>
                         <h4 className="font-bold text-sm" style={{ color: theme.text }}>
-                            SWIS Watch App
+                            EUM Viewer 2.0
                         </h4>
                         <p className="text-xs opacity-80" style={{ color: theme.textMuted }}>
                             {deviceType === 'ios' && 'Disponible en iOS (TestFlight)'}

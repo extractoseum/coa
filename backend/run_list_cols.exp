@@ -1,0 +1,17 @@
+#!/usr/bin/expect -f
+set timeout 60
+set password ")l2fyDHz60u,nTAd,@tD"
+
+spawn scp src/scripts/list_columns.ts root@148.230.88.203:/var/www/coa-viewer/backend/src/scripts/
+expect {
+    "password:" { send "$password\r" }
+    "yes/no" { send "yes\r"; exp_continue }
+}
+expect eof
+
+spawn ssh root@148.230.88.203 "cd /var/www/coa-viewer/backend && npx ts-node src/scripts/list_columns.ts"
+expect {
+    "password:" { send "$password\r" }
+    "yes/no" { send "yes\r"; exp_continue }
+}
+expect eof

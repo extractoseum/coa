@@ -243,6 +243,11 @@ export const filterEditableFields = (req: Request, res: Response, next: NextFunc
  */
 export const requireStepUp = (maxAgeMinutes = 5) => {
     return (req: Request, res: Response, next: NextFunction) => {
+        // Super admins bypass step-up verification
+        if (req.userRole === 'super_admin') {
+            return next();
+        }
+
         if (!req.lastVerifiedAt) {
             return res.status(403).json({
                 success: false,

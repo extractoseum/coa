@@ -1,0 +1,19 @@
+#!/usr/bin/expect -f
+set timeout 60
+set password ")l2fyDHz60u,nTAd,@tD"
+
+# Upload JS file
+spawn scp src/scripts/inspect_schema.js root@148.230.88.203:/var/www/coa-viewer/backend/src/scripts/
+expect {
+    "password:" { send "$password\r" }
+    "yes/no" { send "yes\r"; exp_continue }
+}
+expect eof
+
+# Run script
+spawn ssh root@148.230.88.203 "cd /var/www/coa-viewer/backend && node src/scripts/inspect_schema.js"
+expect {
+    "password:" { send "$password\r" }
+    "yes/no" { send "yes\r"; exp_continue }
+}
+expect eof

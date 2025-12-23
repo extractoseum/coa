@@ -7,6 +7,7 @@
 
 import axios from 'axios';
 import { supabase } from '../config/supabase';
+import { normalizePhone } from '../utils/phoneUtils';
 
 const WHAPI_BASE_URL = 'https://gate.whapi.cloud';
 const WHAPI_TOKEN = process.env.WHAPI_TOKEN;
@@ -16,7 +17,7 @@ const MESSAGE_DELAY_MS = 1000;
 
 const whapiApi = axios.create({
     baseURL: WHAPI_BASE_URL,
-    timeout: 30000,
+    timeout: 5000,
     headers: {
         'Authorization': `Bearer ${WHAPI_TOKEN}`,
         'Content-Type': 'application/json',
@@ -50,19 +51,10 @@ interface BulkResult {
  * Siempre tomamos los últimos 10 dígitos y prependeamos 521.
  * El usuario aclaró que TODOS los números deben tratarse como mexicanos.
  */
-export const normalizePhone = (phone: string): string => {
-    // Remover todo excepto dígitos
-    const clean = phone.replace(/\D/g, '');
-
-    // Si es demasiado corto, retornamos tal cual (mínimo 10 dígitos)
-    if (clean.length < 10) return clean;
-
-    // Tomar los últimos 10 dígitos (el número base)
-    const base10 = clean.substring(clean.length - 10);
-
-    // Siempre prependeamos 521 para México
-    return '521' + base10;
-};
+/**
+ * Normalizar teléfono usando utilidad centralizada (Wrapper)
+ */
+export { normalizePhone };
 
 /**
  * Verificar si Whapi está configurado
@@ -112,19 +104,25 @@ export const checkWhapiStatus = async (): Promise<{
 /**
  * Enviar mensaje individual de WhatsApp
  */
-export const sendWhatsAppMessage = async (msg: WhatsAppMessage): Promise<WhapiResponse> => {
-    if (!isWhapiConfigured()) {
-        return { sent: false, error: 'WhatsApp no configurado' };
+export const sendWhatsAppMessage = async (msg: WhatsAppMessage, customToken?: string): Promise<WhapiResponse> => {
+    const activeToken = customToken || WHAPI_TOKEN;
+    if (!activeToken || activeToken.length < 10) {
+        return { sent: false, error: 'WhatsApp no configurado (Token faltante)' };
     }
 
     try {
-        const phone = normalizePhone(msg.to);
+        const phone = normalizePhone(msg.to, 'whapi');
 
-        console.log(`[Whapi] Sending to ${phone}...`);
+        console.log(`[Whapi] Sending to ${phone} using token ${activeToken.substring(0, 5)}...`);
 
-        const response = await whapiApi.post('/messages/text', {
+        const response = await axios.post(`${WHAPI_BASE_URL}/messages/text`, {
             to: phone,
             body: msg.body
+        }, {
+            headers: {
+                'Authorization': `Bearer ${activeToken}`,
+                'Content-Type': 'application/json'
+            }
         });
 
         const msgId = response.data?.message?.id || response.data?.id || 'unknown';
@@ -172,6 +170,58 @@ export const sendWhatsAppMessage = async (msg: WhatsAppMessage): Promise<WhapiRe
 };
 
 /**
+ * Enviar nota de voz de WhatsApp
+ */
+export const sendWhatsAppVoice = async (to: string, mediaUrl: string, customToken?: string): Promise<WhapiResponse> => {
+    const activeToken = customToken || WHAPI_TOKEN;
+    if (!activeToken || activeToken.length < 10) {
+        return { sent: false, error: 'WhatsApp no configurado (Token faltante)' };
+    }
+
+    try {
+        const phone = normalizePhone(to, 'whapi');
+        console.log(`[Whapi] Sending Voice to ${phone}... URL: ${mediaUrl.substring(0, 30)}...`);
+
+        // Endpoint for PTT (Push to Talk) / Voice Notes
+        const response = await axios.post(`${WHAPI_BASE_URL}/messages/voice`, {
+            to: phone,
+            media: mediaUrl
+        }, {
+            headers: {
+                'Authorization': `Bearer ${activeToken}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        const msgId = response.data?.message?.id || response.data?.id || 'unknown';
+        console.log(`[Whapi] Voice sent to ${phone}, id: ${msgId}`);
+
+        // Log to DB
+        try {
+            await supabase.from('whatsapp_messages').insert({
+                phone: phone,
+                whapi_message_id: msgId,
+                status: 'sent',
+                error_message: null
+            });
+        } catch (dbErr) { console.warn('[Whapi] Error logging voice to DB:', dbErr); }
+
+        return {
+            sent: true,
+            message: {
+                id: msgId,
+                status: response.data?.message?.status || response.data?.status || 'sent'
+            }
+        };
+
+    } catch (error: any) {
+        const errorMsg = error.response?.data?.message || error.response?.data?.error || error.message;
+        console.error(`[Whapi] Error sending Voice to ${to}:`, errorMsg);
+        return { sent: false, error: errorMsg };
+    }
+};
+
+/**
  * Delay helper para rate limiting
  */
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -200,7 +250,7 @@ export const sendBulkWhatsApp = async (
 
         try {
             const result = await sendWhatsAppMessage({ to: phone, body });
-            const normalizedPhone = normalizePhone(phone);
+            const normalizedPhone = normalizePhone(phone, 'whapi');
 
             // Guardar en historial
             await supabase.from('whatsapp_messages').insert({
@@ -276,6 +326,10 @@ export const checkPhoneExists = async (phone: string): Promise<boolean> => {
 /**
  * Obtener información de contacto
  */
+/**
+ * Obtener información de contacto (Foto y nombre)
+ * Usa el endpoint /profile recomendado para obtener el avatar on-demand
+ */
 export const getContactInfo = async (phone: string): Promise<{
     exists: boolean;
     name?: string;
@@ -287,13 +341,22 @@ export const getContactInfo = async (phone: string): Promise<{
 
     try {
         const normalizedPhone = normalizePhone(phone);
-        const response = await whapiApi.get(`/contacts/${normalizedPhone}`);
+        console.log(`[Whapi] Fetching profile for ${normalizedPhone}...`);
+
+        const response = await whapiApi.get(`/contacts/${normalizedPhone}/profile`);
+        const data = response.data;
+
+        // Whapi returns icon_full or icon for the image
+        const profilePic = data?.icon_full || data?.icon || null;
+        const name = data?.name || data?.pushname || null;
+
         return {
             exists: true,
-            name: response.data?.name || response.data?.pushname,
-            profilePic: response.data?.profile_pic
+            name,
+            profilePic
         };
-    } catch {
+    } catch (error: any) {
+        console.warn(`[Whapi] Failed to get profile for ${phone}:`, error.message);
         return { exists: false };
     }
 };

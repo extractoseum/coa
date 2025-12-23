@@ -1,0 +1,16 @@
+#!/usr/bin/expect -f
+set timeout 10
+set host "148.230.88.203"
+set user "root"
+set password "Mv+7c#dQ4U9ALV4Lup#p"
+
+spawn ssh -o StrictHostKeyChecking=no $user@$host "ls -F /var/www/coa-viewer"
+expect {
+    "password:" {
+        send "$password\r"
+        exp_continue
+    }
+    eof
+}
+catch wait result
+exit [lindex $result 3]

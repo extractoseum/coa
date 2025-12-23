@@ -2,6 +2,7 @@
 import { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
+import { IntelligenceService } from '../services/intelligenceService';
 
 // Base directory for AI Knowledge Base
 // CHANGED: Use persistent 'data' directory outside of 'dist' to survive deployments
@@ -55,18 +56,38 @@ export const listKnowledgeFiles = async (req: Request, res: Response) => {
                     .map(dirent => {
                         const agentName = dirent.name;
                         const agentPath = path.join(folderPath, agentName);
+
+                        // Load agent-specific metadata if it exists
+                        let agentInstructive = '';
+                        const agentMetaPath = path.join(agentPath, 'metadata.json');
+                        if (fs.existsSync(agentMetaPath)) {
+                            try {
+                                const meta = JSON.parse(fs.readFileSync(agentMetaPath, 'utf-8'));
+                                agentInstructive = meta.instructivePath || '';
+                            } catch (e) { }
+                        }
+
                         const files = fs.readdirSync(agentPath)
                             .filter(f => f.endsWith('.md'))
                             .map(f => {
+                                const fullPath = `${folder}/${agentName}/${f}`;
                                 const content = fs.readFileSync(path.join(agentPath, f), 'utf-8');
+
+                                // Get agent-specific metadata (summaries)
+                                const agentMeta = IntelligenceService.getInstance().getMetadata(agentPath);
+                                const fileMeta = agentMeta.files?.[f];
+
                                 return {
                                     name: f,
-                                    path: `${folder}/${agentName}/${f}`,
-                                    size: content.length
+                                    path: fullPath,
+                                    size: content.length,
+                                    isInstructive: agentInstructive === f || (agentInstructive === '' && f === 'identity.md'),
+                                    summary: fileMeta?.summary || null,
+                                    lastAnalyzed: fileMeta?.lastAnalyzed || null
                                 };
                             });
 
-                        const hasIdentity = files.some(f => f.name === 'identity.md');
+                        const hasIdentity = files.some(f => f.name === 'identity.md' || f.isInstructive);
                         const isActive = activeAgent === agentName;
 
                         return {
@@ -195,6 +216,14 @@ export const saveKnowledgeFile = async (req: Request, res: Response) => {
         }
 
         fs.writeFileSync(safePath, content, 'utf-8');
+
+        // BACKGROUND: Trigger Smart Analysis
+        if (AGENT_CATEGORIES.includes(folder)) {
+            IntelligenceService.getInstance().analyzeFile(parentDir, path.basename(safePath), content).catch(err => {
+                console.error(`[KnowledgeController] Analysis hook failed:`, err);
+            });
+        }
+
         res.json({ success: true, message: 'Saved' });
 
     } catch (error: any) {
@@ -250,6 +279,11 @@ export const uploadKnowledgeFile = async (req: Request, res: Response) => {
         }
 
         fs.writeFileSync(mdPath, extractedContent, 'utf-8');
+
+        // BACKGROUND: Trigger Smart Analysis
+        IntelligenceService.getInstance().analyzeFile(destFolder, mdFilename, extractedContent).catch(err => {
+            console.error(`[KnowledgeController] Analysis hook failed:`, err);
+        });
 
         res.json({
             success: true,
@@ -380,22 +414,23 @@ export const markAsInstructive = async (req: Request, res: Response) => {
         const cleanSubPath = subPath.startsWith(folder + '/') ? subPath.replace(folder + '/', '') : subPath;
         const sourcePath = path.join(KNOWLEDGE_BASE_DIR, folder, cleanSubPath);
         const agentDir = path.dirname(sourcePath);
-        const targetPath = path.join(agentDir, 'identity.md');
+        const fileName = path.basename(sourcePath);
 
         if (!fs.existsSync(sourcePath)) {
             return res.status(404).json({ error: 'Source file not found' });
         }
 
-        // If target exists and is different from source, backup it
-        if (fs.existsSync(targetPath) && sourcePath !== targetPath) {
-            const backupPath = path.join(agentDir, `identity_backup_${Date.now()}.md`);
-            fs.renameSync(targetPath, backupPath);
+        // Write to metadata.json instead of renaming
+        const metadataPath = path.join(agentDir, 'metadata.json');
+        let metadata: any = {};
+        if (fs.existsSync(metadataPath)) {
+            try {
+                metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf-8'));
+            } catch (e) { }
         }
 
-        // Rename source to identity.md
-        if (sourcePath !== targetPath) {
-            fs.renameSync(sourcePath, targetPath);
-        }
+        metadata.instructivePath = fileName;
+        fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
 
         res.json({ success: true, message: 'File is now the main instructive' });
     } catch (error: any) {

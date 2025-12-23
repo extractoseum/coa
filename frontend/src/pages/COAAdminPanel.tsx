@@ -11,6 +11,7 @@ interface Client {
     id: string;
     name: string;
     email: string;
+    phone?: string;
     company?: string;
 }
 
@@ -38,6 +39,7 @@ interface COA {
     client?: Client;
     created_at: string;
     updated_at: string;
+    metadata?: any;
 }
 
 interface Stats {
@@ -80,6 +82,7 @@ export default function COAAdminPanel() {
     // Bulk assign modal
     const [showBulkModal, setShowBulkModal] = useState(false);
     const [bulkClientId, setBulkClientId] = useState('');
+    const [clientSearch, setClientSearch] = useState('');
     const [bulkAssigning, setBulkAssigning] = useState(false);
 
     // Shopify search for bulk modal
@@ -554,7 +557,7 @@ export default function COAAdminPanel() {
                                     <table className="w-full text-sm">
                                         <thead style={{ backgroundColor: theme.cardBg2, borderBottom: `1px solid ${theme.border}` }}>
                                             <tr>
-                                                <th className="text-left px-4 py-3">
+                                                <th className="text-left px-4 py-3 w-10">
                                                     <input
                                                         type="checkbox"
                                                         checked={selectedCoas.size === coas.length && coas.length > 0}
@@ -562,6 +565,10 @@ export default function COAAdminPanel() {
                                                         className="w-4 h-4 rounded"
                                                         style={{ accentColor: theme.accent }}
                                                     />
+                                                </th>
+                                                <th className="text-left px-4 py-3 w-16">
+                                                    {/* Image Column */}
+                                                    <span className="sr-only">Imagen</span>
                                                 </th>
                                                 <th className="text-left px-4 py-3 font-medium" style={{ color: theme.textMuted }}>Token</th>
                                                 <th className="text-left px-4 py-3 font-medium" style={{ color: theme.textMuted }}>Nombre / SKU</th>
@@ -588,9 +595,36 @@ export default function COAAdminPanel() {
                                                             className="w-4 h-4 rounded"
                                                             style={{ accentColor: theme.accent }}
                                                         />
-                                                        {coa.batch_id && (
-                                                            <p className="text-xs" style={{ color: theme.textMuted }}>Batch: {coa.batch_id}</p>
-                                                        )}
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <div className="w-10 h-10 rounded-lg overflow-hidden bg-white flex items-center justify-center border" style={{ borderColor: theme.border }}>
+                                                            {coa.product_image_url || coa.metadata?.product_image_url ? (
+                                                                <img
+                                                                    src={coa.product_image_url || coa.metadata?.product_image_url}
+                                                                    alt=""
+                                                                    className="w-full h-full object-contain p-0.5"
+                                                                />
+                                                            ) : (
+                                                                <FileText className="w-5 h-5 opacity-20" />
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <span className="font-mono text-xs opacity-70" style={{ color: theme.text }}>
+                                                            {coa.public_token}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <div>
+                                                            <p className="font-medium" style={{ color: theme.text }}>
+                                                                {coa.custom_name || coa.product_sku || 'Sin nombre'}
+                                                            </p>
+                                                            {(coa.batch_id || coa.metadata?.batch_number) && (
+                                                                <p className="text-xs" style={{ color: theme.textMuted }}>
+                                                                    Batch: {coa.batch_id || coa.metadata?.batch_number}
+                                                                </p>
+                                                            )}
+                                                        </div>
                                                     </td>
                                                     <td className="px-4 py-3">
                                                         {coa.client ? (
@@ -601,7 +635,7 @@ export default function COAAdminPanel() {
                                                                 )}
                                                             </div>
                                                         ) : (
-                                                            <span className="text-xs" style={{ color: '#f97316' }}>Sin asignar</span>
+                                                            <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: '#f9731620', color: '#f97316' }}>Sin asignar</span>
                                                         )}
                                                     </td>
                                                     <td className="px-4 py-3" style={{ color: theme.textMuted }}>
@@ -617,7 +651,7 @@ export default function COAAdminPanel() {
                                                     <td className="px-4 py-3 text-center">
                                                         <button
                                                             onClick={() => navigate(to.coa(coa.public_token))}
-                                                            className="p-2 transition-colors"
+                                                            className="p-2 transition-colors rounded-lg hover:bg-white/5"
                                                             style={{ color: theme.textMuted }}
                                                             onMouseEnter={(e) => e.currentTarget.style.color = theme.accent}
                                                             onMouseLeave={(e) => e.currentTarget.style.color = theme.textMuted}
@@ -799,6 +833,21 @@ export default function COAAdminPanel() {
                                     <label className="text-sm block mb-2" style={{ color: theme.textMuted }}>
                                         Clientes Locales
                                     </label>
+                                    <div className="relative mb-2">
+                                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4" style={{ color: theme.textMuted }} />
+                                        <input
+                                            type="text"
+                                            value={clientSearch}
+                                            onChange={(e) => setClientSearch(e.target.value)}
+                                            placeholder="Filtrar por nombre, email o phone..."
+                                            className="w-full rounded-lg pl-10 pr-4 py-2 focus:outline-none text-sm"
+                                            style={{
+                                                backgroundColor: theme.cardBg2,
+                                                border: `1px solid ${theme.border}`,
+                                                color: theme.text,
+                                            }}
+                                        />
+                                    </div>
                                     <select
                                         value={bulkClientId}
                                         onChange={(e) => {
@@ -813,11 +862,21 @@ export default function COAAdminPanel() {
                                         }}
                                     >
                                         <option value="">-- Desasignar (quitar cliente) --</option>
-                                        {clients.map(client => (
-                                            <option key={client.id} value={client.id}>
-                                                {client.name || client.email} {client.company ? `(${client.company})` : ''}
-                                            </option>
-                                        ))}
+                                        {clients
+                                            .filter(c => {
+                                                const search = clientSearch.toLowerCase();
+                                                return (
+                                                    (c.name?.toLowerCase().includes(search)) ||
+                                                    (c.email?.toLowerCase().includes(search)) ||
+                                                    (c.phone?.toLowerCase().includes(search)) ||
+                                                    (c.company?.toLowerCase().includes(search))
+                                                );
+                                            })
+                                            .map(client => (
+                                                <option key={client.id} value={client.id}>
+                                                    {client.name || client.email} {client.company ? `(${client.company})` : ''}
+                                                </option>
+                                            ))}
                                     </select>
                                 </div>
 

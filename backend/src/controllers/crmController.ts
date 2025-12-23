@@ -61,81 +61,174 @@ export const handleInbound = async (req: Request, res: Response): Promise<void> 
         const payload = req.body;
         console.log('[CRM] Webhook received:', JSON.stringify(payload).substring(0, 500));
 
+        // 0. Check for Status Updates (Delivered/Read)
+        if (payload.statuses && Array.isArray(payload.statuses)) {
+            console.log(`[CRM] Status updates received: ${payload.statuses.length}`);
+            for (const status of payload.statuses) {
+                // Determine status: sent, delivered, read, failed
+                const s = status.status;
+                if (!['sent', 'delivered', 'read', 'failed'].includes(s)) continue;
+
+                // Fire and forget status update
+                crmService.updateMessageStatus(status.id, s as any, status.recipient_id || '')
+                    .catch(err => console.error('[CRM] Status Update Error:', err));
+            }
+            res.json({ success: true, processed_statuses: payload.statuses.length });
+            return;
+        }
+
         // 1. Check if it's a Whapi.cloud payload (arrays of messages)
         if (payload.messages && Array.isArray(payload.messages)) {
             for (const msg of payload.messages) {
                 const handle = msg.chat_id || msg.from;
-                // Explicitly cast to boolean and log for debugging loop issues
                 const fromMe = !!msg.from_me;
-                console.log(`[CRM] Msg fromMe raw: ${msg.from_me} (${typeof msg.from_me}) -> Casted: ${fromMe}. Type: ${msg.type}`);
+                console.log(`[CRM] Msg fromMe: ${fromMe}. Type: ${msg.type}`);
 
-                // Extract content based on type
                 let content = '';
                 let type: any = 'text';
 
+                // Basic types
                 if (msg.type === 'text') {
                     content = msg.text?.body || '';
                 } else if (msg.type === 'image') {
                     const url = msg.image?.link || msg.image?.url || '';
                     const caption = msg.image?.caption || '';
-                    console.log(`[CRM] Image detected. URL: ${url}, Caption: ${caption}`);
                     content = url ? `[Image](${url}) ${caption}` : `[Foto] ${caption}`;
                     type = 'image';
                 } else if (msg.type === 'sticker') {
                     const url = msg.sticker?.link || msg.sticker?.url || '';
-                    console.log(`[CRM] Sticker detected. URL: ${url}`);
                     content = url ? `[Sticker](${url})` : '[Sticker]';
-                    type = 'image';
+                    type = 'sticker'; // Using specific type if DB supports it, else map to image in service
                 } else if (msg.type === 'audio' || msg.type === 'voice') {
                     const url = msg.audio?.link || msg.audio?.url || msg.voice?.link || msg.voice?.url || '';
-                    console.log(`[CRM] Audio detected. URL: ${url}`);
                     content = url ? `[Audio](${url})` : '[Audio]';
                     type = 'audio';
+                    // Voice pipeline triggered after DB insert via .then() below
                 } else if (msg.type === 'video') {
                     const url = msg.video?.link || msg.video?.url || '';
                     const caption = msg.video?.caption || '';
-                    console.log(`[CRM] Video detected. URL: ${url}`);
                     content = url ? `[Video](${url}) ${caption}` : `[Video] ${caption}`;
                     type = 'video';
                 } else if (msg.type === 'document' || msg.type === 'file') {
                     const url = msg.document?.link || msg.document?.url || msg.file?.link || msg.file?.url || '';
                     const caption = msg.document?.caption || msg.document?.filename || '';
-                    console.log(`[CRM] Document detected. URL: ${url}`);
                     content = url ? `[File](${url}) ${caption}` : `[Archivo] ${caption}`;
                     type = 'file';
+
+                    // --- NEW RICH TYPES ---
+                } else if (msg.type === 'location') {
+                    const loc = msg.location;
+                    const lat = loc?.latitude;
+                    const long = loc?.longitude;
+                    const mapLink = `https://www.google.com/maps?q=${lat},${long}`;
+                    content = `[Ubicación](${mapLink}) Lat: ${lat}, Long: ${long}`;
+                    type = 'file'; // Fallback or new type 'location'
+                } else if (msg.type === 'contact') {
+                    const contacts = msg.contact || [];
+                    const names = contacts.map((c: any) => c.name?.formatted_name || c.name).join(', ');
+                    content = `[Contacto Compartido]: ${names}`;
+                    type = 'text';
+                } else if (msg.type === 'poll') {
+                    const poll = msg.poll;
+                    const title = poll?.title || 'Encuesta';
+                    const options = (poll?.options || []).map((o: any) => o.option_name).join(', ');
+                    content = `[Encuesta]: ${title} (Opciones: ${options})`;
+                    type = 'text';
+                } else if (msg.type === 'order') { // Check exact type from logs
+                    const order = msg.order;
+                    const items = (order?.product_items || []).map((i: any) => `${i.quantity}x ${i.product_retailer_id}`).join(', ');
+                    content = `[Pedido WhatsApp]: ${items} (Total: ${order?.total_amount?.value || '?'} ${order?.total_amount?.currency || ''})`;
+                    type = 'text';
+                } else if (msg.type === 'link_preview') {
+                    const preview = msg.link_preview;
+                    const url = preview?.url || '';
+                    const title = preview?.title || 'Link';
+                    const desc = preview?.description ? `\n> ${preview.description}` : '';
+                    content = `[Link Preview] [${title}](${url})${desc}`;
+                    type = 'text';
+                } else if (msg.type === 'action') {
+                    // Reactions usually come as type='action'
+                    if (msg.action?.type === 'reaction') {
+                        console.log(`[CRM] Reaction detected: ${msg.action.emoji} on msg ${msg.action.target_message_id}`);
+                        // For now, logging. Enhancing this would require updating the original message in DB.
+                        // We can append a system note or ignored it for thread clarity.
+                        content = `(Reacción: ${msg.action.emoji})`;
+                        type = 'event'; // Treat as event so AI might not reply to it directly or we skip logic
+                    } else if (msg.action?.type === 'delete') {
+                        content = `🚫 This message was deleted.`;
+                        type = 'event';
+                    } else {
+                        content = `[Action: ${msg.action?.type}]`;
+                    }
                 } else {
                     console.log(`[CRM] Unknown type detected: ${msg.type}`);
                     content = `[Archivo: ${msg.type}]`;
                     type = 'file';
                 }
 
-                // Skip if empty (status updates etc)
+                // Skip simple empty, but keep reactions if we want to log them
                 if (!content && !msg.type) continue;
 
                 let cleanHandle = handle.replace('@s.whatsapp.net', '').replace('@c.us', '');
 
                 // Fix for Mexico WhatsApp numbers (521 + 10 digits -> 52 + 10 digits)
-                // If it starts with 521 and has 13 digits total, remove the '1'
                 if (cleanHandle.startsWith('521') && cleanHandle.length === 13) {
                     cleanHandle = cleanHandle.replace('521', '52');
                 }
 
-                // Fire and forget - Do NOT await to prevent timeout
+                // Fire and forget (chained)
                 crmService.processInbound(
                     'WA',
                     cleanHandle,
                     content,
                     {
                         ...msg,
-                        // Ensure type matches our enum: 'text' | 'image' | 'video' | 'audio' | 'file' | 'template' | 'event'
-                        type: type,
-                        // FORCE override direction/role based on our local strict check
+                        channel_id: payload.channel_id, // Pass the account ID (from outer payload)
+                        type: type, // Normalized type
                         direction: fromMe ? 'outbound' : 'inbound',
                         role: fromMe ? 'assistant' : 'user',
-                        // Add explicit flag for service to check
                         _generated_from_me: fromMe
                     }
-                ).catch(err => console.error('[CRM] Background processInbound Error:', err));
+                ).then(async (createdMsg: any) => {
+                    console.log(`[CRM] processInbound .then() triggered. Type: ${type}, MsgID: ${createdMsg?.id}, HasContent: ${!!createdMsg?.content}`);
+
+                    // Trigger Voice Pipeline if audio and message was created
+                    if (createdMsg && type === 'audio' && createdMsg.content.includes('http')) {
+                        console.log('[CRM] Voice condition PASSED. Extracting URL...');
+                        const urlMatch = createdMsg.content.match(/\((.*?)\)/);
+                        const audioUrl = urlMatch ? urlMatch[1] : null;
+
+                        if (audioUrl) {
+                            try {
+                                console.log('[CRM] Triggering Voice Pipeline for msg:', createdMsg.id, 'URL:', audioUrl);
+                                const audioRes = await fetch(audioUrl);
+                                const arrayBuffer = await audioRes.arrayBuffer();
+                                const buffer = Buffer.from(arrayBuffer);
+
+                                console.log('[CRM] Audio downloaded. Buffer size:', buffer.length);
+
+                                const vs = new (require('../services/VoiceService').VoiceService)();
+                                await vs.processVoiceMessage(
+                                    buffer,
+                                    'audio/ogg',
+                                    undefined, // Client lookup handled in service if needed
+                                    createdMsg.conversation_id,
+                                    createdMsg.id,
+                                    audioUrl || undefined
+                                );
+                                console.log('[CRM] VoiceService executed successfully.');
+                                // Optional: Update message content with transcript here or let Service do it?
+                                // We will update Service next to update the CRM message.
+                            } catch (ve) {
+                                console.error('[CRM] Voice processing failed:', ve);
+                            }
+                        } else {
+                            console.log('[CRM] No Audio URL found in content:', createdMsg.content);
+                        }
+                    } else {
+                        console.log('[CRM] Voice condition SKIPPED. Type check:', type === 'audio', 'Http check:', createdMsg?.content?.includes('http'));
+                    }
+                }).catch(err => console.error('[CRM] Background processInbound Error:', err));
             }
             res.json({ success: true, processed: payload.messages.length });
             return;
@@ -158,12 +251,12 @@ export const handleInbound = async (req: Request, res: Response): Promise<void> 
 export const updateColumnConfig = async (req: Request, res: Response): Promise<void> => {
     try {
         const { id } = req.params;
-        const { mode, config } = req.body;
-        if (!id || !mode) {
-            res.status(400).json({ success: false, error: 'Missing column id or mode' });
+        const { mode, config, name, voice_profile, objectives, assigned_agent_id } = req.body;
+        if (!id) {
+            res.status(400).json({ success: false, error: 'Missing column id' });
             return;
         }
-        await crmService.updateColumnConfig(id, mode, config);
+        await crmService.updateColumnConfig(id, { mode, config, name, voice_profile, objectives, assigned_agent_id });
         res.json({ success: true });
     } catch (error: any) {
         res.status(500).json({ success: false, error: error.message });
@@ -208,6 +301,23 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
             content
         });
 
+        res.json({ success: true, data: message });
+    } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+export const sendVoiceMessage = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { conversationId } = req.params;
+        const { content, role } = req.body;
+
+        if (!content) {
+            res.status(400).json({ success: false, error: 'Missing content' });
+            return;
+        }
+
+        const message = await crmService.sendVoiceMessage(conversationId, content, role || 'assistant');
         res.json({ success: true, data: message });
     } catch (error: any) {
         res.status(500).json({ success: false, error: error.message });
@@ -301,6 +411,55 @@ export const createCoupon = async (req: Request, res: Response): Promise<void> =
         res.json({ success: true, data: discountCode });
     } catch (error: any) {
         console.error('[CRM] Coupon creation error:', error.response?.data || error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+export const getChannelChips = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const chips = await crmService.getChannelChips();
+        res.json({ success: true, data: chips });
+    } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+export const getMiniChips = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const chips = await crmService.getMiniChips();
+        res.json({ success: true, data: chips });
+    } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+export const upsertMiniChip = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const chip = await crmService.upsertMiniChip(req.body);
+        res.json({ success: true, data: chip });
+    } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+export const upsertChannelChip = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const chip = await crmService.upsertChannelChip(req.body);
+        res.json({ success: true, data: chip });
+    } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+export const syncFacts = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { conversationId } = req.params;
+        if (!conversationId) {
+            res.status(400).json({ success: false, error: 'Missing conversationId' });
+            return;
+        }
+        await crmService.syncConversationFacts(conversationId);
+        res.json({ success: true });
+    } catch (error: any) {
         res.status(500).json({ success: false, error: error.message });
     }
 };

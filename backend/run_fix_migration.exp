@@ -1,0 +1,19 @@
+#!/usr/bin/expect -f
+set timeout 60
+set password ")l2fyDHz60u,nTAd,@tD"
+
+# Upload SQL file
+spawn scp migrations/037_fix_chip_schema.sql root@148.230.88.203:/var/www/coa-viewer/backend/migrations/
+expect {
+    "password:" { send "$password\r" }
+    "yes/no" { send "yes\r"; exp_continue }
+}
+expect eof
+
+# Run execution script
+spawn ssh root@148.230.88.203 "cd /var/www/coa-viewer/backend && npx ts-node src/scripts/execute_sql.ts 037_fix_chip_schema.sql"
+expect {
+    "password:" { send "$password\r" }
+    "yes/no" { send "yes\r"; exp_continue }
+}
+expect eof

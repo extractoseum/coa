@@ -138,16 +138,16 @@ const ToolEditor = ({ onClose }: { onClose: () => void }) => {
     if (!isSuperAdmin) return null;
 
     return (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-0 md:p-4">
             <div
-                className="w-full max-w-6xl h-[85vh] flex flex-col rounded-xl shadow-2xl border"
+                className="w-full max-w-6xl h-full md:h-[85vh] flex flex-col rounded-none md:rounded-xl shadow-2xl border"
                 style={{
                     backgroundColor: '#1E1E1E',
                     borderColor: '#333'
                 }}
             >
                 {/* Header */}
-                <div className="flex items-center justify-between p-4 border-b border-[#333]">
+                <div className="flex flex-col md:flex-row md:items-center justify-between p-4 gap-4 border-b border-[#333]">
                     <div className="flex items-center gap-3">
                         <div className="p-2 rounded bg-blue-500/10 text-blue-400">
                             <Code size={20} />
@@ -179,7 +179,8 @@ const ToolEditor = ({ onClose }: { onClose: () => void }) => {
                             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
                         >
                             {saving ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
-                            Save Changes
+                            <span className="hidden sm:inline">Save Changes</span>
+                            <span className="sm:hidden">Save</span>
                         </button>
 
                         <button

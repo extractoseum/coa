@@ -16,6 +16,9 @@ import { Screen } from '../telemetry/Screen';
 interface FileItem {
     name: string;
     path: string;
+    isInstructive?: boolean;
+    summary?: string | null;
+    lastAnalyzed?: string | null;
 }
 
 interface AgentFolder {
@@ -254,8 +257,6 @@ const AdminAIKnowledge = () => {
             if (data.success) {
                 setSuccessMsg('Archivo marcado como instructivo principal');
                 await fetchStructure();
-                const agentName = filePath.split('/')[0];
-                setSelectedFile(`${agentName}/identity.md`);
             } else { setError(data.error); }
         } catch (err) { setError('Error al marcar como instructivo'); } finally { setLoading(false); }
     };
@@ -412,12 +413,26 @@ const AdminAIKnowledge = () => {
                                                                             className={`flex-1 text-left px-2 py-1 rounded text-[11px] flex items-center gap-2 transition-colors ${selectedFile === `${agent.name}/${file.name}` && selectedFolder === folder ? 'bg-white/10' : 'hover:bg-white/5'}`}
                                                                             style={{ color: selectedFile === `${agent.name}/${file.name}` && selectedFolder === folder ? theme.accent : theme.textMuted }}>
                                                                             <FileText size={11} className="opacity-50" />
-                                                                            <span className="truncate">{file.name}</span>
+                                                                            <div className="flex flex-col flex-1 min-w-0">
+                                                                                <span className="truncate">{file.name}</span>
+                                                                                {file.summary && (
+                                                                                    <span className="text-[9px] opacity-40 truncate font-light" title={file.summary}>
+                                                                                        {file.summary}
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
                                                                         </button>
-                                                                        <button onClick={(e) => { e.stopPropagation(); handleDeleteFile(folder, `${agent.name}/${file.name}`); }}
-                                                                            className="p-1 opacity-0 group-hover:opacity-40 hover:!opacity-100 transition-all text-red-500">
-                                                                            <Trash2 size={10} />
-                                                                        </button>
+                                                                        <div className="flex opacity-0 group-hover:opacity-100 transition-all">
+                                                                            <button onClick={(e) => { e.stopPropagation(); handleMarkAsInstructive(folder, `${agent.name}/${file.name}`); }}
+                                                                                className={`p-1 transition-colors ${file.isInstructive ? 'text-yellow-400' : 'hover:text-yellow-400'}`}
+                                                                                title={file.isInstructive ? 'Instructivo Principal (Activo)' : 'Marcar como Instructivo'}>
+                                                                                <Star size={10} fill={file.isInstructive ? theme.accent : 'none'} fillOpacity={file.isInstructive ? 0.4 : 0} />
+                                                                            </button>
+                                                                            <button onClick={(e) => { e.stopPropagation(); handleDeleteFile(folder, `${agent.name}/${file.name}`); }}
+                                                                                className="p-1 hover:text-red-500 transition-colors">
+                                                                                <Trash2 size={10} />
+                                                                            </button>
+                                                                        </div>
                                                                     </div>
                                                                 ))}
                                                                 <button onClick={() => handleAddNewFile(folder, agent.name)} className="px-2 py-1 text-[9px] opacity-40 hover:opacity-100 transition-all hover:text-green-500">+ Nuevo MD</button>
@@ -434,7 +449,14 @@ const AdminAIKnowledge = () => {
                                                             className={`flex-1 text-left px-2 py-1.5 rounded text-xs flex items-center gap-2 transition-colors ${selectedFile === file.name && selectedFolder === folder ? 'bg-white/10' : 'hover:bg-white/5'}`}
                                                             style={{ color: selectedFile === file.name && selectedFolder === folder ? theme.accent : theme.textMuted }}>
                                                             <FileText size={12} className="opacity-50" />
-                                                            <span className="truncate">{file.name}</span>
+                                                            <div className="flex flex-col flex-1 min-w-0">
+                                                                <span className="truncate">{file.name}</span>
+                                                                {file.summary && (
+                                                                    <span className="text-[9px] opacity-40 truncate font-light" title={file.summary}>
+                                                                        {file.summary}
+                                                                    </span>
+                                                                )}
+                                                            </div>
                                                         </button>
                                                         <button onClick={(e) => { e.stopPropagation(); handleDeleteFile(folder, file.name); }}
                                                             className="p-1 opacity-0 group-hover:opacity-40 hover:!opacity-100 transition-all text-red-500">

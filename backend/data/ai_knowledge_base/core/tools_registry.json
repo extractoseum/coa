@@ -333,5 +333,284 @@
                 "order_id"
             ]
         }
+    },
+    {
+        "category": "whatsapp",
+        "name": "check_whatsapp_status",
+        "description": "Check WhatsApp Business connection status.",
+        "input_schema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "category": "voice",
+        "name": "initiate_voice_call",
+        "description": "Initiate a real-time voice call using Vapi AI.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "phone": {
+                    "type": "string",
+                    "description": "Customer phone number"
+                },
+                "customer_name": {
+                    "type": "string",
+                    "description": "Customer name (optional)"
+                },
+                "conversation_id": {
+                    "type": "string",
+                    "description": "CRM Conversation ID"
+                }
+            },
+            "required": [
+                "phone"
+            ]
+        }
+    },
+    {
+        "category": "voice",
+        "name": "get_voice_call_history",
+        "description": "Get voice call logs for a conversation.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "conversation_id": {
+                    "type": "string",
+                    "description": "CRM Conversation ID"
+                }
+            },
+            "required": [
+                "conversation_id"
+            ]
+        }
+    },
+    {
+        "category": "crm",
+        "name": "get_conversation_summary",
+        "description": "Get summary and context of a CRM conversation.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "conversation_id": {
+                    "type": "string",
+                    "description": "CRM Conversation ID"
+                }
+            },
+            "required": [
+                "conversation_id"
+            ]
+        }
+    },
+    {
+        "category": "crm",
+        "name": "get_contact_360",
+        "description": "Get full Customer 360 profile (LTV, orders, risk, tags).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "phone": {
+                    "type": "string",
+                    "description": "Contact phone number"
+                }
+            },
+            "required": [
+                "phone"
+            ]
+        }
+    },
+    {
+        "category": "crm",
+        "name": "move_conversation_to_column",
+        "description": "Move conversation to a specific Kanban column.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "conversation_id": {
+                    "type": "string",
+                    "description": "Conversation UUID"
+                },
+                "column_name": {
+                    "type": "string",
+                    "description": "Target column name"
+                }
+            },
+            "required": [
+                "conversation_id",
+                "column_name"
+            ]
+        }
+    },
+    {
+        "category": "analytics",
+        "name": "get_system_insights",
+        "description": "Get system health alerts, error spikes, and performance insights.",
+        "input_schema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "category": "analytics",
+        "name": "get_ai_usage_stats",
+        "description": "Get AI API usage stats (tokens, costs) by model.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "type": "number",
+                    "description": "Lookback period in days (default 7)"
+                }
+            }
+        }
+    },
+    {
+        "category": "analytics",
+        "name": "get_behavior_insights",
+        "description": "Get browsing behavior insights for a specific contact.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "phone": {
+                    "type": "string",
+                    "description": "Contact phone number"
+                }
+            },
+            "required": [
+                "phone"
+            ]
+        }
+    },
+    {
+        "name": "get_order_tracking",
+        "description": "Get tracking info (Estafeta/Fedex) for a Shopify order.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "order_id": {
+                    "type": "string",
+                    "description": "Shopify order ID"
+                }
+            },
+            "required": [
+                "order_id"
+            ]
+        },
+        "category": "e-commerce",
+        "required_permissions": [
+            "read_orders"
+        ]
+    },
+    {
+        "name": "create_shopify_coupon",
+        "description": "Create a unique discount coupon in Shopify.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string",
+                    "description": "Coupon code"
+                },
+                "amount_off": {
+                    "type": "number",
+                    "description": "Amount off"
+                },
+                "type": {
+                    "type": "string",
+                    "enum": [
+                        "percentage",
+                        "fixed_amount"
+                    ],
+                    "description": "Discount type"
+                }
+            },
+            "required": [
+                "code",
+                "amount_off",
+                "type"
+            ]
+        },
+        "category": "e-commerce",
+        "required_permissions": [
+            "write_discounts"
+        ]
+    },
+    {
+        "name": "sync_products_from_shopify",
+        "description": "Force sync products from Shopify to local DB.",
+        "parameters": {
+            "type": "object",
+            "properties": {}
+        },
+        "category": "system",
+        "required_permissions": [
+            "sync_data"
+        ]
+    },
+    {
+        "name": "generate_voice_message",
+        "description": "Generate voice audio from text (TTS) for sending.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "description": "Text to speak"
+                },
+                "voice_id": {
+                    "type": "string",
+                    "description": "ElevenLabs voice ID"
+                }
+            },
+            "required": [
+                "text"
+            ]
+        },
+        "category": "communication",
+        "required_permissions": [
+            "generate_audio"
+        ]
+    },
+    {
+        "name": "get_coa_details",
+        "description": "Get detailed metadata of a specific COA.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "coa_id": {
+                    "type": "string",
+                    "description": "COA UUID"
+                }
+            },
+            "required": [
+                "coa_id"
+            ]
+        },
+        "category": "data",
+        "required_permissions": [
+            "read_coas"
+        ]
+    },
+    {
+        "category": "orders",
+        "name": "get_abandoned_checkouts",
+        "description": "Retrieves pending abandoned checkouts (carts). Use this to identify recovery opportunities.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "number",
+                    "description": "Number of checkouts to return (default 10)"
+                }
+            }
+        },
+        "examples": [
+            {
+                "name": "get_abandoned_checkouts",
+                "args": {
+                    "limit": 5
+                }
+            }
+        ]
     }
 ]

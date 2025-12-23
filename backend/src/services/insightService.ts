@@ -34,7 +34,7 @@ async function checkErrorSpikes(): Promise<InsightSignal | null> {
     const { data, error } = await supabase
         .from('system_logs')
         .select('*', { count: 'exact' })
-        .eq('level', 'error')
+        .eq('severity', 'error')
         .gte('created_at', fiveMinutesAgo);
 
     if (error) {
@@ -63,8 +63,8 @@ async function checkErrorSpikes(): Promise<InsightSignal | null> {
 async function checkSlowRoutes(): Promise<InsightSignal | null> {
     const { data, error } = await supabase
         .from('system_logs')
-        .select('metadata, event')
-        .contains('metadata', { type: 'http_request' }) // Assuming we tag logs like this
+        .select('payload, event_type')
+        .contains('payload', { type: 'http_request' }) // Assuming we tag logs like this
         .order('created_at', { ascending: false })
         .limit(100);
 
@@ -75,11 +75,11 @@ async function checkSlowRoutes(): Promise<InsightSignal | null> {
     const TIMEOUT_MS = 2000;
 
     data.forEach((log: any) => {
-        const duration = log.metadata?.duration || 0;
+        const duration = log.payload?.duration || 0;
         if (duration > TIMEOUT_MS) {
             slowCount++;
-            if (!slowRoutes.includes(log.event)) {
-                slowRoutes.push(log.event); // event usually holds "GET /route"
+            if (!slowRoutes.includes(log.event_type)) {
+                slowRoutes.push(log.event_type); // event usually holds "GET /route"
             }
         }
     });

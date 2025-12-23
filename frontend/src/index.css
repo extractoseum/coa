@@ -82,3 +82,8 @@ input[type="checkbox"] {
     border: 1px solid rgba(255, 255, 255, 0.05);
   }
 }
+@media (max-width: 768px) {
+  body.mobile-chat-active nav.fixed.bottom-0 {
+    display: none !important;
+  }
+}

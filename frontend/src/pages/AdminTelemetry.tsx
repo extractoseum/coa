@@ -25,8 +25,11 @@ export default function AdminTelemetry() {
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState<'all' | 'error' | 'warn' | 'info'>('all');
 
+    const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
     const fetchData = async () => {
         setLoading(true);
+        setErrorMsg(null);
         try {
             // Fetch Logs
             let url = '/api/v1/logs/admin?limit=100';
@@ -37,17 +40,29 @@ export default function AdminTelemetry() {
             // Fetch Insights (Parallel)
             const [logsRes, insightsRes] = await Promise.all([
                 fetch(url, { headers: authHeaders }),
-                fetch('/api/v1/logs/insights', { headers: authHeaders })
+                fetch('/api/v1/logs/admin/insights', { headers: authHeaders }) // Corrected URL also
             ]);
 
-            const logsData = await logsRes.json();
-            const insightsData = await insightsRes.json();
+            if (logsRes.status === 401 || logsRes.status === 403) {
+                throw new Error('Unauthorized: requires super_admin role.');
+            }
+            if (!logsRes.ok) throw new Error(`Logs API Error: ${logsRes.statusText}`);
 
-            if (logsData.success) setLogs(logsData.logs);
+            const logsData = await logsRes.json();
+            // Insights might fail independently, we can ignore or handle softly
+            const insightsData = insightsRes.ok ? await insightsRes.json() : { success: false };
+
+            if (logsData.success) {
+                setLogs(logsData.logs);
+            } else {
+                setErrorMsg(logsData.error || 'Failed to load logs');
+            }
+
             if (insightsData.success) setSignals(insightsData.signals);
 
-        } catch (error) {
+        } catch (error: any) {
             console.error('Failed to fetch telemetry', error);
+            setErrorMsg(error.message);
         } finally {
             setLoading(false);
         }
@@ -134,7 +149,17 @@ export default function AdminTelemetry() {
                                 </tr>
                             </thead>
                             <tbody className="divide-y" style={{ borderColor: theme.border }}>
-                                {logs.length === 0 ? (
+                                {errorMsg ? (
+                                    <tr>
+                                        <td colSpan={5} className="p-8 text-center text-red-400 bg-red-500/10">
+                                            <div className="flex flex-col items-center gap-2">
+                                                <AlertCircle size={24} />
+                                                <span className="font-bold">Error loading logs</span>
+                                                <span className="text-sm opacity-80">{errorMsg}</span>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ) : logs.length === 0 ? (
                                     <tr>
                                         <td colSpan={5} className="p-8 text-center opacity-50">
                                             No logs found properly ingestion pipeline.

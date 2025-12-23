@@ -6,6 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { ADMIN_TOOLS, TOOL_HANDLERS } from './aiTools';
 import { AIUsageService } from './aiUsageService';
+import { ModelRouter, RouterInput, AutoGoal, TaskType, RouterOutput } from './ModelRouter';
 
 dotenv.config();
 
@@ -26,19 +27,17 @@ interface AIResponse {
     usage: OpenAI.Completions.CompletionUsage | undefined;
 }
 
-/**
- * Service to interact with OpenAI (Ara Intelligence).
- * Includes error handling and usage logging.
- */
 export class AIService {
     private static instance: AIService;
 
     private anthropic: Anthropic;
     private googleAI: GoogleGenerativeAI;
+    private router: ModelRouter;
 
     private constructor() {
         this.anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
         this.googleAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY || '');
+        this.router = new ModelRouter();
     }
 
     public static getInstance(): AIService {
@@ -46,6 +45,40 @@ export class AIService {
             AIService.instance = new AIService();
         }
         return AIService.instance;
+    }
+
+    /**
+     * Auto-routed generation based on task logic
+     */
+    public async generateTextAuto(
+        systemPrompt: string,
+        userPrompt: string,
+        taskType: TaskType,
+        goal: AutoGoal = 'balanced',
+        context?: any
+    ): Promise<AIResponse> {
+
+        // 1. Route to optimal model
+        const routerOutput = this.router.route({
+            prompt: userPrompt,
+            systemPrompt,
+            taskType,
+            context,
+            goal
+        });
+
+        console.log(`[AIService] 🔀 Routed: ${taskType} -> ${routerOutput.selectedModel} (${routerOutput.reasoning})`);
+
+        // 2. Execute with selected model
+        // Note: For complex tasks requiring tools, we might need to use generateChatWithTools instead.
+        // For now, this wraps generateText standard.
+        // If ModelRouter suggests enabling tools, we should consider that (not implemented in standard generateText yet)
+
+        return this.generateText(
+            systemPrompt,
+            userPrompt,
+            routerOutput.selectedModel
+        );
     }
 
     /**
@@ -170,7 +203,7 @@ export class AIService {
         message: string,
         history: any[] = [],
         modelOverride?: string,
-        options: { toolsWhitelist?: string[] } = {}
+        options: { toolsWhitelist?: string[], objectives?: string | null } = {}
     ): Promise<AIResponse> {
         // 1. Resolve Persona Context
         const KNOWLEDGE_BASE_DIR = path.join(__dirname, '../../data/ai_knowledge_base');
@@ -194,26 +227,57 @@ export class AIService {
 
         let systemPrompt = 'Act as Ara, the COA Viewer Assistant.';
         if (agentFolderPath) {
-            const identityPath = path.join(agentFolderPath, 'identity.md');
+            // Priority 1: Check metadata.json for custom instructivePath
+            // Priority 2: Fallback to identity.md
+            let instructiveFileName = 'identity.md';
+            const metadataPath = path.join(agentFolderPath, 'metadata.json');
+            if (fs.existsSync(metadataPath)) {
+                try {
+                    const meta = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
+                    if (meta.instructivePath) instructiveFileName = meta.instructivePath;
+                } catch (e) { }
+            }
+
+            const identityPath = path.join(agentFolderPath, instructiveFileName);
             if (fs.existsSync(identityPath)) {
                 systemPrompt = fs.readFileSync(identityPath, 'utf8') + '\n\n';
             }
 
-            // Read other files
+            // Read other files and build a Knowledge Catalog (summaries only for optimization)
             try {
-                const files = fs.readdirSync(agentFolderPath).filter(f => f.endsWith('.md') && f !== 'identity.md');
-                const combinedContent = files.map(f => {
-                    const content = fs.readFileSync(path.join(agentFolderPath, f), 'utf-8');
-                    return `--- KNOWLEDGE: ${f} ---\n${content}\n`;
-                }).join('\n');
-                systemPrompt += combinedContent;
+                // Get all MD files except the instructive one
+                const files = fs.readdirSync(agentFolderPath).filter(f => f.endsWith('.md') && f !== instructiveFileName);
+
+                // Read metadata to get intelligence-powered summaries
+                const metaPath = path.join(agentFolderPath, 'metadata.json');
+                let metadata: any = { files: {} };
+                if (fs.existsSync(metaPath)) {
+                    try { metadata = JSON.parse(fs.readFileSync(metaPath, 'utf8')); } catch (e) { }
+                }
+
+                if (files.length > 0) {
+                    systemPrompt += `\n### CATÁLOGO DE CONOCIMIENTO DISPONIBLE:\n`;
+                    systemPrompt += `Actualmente tienes acceso a los siguientes archivos. NO los has leído completos (excepto el instructivo principal arriba), pero conoces su propósito. Si necesitas información específica de alguno, pregunta o indica que vas a usar la herramienta de lectura:\n\n`;
+
+                    for (const f of files) {
+                        const summary = metadata.files?.[f]?.summary || "Sin resumen disponible (pendiente de análisis).";
+                        systemPrompt += `- [${f}]: ${summary}\n`;
+                    }
+                    systemPrompt += `\n`;
+                }
+
             } catch (e) { console.error('[AIService] Knowledge load failed:', e); }
         }
 
-        // 2. Prepare Messages for chat
+        // 2. Append Structural Objectives (Omnichannel Orchestrator Phase 3)
+        if (options.objectives) {
+            systemPrompt += `\n\n### CURRENT OPERATIONAL OBJECTIVES (COLUMN OVERRIDE):\n${options.objectives}\n`;
+        }
+
+        // 3. Prepare Messages for chat
         const messages = [...history, { role: 'user', content: message }];
 
-        // 3. Call Chat with tools and whitelist
+        // 4. Call Chat with tools and whitelist
         return this.generateChatWithTools(systemPrompt, messages, modelOverride, options.toolsWhitelist);
     }
 
@@ -405,14 +469,16 @@ export class AIService {
             let result = await chat.sendMessage(lastMessage);
             let response = result.response;
 
-            // Check for tool calls
-            const calls = response.functionCalls();
+            const MAX_TOOL_STEPS = 5;
+            let toolStepCount = 0;
 
-            if (calls && calls.length > 0) {
+            while (response && response.functionCalls && (response.functionCalls() || []).length > 0 && toolStepCount < MAX_TOOL_STEPS) {
+                toolStepCount++;
+                const calls = response.functionCalls() || [];
                 const toolResults = [];
 
                 for (const call of calls) {
-                    console.log(`[AIService] 🛠️ Executing tool (Gemini): ${call.name}`, call.args);
+                    console.log(`[AIService] 🛠️ Executing tool (Gemini) [Step ${toolStepCount}]: ${call.name}`, call.args);
                     const handler = TOOL_HANDLERS[call.name];
                     let functionResponse;
 
@@ -439,14 +505,15 @@ export class AIService {
                 const secondResult = await chat.sendMessage(toolResults);
                 const secondResponse = secondResult.response;
 
-                return {
-                    content: secondResponse.text(),
-                    usage: undefined // Gemini JS SDK doesn't return usage in sendMessage easily yet
-                };
+                // Update response for the next iteration of the loop
+                response = secondResponse;
             }
 
+            const finalContent = response.text();
+            console.log(`[AIService] Gemini Final Content (length): ${finalContent.length}`);
+
             return {
-                content: response.text(),
+                content: finalContent || 'Lo siento, obtuve los datos pero no pude generar un resumen detallado. ¿Deseas que intente algo específico?',
                 usage: undefined
             };
 

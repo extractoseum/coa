@@ -400,7 +400,7 @@ const processOrderInternal = async (order: any, eventType: 'create' | 'update') 
         // Check if order already exists in our system
         const { data: existingOrder } = await supabase
             .from('orders')
-            .select('id, status')
+            .select('id, status, fulfilled_notified')
             .eq('shopify_order_id', shopifyOrderId)
             .maybeSingle();
 
@@ -471,6 +471,8 @@ const processOrderInternal = async (order: any, eventType: 'create' | 'update') 
                 let hasFullTracking = false;
                 const allTrackingNumbers: string[] = [];
                 let mainCarrier = 'Estafeta';
+                let mainServiceType = undefined;
+                let mainEstimatedDelivery = undefined;
 
                 for (const fulfillment of order.fulfillments) {
                     const carrier = fulfillment.tracking_company || 'Estafeta';
@@ -481,6 +483,12 @@ const processOrderInternal = async (order: any, eventType: 'create' | 'update') 
 
                     if (trackingNumbers.length > 0) {
                         hasFullTracking = true;
+
+                        // Try to pull service type from fulfillment metadata if available
+                        // Shopify fulfillments might have service codes in receipts or notes
+                        if (fulfillment.service) mainServiceType = fulfillment.service;
+                        if (fulfillment.tracking_company) mainCarrier = fulfillment.tracking_company;
+
                         for (let i = 0; i < trackingNumbers.length; i++) {
                             const trackingNumber = trackingNumbers[i];
                             const trackingUrl = trackingUrls[i] || trackingUrls[0] || null;
@@ -541,8 +549,25 @@ const processOrderInternal = async (order: any, eventType: 'create' | 'update') 
                     }
 
                     // CRITICAL: Notify user if it's a new or updated fulfillment
-                    console.log(`[Webhook] Triggering SHIPPED notification via fallback for order ${orderNumber}`);
-                    await notifyOrderShipped(client.id, orderNumber, mainCarrier, allTrackingNumbers);
+                    // BUG FIX: Prevent duplicate notifications by checking and setting fulfilled_notified flag
+                    if (!existingOrder?.fulfilled_notified) {
+                        console.log(`[Webhook] Triggering SHIPPED notification via fallback for order ${orderNumber}`);
+
+                        // Mark as notified FIRST to prevent race condition duplicates
+                        await supabase.from('orders').update({ fulfilled_notified: true }).eq('id', savedOrder.id);
+
+                        await notifyOrderShipped(
+                            client.id,
+                            orderNumber,
+                            mainCarrier,
+                            allTrackingNumbers,
+                            client,
+                            mainEstimatedDelivery,
+                            mainServiceType
+                        );
+                    } else {
+                        console.log(`[Webhook] Shipped notification already sent for ${orderNumber}, skipping fallback.`);
+                    }
                 }
             }
 
@@ -619,7 +644,7 @@ export const handleFulfillmentUpdate = async (req: Request, res: Response) => {
             // Find the order in our DB
             let { data: order } = await supabase
                 .from('orders')
-                .select('id, client_id, order_number')
+                .select('id, client_id, order_number, fulfilled_notified')
                 .eq('shopify_order_id', shopifyOrderId)
                 .maybeSingle();
 
@@ -642,7 +667,7 @@ export const handleFulfillmentUpdate = async (req: Request, res: Response) => {
                                 shopify_created_at: shopifyOrder.created_at,
                                 shopify_updated_at: shopifyOrder.updated_at
                             }, { onConflict: 'shopify_order_id' })
-                            .select('id, client_id, order_number')
+                            .select('id, client_id, order_number, fulfilled_notified')
                             .single();
 
                         if (!orderError) {
@@ -701,7 +726,28 @@ export const handleFulfillmentUpdate = async (req: Request, res: Response) => {
                 }
 
                 // Notify user with all tracking numbers
-                await notifyOrderShipped(order.client_id, order.order_number, carrier, trackingNumbers);
+                // BUG FIX: Only notify if not already notified
+                if (!order.fulfilled_notified) {
+                    console.log(`[Webhook] Triggering SHIPPED notification for order ${order.order_number}`);
+
+                    // Mark as notified FIRST
+                    await supabase.from('orders').update({ fulfilled_notified: true }).eq('id', order.id);
+
+                    // Try to get enriched data from the fulfillment webhook body
+                    const serviceType = fulfillment.service || undefined;
+
+                    await notifyOrderShipped(
+                        order.client_id,
+                        order.order_number,
+                        carrier,
+                        trackingNumbers,
+                        undefined,
+                        undefined,
+                        serviceType
+                    );
+                } else {
+                    console.log(`[Webhook] Shipped notification already sent for ${order.order_number}, skipping fulfillment webhook notify.`);
+                }
             }
         }
 

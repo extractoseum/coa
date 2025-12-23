@@ -18,6 +18,7 @@ router.get('/columns', requireAuth, requireRole('admin', 'super_admin', 'staff')
 router.get('/conversations', requireAuth, requireRole('admin', 'super_admin', 'staff'), getConversations);
 router.get('/conversations/:conversationId/messages', requireAuth, requireRole('admin', 'super_admin', 'staff'), getMessages);
 router.post('/conversations/:conversationId/messages', requireAuth, requireRole('admin', 'super_admin', 'staff'), sendMessage);
+router.post('/conversations/:conversationId/messages/voice', requireAuth, requireRole('admin', 'super_admin', 'staff'), (req, res) => require('../controllers/crmController').sendVoiceMessage(req, res));
 router.patch('/columns/:id/config', requireAuth, requireRole('admin', 'super_admin', 'staff'), updateColumnConfig);
 router.post('/move', requireAuth, requireRole('admin', 'super_admin', 'staff'), moveConversation);
 router.post('/conversations', requireAuth, requireRole('admin', 'super_admin', 'staff'), createConversation);
@@ -27,5 +28,12 @@ router.get('/contacts/:handle/snapshot', requireAuth, requireRole('admin', 'supe
 router.get('/contacts/:handle/orders', requireAuth, requireRole('admin', 'super_admin', 'staff'), getClientOrders);
 router.get('/orders/:orderId', requireAuth, requireRole('admin', 'super_admin', 'staff'), getOrderDetails);
 router.post('/coupons', requireAuth, requireRole('admin', 'super_admin', 'staff'), createCoupon);
+router.post('/conversations/:conversationId/sync-facts', requireAuth, requireRole('admin', 'super_admin', 'staff'), (req, res) => require('../controllers/crmController').syncFacts(req, res));
+
+// Orchestrator Chips
+router.get('/chips/channel', requireAuth, requireRole('admin', 'super_admin'), (req, res) => require('../controllers/crmController').getChannelChips(req, res));
+router.get('/chips/mini', requireAuth, requireRole('admin', 'super_admin'), (req, res) => require('../controllers/crmController').getMiniChips(req, res));
+router.post('/chips/mini', requireAuth, requireRole('admin', 'super_admin'), (req, res) => require('../controllers/crmController').upsertMiniChip(req, res));
+router.post('/chips/channel', requireAuth, requireRole('admin', 'super_admin'), (req, res) => require('../controllers/crmController').upsertChannelChip(req, res));
 
 export default router;

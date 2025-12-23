@@ -1,0 +1,10 @@
+#!/usr/bin/expect -f
+set timeout 60
+set password ")l2fyDHz60u,nTAd,@tD"
+
+spawn ssh root@148.230.88.203 "cat /var/www/coa-viewer/backend/apply_config_col.js"
+expect {
+    "password:" { send "$password\r" }
+    "yes/no" { send "yes\r"; exp_continue }
+}
+expect eof

@@ -241,17 +241,17 @@ export default function COAEnrichmentForm({ coaToken, coa, onComplete, themeMode
             // Load metadata
             if (coa.metadata) {
                 setMetadata({
-                    client_name: coa.metadata.client_name || '',
+                    client_name: coa.metadata.client_name || coa.metadata.client_info?.name || '',
                     client_reference: coa.metadata.client_reference || '',
-                    received_date: coa.metadata.received_date || '',
-                    sample_condition: coa.metadata.sample_condition || '',
-                    storage_temp: coa.metadata.storage_temp || '',
+                    received_date: coa.metadata.received_date || coa.metadata.sample_info?.date_received || '',
+                    sample_condition: coa.metadata.sample_condition || coa.metadata.sample_info?.condition || '',
+                    storage_temp: coa.metadata.storage_temp || coa.metadata.sample_info?.temp || '',
                     storage_time: coa.metadata.storage_time || '',
                     container_type: coa.metadata.container_type || '',
-                    batch_number: coa.metadata.batch_number || '',
-                    description_short: coa.metadata.description_short || '',
-                    description_extended: coa.metadata.description_extended || '',
-                    sample_weight: coa.metadata.sample_weight || '',
+                    batch_number: coa.metadata.batch_number || coa.metadata.sample_info?.batch_id || '',
+                    description_short: coa.metadata.description_short || coa.custom_name || coa.metadata.sample_info?.matrix || '',
+                    description_extended: coa.metadata.description_extended || coa.metadata.sample_info?.description || '',
+                    sample_weight: coa.metadata.sample_weight || (coa.metadata.unit_mass_g ? `${coa.metadata.unit_mass_g} g` : '') || '',
                     is_total_potency: coa.metadata.is_total_potency || false
                 });
             }

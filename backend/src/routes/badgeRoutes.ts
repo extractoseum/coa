@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { getBadges, createBadge, deleteBadge } from '../controllers/badgeController';
+import { getAllBadges, createBadge, deleteBadge } from '../controllers/badgeController';
 import { getCOABadges, assignBadgesToCOA } from '../controllers/coaBadgeController';
-import { requireAuth, requireAdmin } from '../middleware/authMiddleware';
+import { requireAuth, requireSuperAdmin } from '../middleware/authMiddleware';
 
 const router = Router();
 

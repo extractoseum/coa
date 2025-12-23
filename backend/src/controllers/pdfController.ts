@@ -21,7 +21,7 @@ const optimizeImageForPDF = async (imageBuffer: Buffer, maxWidth: number = 300, 
                 fit: 'inside',
                 withoutEnlargement: true
             })
-            .png({ compressionLevel: 9 })
+            .png({ compressionLevel: 3 })
             .toBuffer();
     } catch (err) {
         console.log('[PDF] Image optimization failed, using original');
@@ -39,7 +39,7 @@ const isSVG = (buffer: Buffer): boolean => {
 // Uses high density (450 DPI) for crisp rendering at any zoom level
 const convertSVGtoPNG = async (svgBuffer: Buffer, width: number = 1200, height?: number): Promise<Buffer> => {
     try {
-        const pngBuffer = await sharp(svgBuffer, { density: 450 })
+        const pngBuffer = await sharp(svgBuffer, { density: 300 })
             .resize(width, height, {
                 fit: 'inside',
                 withoutEnlargement: false // Allow upscaling SVG for quality
@@ -447,31 +447,12 @@ export const generateCOAPDF = async (req: Request, res: Response) => {
         const chartBuffer = await chartCanvas.renderToBuffer(chartConfig);
         // const chartBuffer = Buffer.from(''); // Dummy buffer
 
-        // Fetch product image if available
-        // Priority: 1) Direct field product_image_url, 2) Fallback to metadata.product_image_url
+        // Parallel Execution Phase 1: Fetch Product Image & Template concurrently
+        console.log('[PDF] Starting parallel fetch: Product Image + Template');
+
         let productImageBuffer: Buffer | null = null;
-        const imageUrl = coaData.product_image_url || coaData.metadata?.product_image_url;
+        const productImageUrl = coaData.product_image_url || coaData.metadata?.product_image_url;
 
-        if (imageUrl) {
-            try {
-                console.log(`[PDF] Fetching product image from: ${imageUrl}`);
-                const imgResponse = await axios.get(imageUrl, {
-                    responseType: 'arraybuffer',
-                    timeout: 10000,
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (compatible; EUM-COA-Generator/1.0)'
-                    }
-                });
-                productImageBuffer = Buffer.from(imgResponse.data);
-                console.log(`[PDF] Product image fetched successfully, size: ${productImageBuffer.length} bytes`);
-            } catch (err: any) {
-                console.error('[PDF] Could not fetch product image:', err.message);
-            }
-        } else {
-            console.log('[PDF] No product image URL provided');
-        }
-
-        // Fetch active template FIRST (white-label configuration) - needed for watermark and logo URLs
         let activeTemplate: any = {
             name: 'Default',
             company_name: 'EXTRACTOS EUM™',
@@ -484,86 +465,55 @@ export const generateCOAPDF = async (req: Request, res: Response) => {
             footer_text: ''
         };
 
-        try {
-            const { data: templateData } = await supabase
-                .from('pdf_templates')
-                .select('*')
-                .eq('is_active', true)
-                .single();
+        const [productImgResult, templateResult] = await Promise.all([
+            // 1. Product Image Fetch
+            productImageUrl ? axios.get(productImageUrl, {
+                responseType: 'arraybuffer', timeout: 5000,
+                headers: { 'User-Agent': 'EUM-PDF-Generator' }
+            }).then(r => Buffer.from(r.data)).catch(e => { console.error('[PDF] Product img error:', e.message); return null; })
+                : Promise.resolve(null),
 
-            if (templateData) {
-                activeTemplate = { ...activeTemplate, ...templateData };
-                // Set template settings
-                watermarkOpacity = activeTemplate.watermark_opacity ?? 0.15;
-                watermarkScale = activeTemplate.watermark_scale ?? 1.0;
-                logoWidth = activeTemplate.logo_width ?? 180;
-                console.log('[PDF] Active template loaded:', activeTemplate.name, 'Watermark opacity:', watermarkOpacity, 'Scale:', watermarkScale, 'Logo width:', logoWidth);
-            } else {
-                // Fallback to global_settings if no active template
-                const { data: settingsData } = await supabase
-                    .from('global_settings')
-                    .select('*')
-                    .eq('id', 'main')
-                    .single();
+            // 2. Template Fetch
+            supabase.from('pdf_templates').select('*').eq('is_active', true).single()
+                .then(({ data }) => data || null)
+        ]);
 
-                if (settingsData) {
-                    activeTemplate = { ...activeTemplate, ...settingsData };
-                    console.log('[PDF] Using global settings as fallback:', activeTemplate.company_name);
-                }
-            }
-        } catch (templateError: any) {
-            console.log('[PDF] Using default template:', templateError.message);
-        }
+        productImageBuffer = productImgResult;
 
-        // Fetch watermark image - prioritize active template, then COA-specific watermark
-        let watermarkBuffer: Buffer | null = null;
-        const watermarkUrl = activeTemplate.watermark_url || coaData.watermark_url;
-
-        if (watermarkUrl) {
-            try {
-                console.log(`[PDF] Fetching watermark from: ${watermarkUrl}`);
-                const watermarkResponse = await axios.get(watermarkUrl, {
-                    responseType: 'arraybuffer',
-                    timeout: 10000,
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (compatible; EUM-COA-Generator/1.0)'
-                    }
-                });
-                const rawBuffer = Buffer.from(watermarkResponse.data);
-                // Process image (converts SVG to PNG if needed)
-                watermarkBuffer = await processImageForPDF(rawBuffer, 600);
-                console.log(`[PDF] Watermark processed successfully, size: ${watermarkBuffer.length} bytes`);
-            } catch (err: any) {
-                console.error('[PDF] Could not fetch watermark:', err.message);
-            }
+        // Process Template Result
+        if (templateResult) {
+            activeTemplate = { ...activeTemplate, ...templateResult };
+            watermarkOpacity = activeTemplate.watermark_opacity ?? 0.15;
+            watermarkScale = activeTemplate.watermark_scale ?? 1.0;
+            logoWidth = activeTemplate.logo_width ?? 180;
+            console.log(`[PDF] Loaded template: ${activeTemplate.name}`);
         } else {
-            console.log('[PDF] No watermark URL provided');
+            // Fallback to global settings if no active template
+            const { data: settings } = await supabase.from('global_settings').select('*').eq('id', 'main').single();
+            if (settings) {
+                activeTemplate = { ...activeTemplate, ...settings };
+                console.log('[PDF] Using global settings fallback');
+            }
         }
 
-        // Fetch company logo - prioritize active template, fallback to COA metadata
-        let companyLogoBuffer: Buffer | null = null;
+        // Parallel Execution Phase 2: Fetch Watermark & Logo concurrently (dependent on template)
+        const watermarkUrl = activeTemplate.watermark_url || coaData.watermark_url;
         const companyLogoUrl = activeTemplate.company_logo_url || coaData.metadata?.company_logo_url;
 
-        if (companyLogoUrl) {
-            try {
-                console.log(`[PDF] Fetching company logo from: ${companyLogoUrl}`);
-                const logoResponse = await axios.get(companyLogoUrl, {
-                    responseType: 'arraybuffer',
-                    timeout: 10000,
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (compatible; EUM-COA-Generator/1.0)'
-                    }
-                });
-                const rawLogoBuffer = Buffer.from(logoResponse.data);
-                // Process image (converts SVG to PNG if needed) - use 1200px for crisp logo
-                companyLogoBuffer = await processImageForPDF(rawLogoBuffer, 1200);
-                console.log(`[PDF] Company logo processed successfully, size: ${companyLogoBuffer.length} bytes`);
-            } catch (err: any) {
-                console.error('[PDF] Could not fetch company logo:', err.message);
-            }
-        } else {
-            console.log('[PDF] No company logo URL provided');
-        }
+        console.log('[PDF] Starting parallel fetch: Watermark + Logo');
+
+        const [watermarkBufferRaw, companyLogoBufferRaw] = await Promise.all([
+            watermarkUrl ? axios.get(watermarkUrl, { responseType: 'arraybuffer', timeout: 5000 }).then(r => r.data).catch(e => null) : Promise.resolve(null),
+            companyLogoUrl ? axios.get(companyLogoUrl, { responseType: 'arraybuffer', timeout: 5000 }).then(r => r.data).catch(e => null) : Promise.resolve(null)
+        ]);
+
+        // Process images (resize/convert) concurrently
+        const [watermarkBuffer, companyLogoBuffer] = await Promise.all([
+            watermarkBufferRaw ? processImageForPDF(Buffer.from(watermarkBufferRaw), 600) : Promise.resolve(null),
+            companyLogoBufferRaw ? processImageForPDF(Buffer.from(companyLogoBufferRaw), 1200) : Promise.resolve(null)
+        ]);
+
+        console.log(`[PDF] Image processing complete. Watermark: ${!!watermarkBuffer}, Logo: ${!!companyLogoBuffer}`);
 
         // Add watermark to first page (must be called after watermarkBuffer is defined)
         addWatermark();
@@ -936,25 +886,43 @@ export const generateCOAPDF = async (req: Request, res: Response) => {
         // Batch
         addMetaRow('Batch:', metadata.batch_number, metaCol2X, currentMetaY + 36);
 
-        // Sample Weight / Total Potency - Add a row for this
-        let sampleWeightText = null;
+        // Sample Info Extra Fields (Weight, Moisture, Water Activity)
+        let extraRowY = 0;
+        const extraFields: { label: string, value: string }[] = [];
+
+        // 1. Weight / Unit Mass
         if (metadata.is_total_potency) {
-            sampleWeightText = 'Potencia Total';
+            extraFields.push({ label: 'Tipo:', value: 'Potencia Total' });
+        } else if (metadata.unit_mass_g) {
+            extraFields.push({ label: 'Masa Unitaria:', value: `${metadata.unit_mass_g} g` });
         } else if (metadata.sample_weight) {
-            sampleWeightText = metadata.sample_weight;
+            extraFields.push({ label: 'Peso Muestra:', value: metadata.sample_weight });
         }
 
-        // Add sample weight/potency row spanning both columns if present
-        let extraRowY = 0;
-        if (sampleWeightText) {
-            extraRowY = 15;
+        // 2. Moisture
+        if (metadata.sample_info?.moisture_content) {
+            extraFields.push({ label: 'Humedad:', value: `${metadata.sample_info.moisture_content}%` });
+        }
+
+        // 3. Water Activity
+        if (metadata.sample_info?.water_activity) {
+            extraFields.push({ label: 'Act. de Agua:', value: `${metadata.sample_info.water_activity} aw` });
+        }
+
+        // Render extra fields
+        extraFields.forEach((field, idx) => {
+            const yOffset = currentMetaY + 50 + (idx * 12);
             doc.fontSize(7)
                 .font('Helvetica-Bold')
                 .fillColor('#1a5c3e')
-                .text('Peso Muestra:', metaCol1X, currentMetaY + 50);
+                .text(field.label, metaCol1X, yOffset);
             doc.font('Helvetica')
                 .fillColor('#000000')
-                .text(sampleWeightText, metaCol1X + labelWidth, currentMetaY + 50);
+                .text(field.value, metaCol1X + labelWidth, yOffset);
+        });
+
+        if (extraFields.length > 0) {
+            extraRowY = (extraFields.length * 12) + 5;
         }
 
         // ===== ANALYSIS DETAILS SECTION =====
@@ -1256,6 +1224,91 @@ export const generateCOAPDF = async (req: Request, res: Response) => {
             yPos = currentRowY + 10; // Update yPos after all badge rows
         }
 
+        // ===== TERPENE PROFILE SECTION =====
+        const terpenes = coaData.metadata?.terpenes || [];
+        if (terpenes.length > 0) {
+            const terpeneHeaderHeight = 20;
+            const rowHeight = 18;
+            const estimatedHeight = 40 + (terpenes.length * rowHeight);
+
+            // Check initial page break
+            if (yPos + estimatedHeight > pageHeight - 100) {
+                doc.addPage();
+                addWatermark();
+                yPos = 50;
+            }
+
+            const terpY = yPos + 15;
+            doc.fontSize(9)
+                .font('Helvetica-Bold')
+                .fillColor('#000000')
+                .text('PERFIL DE TERPENOS', 50, terpY);
+
+            let terpTableTop = terpY + 20;
+
+            // Table Config
+            const tColWidths = [232, 110, 110, 60]; // Same widths as compact cannabinoid table
+            const tHeaders = ['Terpeno', '%', 'mg/g', 'Estado'];
+
+            // Helper to draw header
+            const drawTerpHeader = (y: number) => {
+                let txPos = 50;
+                tHeaders.forEach((h, i) => {
+                    doc.save();
+                    doc.opacity(0.7);
+                    doc.rect(txPos, y, tColWidths[i], 20).fillAndStroke('#10b981', '#10b981');
+                    doc.restore();
+                    doc.fillColor('#ffffff').fontSize(8).font('Helvetica-Bold').text(h, txPos + 8, y + 5);
+                    txPos += tColWidths[i];
+                });
+            };
+
+            drawTerpHeader(terpTableTop);
+
+            let tyPos = terpTableTop + 20;
+            doc.font('Helvetica').fontSize(8);
+
+            // Draw Rows
+            terpenes.forEach((t: any, idx: number) => {
+                // Page break check per row
+                if (tyPos + rowHeight > pageHeight - 50) {
+                    doc.addPage();
+                    addWatermark();
+                    tyPos = 50;
+                    drawTerpHeader(tyPos);
+                    tyPos += 20;
+                    doc.font('Helvetica').fontSize(8);
+                }
+
+                const rowColor = idx % 2 === 0 ? '#f9f9f9' : '#ffffff';
+                const totalWidth = tColWidths.reduce((a, b) => a + b, 0);
+                doc.rect(50, tyPos, totalWidth, rowHeight).fillAndStroke(rowColor, '#e0e0e0');
+
+                let rowX = 50;
+                doc.fillColor('#000000');
+
+                // Name
+                doc.text(t.analyte, rowX + 4, tyPos + 5, { width: tColWidths[0] - 8, lineBreak: false });
+                rowX += tColWidths[0];
+
+                // %
+                doc.text(t.result_pct, rowX + 4, tyPos + 5, { width: tColWidths[1] - 8, align: 'right' });
+                rowX += tColWidths[1];
+
+                // mg/g
+                doc.text(t.result_mg_g || '-', rowX + 4, tyPos + 5, { width: tColWidths[2] - 8, align: 'right' });
+                rowX += tColWidths[2];
+
+                // Status
+                doc.fillColor(t.detected ? '#10b981' : '#9ca3af')
+                    .text(t.detected ? '✓' : 'N/D', rowX, tyPos + 5, { width: tColWidths[3], align: 'center' });
+
+                tyPos += rowHeight;
+            });
+
+            yPos = tyPos + 10;
+        }
+
         // ===== CHROMATOGRAM SECTION =====
         // Check if we have chromatogram data (retention_time and area)
         const hasChromatogramData = (coaData.cannabinoids || []).some(
@@ -1428,7 +1481,64 @@ export const generateCOAPDF = async (req: Request, res: Response) => {
         }
 
         // Render chemist section if we have chemist data
-        if (chemistData) {
+        const technicians = coaData.metadata?.technicians;
+
+        // Multiple Technicians Logic (KCA Labs)
+        if (technicians && technicians.length > 0) {
+            const techSectionHeight = 40 + (technicians.length * 40);
+
+            // Check if we need a new page
+            if (yPos + techSectionHeight > pageHeight - 150) {
+                doc.addPage();
+                addWatermark();
+                yPos = 50;
+            }
+
+            const techY = yPos + 15;
+            doc.fontSize(9)
+                .font('Helvetica-Bold')
+                .fillColor('#000000')
+                .text('RESPONSABLE TÉCNICO / ANALISTAS', 50, techY);
+
+            const boxY = techY + 15;
+            // Calculate height ensuring min height of 70
+            const boxHeight = Math.max(70, (technicians.length * 40) + 10);
+
+            doc.rect(50, boxY, pageWidth - 100, boxHeight)
+                .strokeColor('#e5e7eb')
+                .stroke();
+
+            technicians.forEach((tech: any, idx: number) => {
+                const rowY = boxY + 10 + (idx * 40);
+
+                // Name
+                doc.fontSize(10)
+                    .font('Helvetica-Bold')
+                    .fillColor('#1a5c3e')
+                    .text(tech.name, 60, rowY);
+
+                // Role 
+                doc.fontSize(8)
+                    .font('Helvetica')
+                    .fillColor('#666666')
+                    .text(`${tech.role}${tech.signature_type ? ` - ${tech.signature_type}` : ''}`, 60, rowY + 14);
+
+                // Date
+                if (tech.date) {
+                    doc.fontSize(7)
+                        .fillColor('#999999')
+                        .text(`Fecha: ${tech.date}`, pageWidth - 160, rowY + 5, { align: 'right', width: 100 });
+                }
+
+                // Verified Badge (simulated signature)
+                doc.fontSize(7)
+                    .fillColor('#10b981')
+                    .text('✓ Verificado Digitalmente', pageWidth - 160, rowY + 15, { align: 'right', width: 100 });
+            });
+
+            yPos = boxY + boxHeight + 5;
+
+        } else if (chemistData) {
             const chemistSectionHeight = 100;
 
             // Check if we need a new page
@@ -1501,7 +1611,6 @@ export const generateCOAPDF = async (req: Request, res: Response) => {
                     doc.link(chemistTextX, chemistBoxY + 42, licenseTextWidth, 10, chemistData.license_url);
 
                     // Add small link indicator (Phase 3 UX improvement)
-                    // Replaced text "(verificar)" with a checkmark icon to lookCleaner
                     doc.fontSize(8).fillColor('#10b981').text('✓', chemistTextX + licenseTextWidth + 3, chemistBoxY + 42);
                 }
             }

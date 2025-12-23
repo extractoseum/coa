@@ -1,7 +1,7 @@
 import axios from 'axios';
-import { supabase } from '../config/supabase';
-import { notifyTrackingUpdate } from './onesignalService';
+import { notifyTrackingUpdate, notifyDeliveryAttemptFailed, notifyPackageAtOffice, notifyDeliveryDelay } from './onesignalService';
 import { logSystemEvent } from './loggerService';
+import { supabase } from '../config/supabase';
 
 interface TrackingStatus {
     timestamp: string;
@@ -47,37 +47,93 @@ export const updateOrderTracking = async (orderId: string) => {
                         .update(updateData)
                         .eq('id', tracking.id);
 
-                    if (statusChanged || historyAdvanced) {
+                    // BUG FIX: Only notify on relevant status changes, NOT on simple history advances
+                    // Relevance: out_for_delivery, delivered, or the initial switch to in_transit
+                    const notifiableStatuses = ['out_for_delivery', 'delivered'];
+                    const isInitialTransit = (tracking.current_status === 'pending' || !tracking.current_status) && result.status === 'in_transit';
+                    const isRelevantChange = statusChanged && (notifiableStatuses.includes(result.status) || isInitialTransit);
+
+                    if (isRelevantChange) {
                         // Extract latest details for personalization
                         const latestEvent = result.history && result.history.length > 0 ? result.history[0].details : undefined;
+                        const currentLocation = result.history && result.history.length > 0 ? result.history[0].location : undefined;
 
                         // Notify user of update
-                        await notifyTrackingUpdate(tracking.orders.client_id, tracking.orders.order_number, result.status, latestEvent);
-
-                        // Log status change
-                        await logSystemEvent({
-                            category: 'order',
-                            eventType: 'tracking_status_changed',
-                            payload: {
-                                order_id: orderId,
-                                tracking_number: trackingNum,
-                                old_status: tracking.current_status,
-                                new_status: result.status,
-                                history_advanced: historyAdvanced,
-                                carrier,
-                                metadata: {
-                                    tracking_code: result.trackingCode,
-                                    service_type: result.serviceType,
-                                    estimated_delivery: result.estimatedDelivery,
-                                    latest_detail: latestEvent
-                                }
-                            },
-                            clientId: tracking.orders.client_id
-                        });
+                        await notifyTrackingUpdate(
+                            tracking.orders.client_id,
+                            tracking.orders.order_number,
+                            result.status,
+                            latestEvent,
+                            undefined,
+                            currentLocation
+                        );
                     }
+
+                    // NEW: Proactive Detection of problematic statuses in history
+                    if (result.history && result.history.length > 0) {
+                        const latest = result.history[0];
+                        const lowerDetails = latest.details.toLowerCase();
+                        const lastSavedDetails = tracking.status_history && tracking.status_history.length > 0
+                            ? tracking.status_history[0].details.toLowerCase()
+                            : '';
+
+                        // Only trigger proactive alerts if they are NEW in the history
+                        if (lowerDetails !== lastSavedDetails) {
+                            // 1. Failed Delivery Attempt
+                            if (lowerDetails.includes('intento') && lowerDetails.includes('fallido')) {
+                                await notifyDeliveryAttemptFailed(tracking.orders.client_id, tracking.orders.order_number, latest.details);
+                            }
+                            // 2. Package at Office / Ready for Pickup
+                            else if (lowerDetails.includes('disponible') && (lowerDetails.includes('oficina') || lowerDetails.includes('sucursal') || lowerDetails.includes('ventanilla'))) {
+                                await notifyPackageAtOffice(tracking.orders.client_id, tracking.orders.order_number, latest.location);
+                            }
+                        }
+                    }
+
+                    // NEW: Delivery Delay Check
+                    if (result.status !== 'delivered' && result.estimatedDelivery) {
+                        const estDate = new Date(result.estimatedDelivery);
+                        const now = new Date();
+                        // If today > estimated date AND we haven't notified delay yet (check logs)
+                        if (now > estDate) {
+                            // Check system logs to avoid spamming delay alerts (once per order)
+                            const { data: delayLog } = await supabase
+                                .from('system_logs')
+                                .select('id')
+                                .eq('event_type', 'delivery_delay_sent')
+                                .eq('client_id', tracking.orders.client_id)
+                                .contains('payload', { orderNumber: tracking.orders.order_number })
+                                .limit(1);
+
+                            if (!delayLog || delayLog.length === 0) {
+                                await notifyDeliveryDelay(tracking.orders.client_id, tracking.orders.order_number);
+                            }
+                        }
+                    }
+
+                    // Log status change (always log if status changed, even if not notifiable)
+                    await logSystemEvent({
+                        category: 'order',
+                        eventType: 'tracking_status_changed',
+                        payload: {
+                            order_id: orderId,
+                            tracking_number: trackingNum,
+                            old_status: tracking.current_status,
+                            new_status: result.status,
+                            history_advanced: historyAdvanced,
+                            carrier,
+                            metadata: {
+                                tracking_code: result.trackingCode,
+                                service_type: result.serviceType,
+                                estimated_delivery: result.estimatedDelivery,
+                                latest_detail: result.history && result.history.length > 0 ? result.history[0].details : undefined
+                            }
+                        },
+                        clientId: tracking.orders.client_id
+                    });
                 }
             } else {
-                // Just update last checked time
+                // Just update last checked time for non-Estafeta carriers
                 await supabase
                     .from('order_tracking')
                     .update({ last_checked_at: new Date().toISOString() })

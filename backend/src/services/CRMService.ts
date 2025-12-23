@@ -1,7 +1,12 @@
 import { supabase } from '../config/supabase';
 import { AIService } from './aiService';
-import { sendWhatsAppMessage } from './whapiService';
+import { logger } from '../utils/Logger'; // Phase 31: Structured Logging
+import { sendWhatsAppMessage, sendWhatsAppVoice, getContactInfo } from './whapiService';
 import { sendDataEmail } from './emailService';
+import { searchShopifyCustomers, getShopifyCustomerOrders, searchShopifyCustomerByPhone } from './shopifyService';
+import { ChannelRouter } from './channelRouter';
+import { ChipEngine } from './chipEngine';
+import { VoiceService } from './VoiceService';
 import fs from 'fs';
 import path from 'path';
 
@@ -36,15 +41,20 @@ export interface CRMConversation {
     facts_version?: number;
     agent_override_id?: string;
     model_override?: string;
+    channel_chip_id?: string;
     last_message_at: string;
 }
 
 export class CRMService {
     private static instance: CRMService;
     private aiService: AIService;
+    private channelRouter: ChannelRouter;
+    private chipEngine: ChipEngine;
 
     private constructor() {
         this.aiService = AIService.getInstance();
+        this.channelRouter = ChannelRouter.getInstance();
+        this.chipEngine = ChipEngine.getInstance();
     }
 
     public static getInstance(): CRMService {
@@ -56,9 +66,10 @@ export class CRMService {
 
     /**
      * Finds or creates a conversation based on channel and handle.
+     * Uses ChannelRouter for new conversations.
      */
-    public async getOrCreateConversation(channel: CRMConversation['channel'], handle: string): Promise<CRMConversation> {
-        console.log(`[CRMService] [TRACE_CONV] Entry for handle: ${handle}, channel: ${channel}`);
+    public async getOrCreateConversation(channel: CRMConversation['channel'], handle: string, channelReference?: string): Promise<CRMConversation> {
+        console.log(`[CRMService] [TRACE_CONV] Entry for handle: ${handle}, channel: ${channel}, reference: ${channelReference}`);
 
         // 1. Try to find existing (Exact match)
         const { data: exactMatch, error: exactError } = await supabase
@@ -96,28 +107,37 @@ export class CRMService {
             }
         }
 
-        console.log(`[CRMService] [TRACE_CONV] No matches found. Creating new conversation...`);
+        console.log(`[CRMService] [TRACE_CONV] No matches found. Requesting Routing Decision...`);
 
-        // 3. Find default column (usually the first one by position)
-        const { data: defaultCol, error: colError } = await supabase
-            .from('crm_columns')
-            .select('id')
-            .order('position', { ascending: true })
-            .limit(1)
-            .maybeSingle();
+        // 3. Request Routing Decision from ChannelRouter
+        const routing = await this.channelRouter.getRouting(channel, channelReference || handle);
 
-        if (colError) console.error(`[CRMService] [TRACE_CONV] Default column error: ${colError.message}`);
+        // 4. Find fallback column if routing failed
+        let targetColumnId = routing.column_id;
+        if (!targetColumnId) {
+            console.warn(`[CRMService] [TRACE_CONV] Router returned no column. Falling back to default.`);
+            const { data: defaultCol } = await supabase
+                .from('crm_columns')
+                .select('id')
+                .order('position', { ascending: true })
+                .limit(1)
+                .maybeSingle();
+            targetColumnId = defaultCol?.id || null;
+        }
 
-        console.log(`[CRMService] [TRACE_CONV] Using default column: ${defaultCol?.id}`);
+        console.log(`[CRMService] [TRACE_CONV] Routing: Column=${targetColumnId}, Agent=${routing.agent_id}, Source=${routing.traffic_source}`);
 
-        // 4. Create new
+        // 5. Create new
         const { data: created, error: createError } = await supabase
             .from('conversations')
             .insert({
                 channel,
                 contact_handle: handle,
-                column_id: defaultCol?.id || null,
-                status: 'active'
+                column_id: targetColumnId,
+                status: 'active',
+                agent_override_id: routing.agent_id,
+                channel_chip_id: routing.channel_chip_id,
+                facts: routing.traffic_source ? { traffic_source: routing.traffic_source } : {}
             })
             .select('*')
             .single();
@@ -129,6 +149,79 @@ export class CRMService {
 
         console.log(`[CRMService] [TRACE_CONV] Created Success: ${created.id}`);
         return created;
+    }
+
+    /**
+     * Generates a voice message (TTS) and sends it as an audio message.
+     */
+    public async sendVoiceMessage(conversationId: string, text: string, role: CRMMessage['role'] = 'assistant'): Promise<CRMMessage> {
+        // 1. Get Conversation to find voice profile
+        const { data: conv } = await supabase
+            .from('conversations')
+            .select('*, crm_columns(voice_profile)')
+            .eq('id', conversationId)
+            .single();
+
+        if (!conv) throw new Error('Conversation not found');
+
+        // 2. Resolve Voice Profile
+        // Priority: Conversation Override > Column Config > Default (Nova)
+        let voiceProfile: any = conv.crm_columns?.voice_profile || { provider: 'openai', voice_id: 'nova' };
+        if (typeof voiceProfile === 'string') {
+            voiceProfile = { provider: 'openai', voice_id: voiceProfile };
+        }
+
+        // 3. Analyze Text & Generate Audio
+        const vs = new VoiceService();
+        let emotion: string | undefined;
+        let analysis: any;
+
+        try {
+            analysis = await vs.analyzeTranscript(text);
+            emotion = analysis.emotionFusionPrimary;
+            console.log(`[CRMService] Analyzed text for voice. Emotion: ${emotion}, Intent: ${analysis.intent}`);
+        } catch (ae) {
+            console.error('[CRMService] Text analysis before voice generation failed:', ae);
+        }
+
+        const audioBuffer = await vs.generateAudioResponse(text, voiceProfile, emotion);
+
+        // 4. Upload to Storage
+        const bucket = process.env.STORAGE_BUCKET_ATTACHMENTS || 'images';
+        const filename = `voice_manual/${Date.now()}_${conversationId}.mp3`;
+        const { error: uploadError } = await supabase.storage
+            .from(bucket)
+            .upload(filename, audioBuffer, { contentType: 'audio/mpeg', upsert: false });
+
+        if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
+
+        const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(filename);
+        const audioUrl = publicUrlData.publicUrl;
+
+        // 5. Append & Dispatch
+        // Enrich content with transcription and analysis for UI
+        let enrichedContent = `[Audio](${audioUrl})`;
+        if (analysis) {
+            enrichedContent += `\n\n> 🎙️ **Transcripción:** ${text}\n> 💡 **Resumen:** ${analysis.summary}\n> 🏷️ **Intención:** ${analysis.intent} (${emotion || 'Neutral'})`;
+        } else {
+            enrichedContent += `\n\n> 🎙️ **Transcripción:** ${text}`;
+        }
+
+        return await this.appendMessage({
+            conversation_id: conversationId,
+            direction: 'outbound',
+            role: role,
+            message_type: 'audio',
+            status: 'sent',
+            content: enrichedContent,
+            raw_payload: {
+                audio_url: audioUrl,
+                original_text: text,
+                generated: true,
+                manual_trigger: true,
+                analysis: analysis || null
+            }
+        });
     }
 
     /**
@@ -167,9 +260,33 @@ export class CRMService {
         // REAL DISPATCH: If outbound, send to actual WhatsApp/Email
         // But SKIP if skipDispatch is true (used for echoes)
         if (msg.direction === 'outbound' && msg.role !== 'system' && !skipDispatch) {
-            this.dispatchMessage(msg.conversation_id, insertedMsg.id, msg.content).catch(err => {
-                console.error('[CRMService] Background dispatch error:', err);
-            });
+            let type: 'text' | 'audio' = 'text';
+            if (msg.message_type === 'audio') type = 'audio';
+
+            // Extract URL if audio
+            let payload = msg.content;
+            if (type === 'audio' && msg.content.includes('(')) {
+                const match = msg.content.match(/\((.*?)\)/);
+                if (match) payload = match[1];
+            }
+
+            // Retry logic wrap
+            const attemptDispatch = async (retries = 3) => {
+                try {
+                    await this.dispatchMessage(msg.conversation_id, insertedMsg.id, payload, type);
+                } catch (err: any) {
+                    if (retries > 0) {
+                        console.warn(`[CRMService] Dispatch failed. Retrying... (${retries} attempts left). Error: ${err.message}`);
+                        await new Promise(res => setTimeout(res, 1000)); // Wait 1s
+                        await attemptDispatch(retries - 1);
+                    } else {
+                        console.error('[CRMService] Background dispatch failed after retries:', err);
+                        // Optional: Update DB status to 'failed'
+                    }
+                }
+            };
+
+            attemptDispatch();
         }
 
         return insertedMsg;
@@ -178,12 +295,12 @@ export class CRMService {
     /**
      * Dispatcher to real-world channels
      */
-    private async dispatchMessage(conversationId: string, messageId: string, content: string): Promise<void> {
+    private async dispatchMessage(conversationId: string, messageId: string, content: string, type: 'text' | 'audio' = 'text'): Promise<void> {
         try {
-            // Get conversation details
+            // 1. Get Conversation and its linked Chip
             const { data: conv } = await supabase
                 .from('conversations')
-                .select('channel, contact_handle')
+                .select('channel, contact_handle, channel_chip_id')
                 .eq('id', conversationId)
                 .single();
 
@@ -191,20 +308,56 @@ export class CRMService {
 
             let success = false;
             let errorMsg = '';
+            let customToken: string | undefined;
 
+            // 2. Resolve Chip Configuration
+            if (conv.channel_chip_id) {
+                const { data: chip } = await supabase
+                    .from('channel_chips')
+                    .select('*')
+                    .eq('id', conv.channel_chip_id)
+                    .single();
+
+                if (chip && chip.is_active) {
+                    // Extract token from JSON config if present
+                    if (chip.config && typeof chip.config === 'object' && chip.config.token) {
+                        customToken = chip.config.token;
+                        console.log(`[CRMService] Routing through Chip: ${chip.channel_id} (Custom Token Detected)`);
+                    } else {
+                        console.log(`[CRMService] Routing through Chip: ${chip.channel_id} (Using Default Token)`);
+                    }
+                }
+            }
+
+            let externalId: string | null = null;
+            let res: any;
             if (conv.channel === 'WA') {
-                const res = await sendWhatsAppMessage({ to: conv.contact_handle, body: content });
+                if (type === 'audio') {
+                    res = await sendWhatsAppVoice(conv.contact_handle, content, customToken);
+                } else {
+                    res = await sendWhatsAppMessage({ to: conv.contact_handle, body: content }, customToken);
+                }
                 success = res.sent;
                 errorMsg = res.error || '';
+                externalId = res.message?.id || null;
+            } else if (conv.channel === 'IG' || conv.channel === 'FB') {
+                // Bridge through Whapi if configured, or future direct integrations
+                console.log(`[CRMService] Bridging ${conv.channel} message for ${conv.contact_handle}...`);
+                res = await sendWhatsAppMessage({ to: conv.contact_handle, body: content }, customToken);
+                success = res.sent;
+                errorMsg = res.error || '';
+                externalId = res.message?.id || null;
             } else if (conv.channel === 'EMAIL') {
-                const res = await sendDataEmail(
+                const emailRes = await sendDataEmail(
                     conv.contact_handle,
                     '[EUM] Nuevo mensaje de Ara',
                     content,
                     { fromName: 'Ara de Extractos EUM', replyTo: 'ara@extractoseum.com' }
                 );
-                success = res.success;
-                errorMsg = res.error || '';
+                success = emailRes.success;
+                errorMsg = emailRes.error || '';
+                res = emailRes;
+                // Emails don't have a simple external ID we track this way usually
             }
 
             // Update status in DB
@@ -212,7 +365,8 @@ export class CRMService {
                 .from('crm_messages')
                 .update({
                     status: success ? 'delivered' : 'failed',
-                    raw_payload: !success ? { error: errorMsg } : {}
+                    external_id: externalId, // SAVE THE EXTERNAL ID
+                    raw_payload: !success ? { error: errorMsg } : (res as any)?.message || res || {}
                 })
                 .eq('id', messageId);
 
@@ -226,29 +380,107 @@ export class CRMService {
     }
 
     /**
+     * Updates the status of a message based on external provider ID (Whapi).
+     */
+    public async updateMessageStatus(externalId: string, status: 'sent' | 'delivered' | 'read' | 'failed', recipientId: string): Promise<void> {
+        console.log(`[CRMService] Updating status for external_id ${externalId} -> ${status}`);
+
+        // 1. Find message by external_id (or try simplistic match if external_id missing)
+        // We only care about outbound messages usually, but logic applies to all
+        const { error } = await supabase
+            .from('crm_messages')
+            .update({
+                status: status,
+                // Optionally update metadata with timestamp if needed
+                // raw_payload: { ...existing, status_history: [...] } 
+            })
+            .eq('external_id', externalId);
+
+        if (error) {
+            console.error(`[CRMService] Failed to update status for ${externalId}:`, error.message);
+        } else {
+            console.log(`[CRMService] Status updated successfully.`);
+        }
+    }
+
+    /**
      * Dispatcher logic with Fast Gates.
      * Decides if an incoming message needs an AI response or just a status update.
      */
-    public async processInbound(channel: CRMConversation['channel'], handle: string, content: string, raw: any): Promise<void> {
+    public async processInbound(channel: CRMConversation['channel'], handle: string, content: string, raw: any): Promise<CRMMessage | void> {
         console.log(`[CRMService] Incoming Inbound: ${handle} (Channel: ${channel})`);
         console.log(`[CRMService] Incoming RAW:`, JSON.stringify(raw).substring(0, 500));
 
-        const conversation = await this.getOrCreateConversation(channel, handle);
+        // Attempt to extract channel reference (Whapi ID)
+        const channelRef = raw.channel_id || null;
+
+        const conversation = await this.getOrCreateConversation(channel, handle, channelRef);
+
+        // --- NEW: DEDUPLICATION CHECK ---
+        // If external_id (raw.id) already exists, skip insertion!
+        if (raw.id) {
+            const { data: existing } = await supabase
+                .from('crm_messages')
+                .select('id, content')
+                .eq('external_id', raw.id)
+                .maybeSingle();
+
+            if (existing) {
+                console.log(`[CRMService] Skipping duplicate message (external_id: ${raw.id} already exists)`);
+                // We still trigger the voice pipeline if it's audio and we just got the URL?
+                // Actually, if it exists, it was likely already processed or it's a status update.
+                // But statuses are handled by updateMessageStatus. 
+                // handleInbound should ONLY be for new messages.
+                return;
+            }
+        }
+
+        // --- NEW: CONTENT DEDUPLICATION (Safety for race conditions) ---
+        // If it's outbound and sent within the last 5 seconds with same content, it's likely an echo of what we just sent.
+        if (raw.direction === 'outbound' || raw.from_me) {
+            const fiveSecondsAgo = new Date(Date.now() - 5000).toISOString();
+            const { data: recentEcho } = await supabase
+                .from('crm_messages')
+                .select('id')
+                .eq('conversation_id', conversation.id)
+                .eq('direction', 'outbound')
+                .eq('content', content)
+                .gte('created_at', fiveSecondsAgo)
+                .maybeSingle();
+
+            if (recentEcho) {
+                console.log(`[CRMService] Skipping echo message (content match in last 5s)`);
+                return;
+            }
+        }
 
         // 1. Log message (Could be inbound from customer OR outbound from external mobile app/echo)
-        await this.appendMessage({
+        const createdMsg = await this.appendMessage({
             conversation_id: conversation.id,
             direction: raw.direction || 'inbound',
             role: raw.role || 'user',
             message_type: raw.type || 'text',
             status: 'delivered',
             content,
+            external_id: raw.id || null, // Map Whapi ID
             raw_payload: raw,
             // DO NOT re-dispatch if this is already an outbound message (echo)
             skipDispatch: (raw.direction === 'outbound' || raw.from_me === true || raw._generated_from_me === true)
         });
 
         // 2. Load Column Brain (Inheritance)
+        // ... (existing logic) ...
+
+        // NEW: Trigger Chip Engine (Async, don't block AI or main flow)
+        if (createdMsg && createdMsg.id && createdMsg.direction === 'inbound') {
+            this.chipEngine.processMessage(
+                createdMsg.id,
+                createdMsg.content,
+                conversation.id,
+                conversation.channel_chip_id || null
+            ).catch(err => console.error('[CRMService] ChipEngine error:', err));
+        }
+
         const { data: column } = await supabase
             .from('crm_columns')
             .select('*')
@@ -256,88 +488,126 @@ export class CRMService {
             .single();
 
         if (!column || column.mode === 'HUMAN_MODE') {
-            console.log(`[CRMService] Column ${column?.name || 'unknown'} is in HUMAN_MODE or missing. AI silenced.`);
-            return;
-        }
-
-        // 2.1 STOP if this is my own message (prevent infinite loops)
-        // Check raw.from_me OR the explicit controller flag _generated_from_me
-        if (raw.from_me || raw._generated_from_me === true || raw.direction === 'outbound' || raw.role === 'assistant') {
-            console.log(`[CRMService] Skipping AI for outbound/assistant message (Flag: ${raw._generated_from_me}, Raw: ${raw.from_me}).`);
-            return;
-        }
-
-        // 2.2 EMERGENCY LOOP BREAKER
-        // If the message contains the AI's own signature, it is a self-reply loop. STOP.
-        // Use lower case check to capture "Soy Ara", "soy Ara", "SOY ARA" etc.
-        const lowerContent = content.toLowerCase();
-        if (lowerContent.includes('test_09002') || lowerContent.includes('soy ara')) {
-            console.log(`[CRMService] Skipping AI - Detected self-signature in content.`);
-            return;
-        }
-
-        // 3. Fast Gate: Low Value Content
-        const lowValuePattern = /^(ok|gracias|thanks|👍|emoji|hola|hello|hi|si|no|chau|bye)$/i;
-        if (lowValuePattern.test(content.trim())) {
-            console.log(`[CRMService] Low value content detected. Skipping LLM.`);
-            return;
-        }
-
-        // 4. Operational Brain Config
-        const config = column.config || {};
-        const agentId = conversation.agent_override_id || config.agent_id || 'sales_ara';
-        const model = conversation.model_override || config.model || 'gpt-4o';
-
-        // Resolve Tools Whitelist based on Policy
-        let toolsWhitelist: string[] = [];
-        const policy = config.tools_policy || { mode: 'inherit' };
-
-        if (policy.mode === 'override') {
-            toolsWhitelist = policy.allowed_tools || [];
+            console.log(`[CRMService] Column ${column?.name || 'unknown'} is in HUMAN_MODE or missing. AI response silenced.`);
+            // Continue to facts sync below
         } else {
-            // Inherit from Agent Metadata
-            const meta = await this.getAgentMetadata(agentId);
-            toolsWhitelist = meta?.default_tools || [];
-        }
-
-        console.log(`[CRMService] Dispatching to Agent: ${agentId} [${model}] in Column: ${column.name}`);
-
-        // 5. Dispatch to AI with Context Inheritance
-        try {
-            // Merge column specific tool constraints into the AI call 
-            // (Final implementation will involve passing toolsWhitelist to AIService)
-            const response = await this.aiService.chatWithPersona(
-                agentId,
-                content,
-                [], // Fetch history logic can be added here
-                model,
-                { toolsWhitelist } // Custom parameter to enforce column-specific tool access
-            );
-
-            if (response && response.content) {
-                // Log outbound message (AI Response)
-                await this.appendMessage({
-                    conversation_id: conversation.id,
-                    direction: 'outbound',
-                    role: 'assistant',
-                    message_type: 'text',
-                    status: 'sent',
-                    content: response.content,
-                    raw_payload: response
-                });
-
-                // Auto-move logic if guardrails triggered (Phase 3)
+            // 2.1 STOP if this is my own message (prevent infinite loops)
+            // Check raw.from_me OR the explicit controller flag _generated_from_me
+            if (raw.from_me || raw._generated_from_me === true || raw.direction === 'outbound' || raw.role === 'assistant') {
+                console.log(`[CRMService] Skipping AI for outbound/assistant message (Flag: ${raw._generated_from_me}, Raw: ${raw.from_me}).`);
+                return;
             }
 
-            // 6. Automatic Fact Synchronization (AI Analysis)
-            // Fire and forget in the background
+            // 2.2 EMERGENCY LOOP BREAKER
+            // If the message contains the AI's own signature, it is a self-reply loop. STOP.
+            // Use lower case check to capture "Soy Ara", "soy Ara", "SOY ARA" etc.
+            const lowerContent = content.toLowerCase();
+            if (lowerContent.includes('test_09002') || lowerContent.includes('soy ara')) {
+                console.log(`[CRMService] Skipping AI - Detected self-signature in content.`);
+                // skip AI
+            } else {
+                // 3. Fast Gate: Low Value Content
+                const lowValuePattern = /^(ok|gracias|thanks|👍|emoji|hola|hello|hi|si|no|chau|bye)$/i;
+                if (lowValuePattern.test(content.trim())) {
+                    console.log(`[CRMService] Low value content detected. Skipping LLM.`);
+                } else {
+                    // 4. Operational Brain Config
+                    const agentId = conversation.agent_override_id || column.assigned_agent_id || 'sales_ara';
+                    const model = conversation.model_override || 'gpt-4o';
+                    const objectives = column.objectives || null;
+
+                    // Resolve Tools Whitelist based on Policy
+                    let toolsWhitelist: string[] = [];
+                    const policy = (column as any).config?.tools_policy || { mode: 'inherit' };
+
+                    if (policy.mode === 'override') {
+                        toolsWhitelist = policy.allowed_tools || [];
+                    } else {
+                        // Inherit from Agent Metadata
+                        const meta = await this.getAgentMetadata(agentId);
+                        toolsWhitelist = meta?.default_tools || [];
+                    }
+
+                    console.log(`[CRMService] Dispatching to Agent: ${agentId} [${model}] in Column: ${column.name}`);
+
+                    // 5. Dispatch to AI with Context Inheritance
+                    try {
+                        const response = await this.aiService.chatWithPersona(
+                            agentId,
+                            content,
+                            [],
+                            model,
+                            { toolsWhitelist, objectives }
+                        );
+
+                        if (response && response.content) {
+                            await this.appendMessage({
+                                conversation_id: conversation.id,
+                                direction: 'outbound',
+                                role: 'assistant',
+                                message_type: 'text',
+                                status: 'sent',
+                                content: response.content,
+                                raw_payload: response
+                            });
+
+                            // VOICE CHECK... (I will keep the voice logic as is but wrapped in a try/catch)
+                            const wasAudioInput = raw.type === 'voice' || raw.type === 'audio';
+                            if (wasAudioInput && column.voice_profile) {
+                                try {
+                                    const vs = new VoiceService();
+                                    let emotion: string | undefined;
+                                    let analysis: any;
+                                    try {
+                                        analysis = await vs.analyzeTranscript(response.content);
+                                        emotion = analysis.emotionFusionPrimary;
+                                    } catch (ae) { console.error('[CRMService] Auto-voice analysis failed:', ae); }
+
+                                    const audioBuffer = await vs.generateAudioResponse(response.content, column.voice_profile, emotion);
+                                    const bucket = process.env.STORAGE_BUCKET_ATTACHMENTS || 'crm_attachments';
+                                    const filename = `voice_outbound/${Date.now()}_${conversation.id}.mp3`;
+                                    const { error: uploadError } = await supabase.storage
+                                        .from(bucket)
+                                        .upload(filename, audioBuffer, { contentType: 'audio/mpeg', upsert: false });
+
+                                    if (uploadError) throw new Error(uploadError.message);
+                                    const { data: publicUrlData } = supabase.storage.from(bucket).getPublicUrl(filename);
+                                    const audioUrl = publicUrlData.publicUrl;
+
+                                    let enrichedContent = `[Audio](${audioUrl})`;
+                                    if (analysis) {
+                                        enrichedContent += `\n\n> 🎙️ **Transcripción:** ${response.content}\n> 💡 **Resumen:** ${analysis.summary}\n> 🏷️ **Intención:** ${analysis.intent} (${emotion || 'Neutral'})`;
+                                    }
+
+                                    await this.appendMessage({
+                                        conversation_id: conversation.id,
+                                        direction: 'outbound',
+                                        role: 'assistant',
+                                        message_type: 'audio',
+                                        status: 'sent',
+                                        content: enrichedContent,
+                                        raw_payload: { audio_url: audioUrl, generated: true, analysis: analysis || null }
+                                    });
+                                } catch (voiceErr: any) {
+                                    console.error('[CRMService] Voice Generation Failed:', voiceErr.message);
+                                }
+                            }
+                        }
+                    } catch (aiErr) {
+                        console.error('[CRMService] AI Dispatch failed:', aiErr);
+                    }
+                }
+            }
+        }
+
+        // 6. Automatic Fact Synchronization (AI Analysis) - RUNS ALWAYS for Inbound
+        if (createdMsg && createdMsg.direction === 'inbound') {
             this.syncConversationFacts(conversation.id).catch(err =>
                 console.error(`[CRMService] Fact sync failed for ${conversation.id}:`, err)
             );
-
-        } catch (aiError) {
-            console.error('[CRMService] AI Dispatch failed:', aiError);
         }
+
+        return createdMsg;
     }
 
     /**
@@ -355,8 +625,11 @@ export class CRMService {
         if (error) throw new Error(`[CRMService] Failed to fetch conversations: ${error.message}`);
         if (!convs || convs.length === 0) return [];
 
-        // 1. Collect all handles to fetch snapshots in bulk
-        const handles = Array.from(new Set(convs.map(c => c.contact_handle)));
+        // 1. Deduplicate by ID (in case of race conditions or bad joins)
+        const uniqueConvs = Array.from(new Map(convs.map(c => [c.id, c])).values());
+
+        // 2. Collect all handles to fetch snapshots in bulk
+        const handles = Array.from(new Set(uniqueConvs.map(c => c.contact_handle)));
 
         // 2. Fetch snapshots
         const { data: snapshots } = await supabase
@@ -370,9 +643,10 @@ export class CRMService {
             return acc;
         }, {});
 
-        return convs.map(conv => ({
+        return uniqueConvs.map(conv => ({
             ...conv,
             contact_name: snapshotMap[conv.contact_handle]?.name || null,
+            avatar_url: snapshotMap[conv.contact_handle]?.avatar_url || null,
             ltv: snapshotMap[conv.contact_handle]?.ltv || 0,
             risk_level: snapshotMap[conv.contact_handle]?.risk_level || 'low',
             tags: snapshotMap[conv.contact_handle]?.tags || []
@@ -490,14 +764,21 @@ export class CRMService {
         return null;
     }
 
-    public async updateColumnConfig(columnId: string, mode: string, config: any): Promise<void> {
+    public async updateColumnConfig(columnId: string, data: { mode?: string, name?: string, config?: any, voice_profile?: any, objectives?: string, assigned_agent_id?: string }): Promise<void> {
+        const updateData: any = {
+            updated_at: new Date().toISOString()
+        };
+
+        if (data.mode) updateData.mode = data.mode;
+        if (data.name) updateData.name = data.name;
+        if (data.config) updateData.config = data.config;
+        if (data.voice_profile) updateData.voice_profile = data.voice_profile;
+        if (data.objectives !== undefined) updateData.objectives = data.objectives;
+        if (data.assigned_agent_id !== undefined) updateData.assigned_agent_id = data.assigned_agent_id;
+
         const { error } = await supabase
             .from('crm_columns')
-            .update({
-                mode,
-                config,
-                updated_at: new Date().toISOString()
-            })
+            .update(updateData)
             .eq('id', columnId);
 
         if (error) throw new Error(`[CRMService] Failed to update column config: ${error.message}`);
@@ -508,11 +789,12 @@ export class CRMService {
      */
     public async syncContactSnapshot(handle: string, channel: string): Promise<any> {
         // 1. Fetch Client Profile (if exists)
-        // Normalize handle (remove +52 for search if needed, or exact match)
+        // Normalize handle for fuzzy phone matching
+        const cleanPhone = handle.replace(/\D/g, '').slice(-10);
         const { data: client } = await supabase
             .from('clients')
             .select('*')
-            .or(`phone.eq.${handle},email.eq.${handle}`)
+            .or(`phone.ilike.%${cleanPhone},email.eq.${handle}`)
             .single();
 
         let ltv = 0;
@@ -552,6 +834,83 @@ export class CRMService {
             }
         }
 
+        // 2.0.1 LIVE SHOPIFY FALLBACK (Data Harmonization)
+        // If we didn't find orders locally, let's check Shopify real-time 
+        if (ordersCount === 0) {
+            console.log(`[CRMService] No local orders for ${handle}. Trying Shopify Live Link...`);
+            try {
+                let shopifyCustomers: any[] = [];
+                if (client && client.email) {
+                    shopifyCustomers = await searchShopifyCustomers(`email:${client.email}`);
+                } else {
+                    shopifyCustomers = await searchShopifyCustomerByPhone(handle);
+                }
+
+                if (shopifyCustomers.length > 0) {
+                    // Prioritize the account with orders/activity if multiple matches exist for the same phone
+                    let shopifyCustomer = shopifyCustomers[0];
+                    if (shopifyCustomers.length > 1) {
+                        const activeMatch = shopifyCustomers.find(c => (c.orders_count || 0) > 0);
+                        if (activeMatch) shopifyCustomer = activeMatch;
+                    }
+                    console.log(`[CRMService] Linked to Shopify Customer: ${shopifyCustomer.id} (${shopifyCustomer.email})`);
+                    name = name || `${shopifyCustomer.first_name} ${shopifyCustomer.last_name}`;
+
+                    // --- IDENTITY BRIDGE: PERSIST LINK TO CLIENTS TABLE ---
+                    if (shopifyCustomer.email || shopifyCustomer.phone) {
+                        try {
+                            const cleanPhone = (shopifyCustomer.phone || handle).replace(/\D/g, '').slice(-10);
+                            await supabase.from('clients').upsert({
+                                phone: cleanPhone,
+                                email: shopifyCustomer.email || client?.email,
+                                name: name,
+                                last_seen_at: new Date().toISOString()
+                            }, { onConflict: 'phone' });
+                            console.log(`[CRMService] Identity Bridge: Persisted Email ${shopifyCustomer.email} for Phone ${cleanPhone}`);
+                        } catch (ibErr) {
+                            console.warn('[CRMService] Identity Bridge Persist failed:', ibErr);
+                        }
+                    }
+
+                    const liveOrders = await getShopifyCustomerOrders(shopifyCustomer.id);
+                    if (liveOrders && liveOrders.length > 0) {
+                        ordersCount = liveOrders.length; // Override mostly
+                        const total = liveOrders.reduce((sum: number, o: any) => sum + (parseFloat(o.total_price) || 0), 0);
+                        ltv = total;
+                        avgTicket = total / ordersCount;
+
+                        const lastOrder = liveOrders[0];
+                        lastShipping = {
+                            status: lastOrder.fulfillment_status || 'unfulfilled',
+                            carrier: (lastOrder.fulfillments && lastOrder.fulfillments[0]) ? lastOrder.fulfillments[0].tracking_company : null,
+                            tracking: (lastOrder.fulfillments && lastOrder.fulfillments[0]) ? lastOrder.fulfillments[0].tracking_number : null
+                        };
+
+                        // Merge tags
+                        if (shopifyCustomer.tags) {
+                            const sTags = shopifyCustomer.tags.split(',').map((t: string) => t.trim());
+                            tags = Array.from(new Set([...tags, ...sTags]));
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn('[CRMService] Live Shopify Link failed:', e);
+            }
+        }
+
+        // 2.1 Fetch External Profile (Avatar) for WhatsApp
+        let avatarUrl = null;
+        if (channel === 'WA') {
+            try {
+                const waProfile = await getContactInfo(handle);
+                if (waProfile.exists && waProfile.profilePic) {
+                    avatarUrl = waProfile.profilePic;
+                }
+            } catch (e) {
+                console.warn('[CRMService] Failed to fetch WA avatar:', e);
+            }
+        }
+
         // 3. Update Snapshot Table
         const { data: snapshot, error } = await supabase
             .from('crm_contact_snapshots')
@@ -567,6 +926,7 @@ export class CRMService {
                 last_shipping_status: lastShipping?.status,
                 last_shipping_carrier: lastShipping?.carrier,
                 last_shipping_tracking: lastShipping?.tracking,
+                avatar_url: avatarUrl,
                 last_updated_at: new Date().toISOString()
             }, { onConflict: 'handle' })
             .select('*')
@@ -654,6 +1014,38 @@ export class CRMService {
         const { data: orders, error } = await query.order('created_at', { ascending: false });
 
         if (error) throw new Error(`Failed to fetch orders: ${error.message}`);
+
+        // --- FALLBACK: If local DB empty, try Live Shopify Search ---
+        if (!orders || orders.length === 0) {
+            console.log(`[CRMService] Local orders empty for ${handle}. Falling back to Live Shopify Search...`);
+            try {
+                // 1. Search customer in Shopify
+                const customers = await searchShopifyCustomers(handle); // Works for email or phone query
+                if (customers && customers.length > 0) {
+                    const shopifyCustomer = customers[0];
+                    console.log(`[CRMService] Found Live Shopify Customer: ${shopifyCustomer.id} (${shopifyCustomer.email})`);
+
+                    // 2. Fetch Live Orders
+                    const liveOrders = await getShopifyCustomerOrders(shopifyCustomer.id);
+                    console.log(`[CRMService] Retrieved ${liveOrders.length} live orders.`);
+
+                    // 3. Map to local format (lightweight)
+                    return liveOrders.map((o: any) => ({
+                        id: 'live_' + o.id, // temporary ID
+                        order_number: o.name,
+                        status: o.financial_status === 'paid' ? 'paid' : o.financial_status,
+                        total_amount: o.total_price,
+                        currency: o.currency,
+                        created_at: o.created_at,
+                        shopify_order_id: o.id,
+                        is_live: true // Flag for UI
+                    }));
+                }
+            } catch (fallbackErr) {
+                console.warn('[CRMService] Live Fallback failed:', fallbackErr);
+            }
+        }
+
         return orders || [];
     }
 
@@ -671,16 +1063,17 @@ export class CRMService {
             if (!conv || messages.length < 2) return;
 
             // 2. Fetch Recent Browsing Behavior
+            const last10 = conv.contact_handle.replace(/\D/g, '').slice(-10);
             const { data: client } = await supabase
                 .from('clients')
-                .select('id')
-                .or(`email.eq.${conv.contact_handle},phone.eq.${conv.contact_handle}`)
+                .select('id, email')
+                .or(`email.eq.${conv.contact_handle},phone.ilike.%${last10 || conv.contact_handle}`)
                 .maybeSingle();
 
             const { data: browsingBehavior } = await supabase
                 .from('browsing_events')
-                .select('event_type, metadata, created_at')
-                .or(`handle.eq.${conv.contact_handle}${client ? `,client_id.eq.${client.id}` : ''}`)
+                .select('event_type, metadata, created_at, handle')
+                .or(`handle.eq.${conv.contact_handle}${client ? `,client_id.eq.${client.id}` : ''}${client?.email ? `,handle.eq.${client.email}` : ''}`)
                 .order('created_at', { ascending: false })
                 .limit(10);
 
@@ -694,9 +1087,14 @@ export class CRMService {
             - personality: Array of 3 short traits (e.g., ["Directo", "Amable"]).
             - interests: Array of specific products mentioned or browsed (e.g., ["Sour Extreme Gummies"]).
             - intent_score: Number 0-100 indicating how close they are to buying.
+            - friction_score: Number 0-100 (High = upset/stuck/churn risk).
+            - emotional_vibe: One descriptive phrase of their current mood (e.g., "Frustrado por envío tardío", "Entusiasta esperando preventa").
             - browsing_summary: Concisely describe what they were looking at in the store (max 15 words).
+            - user_email: Extract if mentioned in chat (e.g., "test@gmail.com").
+            - user_name: Extract if mentioned or inferred (e.g., "Juan Perez").
             - action_plan: Array of items { label, meta, action_type, payload }.
-              - action_type: 'coupon' (payload: {discount, code}) or 'link' (payload: {url}).
+              - COMPULSORY: You MUST provide at least 1-3 actionable steps. If no urgent issue, suggest proactive outreach (e.g., "Saludar proactivamente", "Confirmar recepción de pedido", "Enviar recomendación de producto").
+              - action_type: 'coupon' (payload: {discount, code}), 'link' (payload: {url}), or 'text' (payload: {newMessageText}).
             
             IMPORTANT: Return ONLY the raw JSON object. Do not include markdown or text.`;
 
@@ -706,13 +1104,51 @@ export class CRMService {
             const result = await this.aiService.classify(systemPrompt, userPrompt);
 
             if (result) {
-                // 4. Merge with existing facts (especially tags)
+                // --- NEW: PROACTIVE NAME EXTRACTION (FAST GATE) ---
+                // If AI missed it, look for patterns in last 5 messages
+                if (!result.user_name) {
+                    const greetingRegex = /(?:hola|hello|hi|buen(?:as)?\s*(?:dias|tardes|noches)),?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i;
+                    for (const msg of messages.slice(-5)) {
+                        if (msg.role === 'assistant' || msg.direction === 'outbound') {
+                            const match = msg.content.match(greetingRegex);
+                            if (match && match[1]) {
+                                result.user_name = match[1];
+                                logger.info(`[CRMService] Proactive Name Discovery: Caught "${result.user_name}" from history greeting.`, { handle: conv.contact_handle });
+                                break;
+                            }
+                        }
+                    }
+                }
+                // 4. Merge with existing facts
                 const newFacts = {
                     ...conv.facts,
-                    personality: result.personality || conv.facts?.personality || [],
-                    interests: result.interests || conv.facts?.interests || [],
-                    action_plan: result.action_plan || conv.facts?.action_plan || []
+                    personality: result.personality || (conv as any).facts?.personality || [],
+                    interests: result.interests || (conv as any).facts?.interests || [],
+                    intent_score: result.intent_score ?? (conv as any).facts?.intent_score,
+                    friction_score: result.friction_score ?? (conv as any).facts?.friction_score,
+                    emotional_vibe: result.emotional_vibe || (conv as any).facts?.emotional_vibe,
+                    user_email: result.user_email || (conv as any).facts?.user_email,
+                    user_name: result.user_name || (conv as any).facts?.user_name,
+                    action_plan: result.action_plan || (conv as any).facts?.action_plan || []
                 };
+
+                // --- IDENTITY BRIDGE: IF EMAIL FOUND, UPDATE CLIENT RECORD ---
+                if (result.user_email && !conv.contact_handle.includes('@')) {
+                    try {
+                        const cleanPhone = conv.contact_handle.replace(/\D/g, '').slice(-10);
+                        await supabase.from('clients').upsert({
+                            phone: cleanPhone,
+                            email: result.user_email,
+                            name: result.user_name || (conv as any).facts?.user_name
+                        }, { onConflict: 'phone' });
+                        logger.info(`[CRMService] Identity Bridge: Linked ${cleanPhone} to ${result.user_email} via Chat Analysis.`, { handle: conv.contact_handle });
+
+                        // Force a snapshot sync to propagate the new name/info to the Kanban UI
+                        await this.syncContactSnapshot(conv.contact_handle, conv.channel);
+                    } catch (e) {
+                        logger.warn('[CRMService] Identity Bridge update failed:', e, { handle: conv.contact_handle });
+                    }
+                }
 
                 // 5. Update DB
                 await supabase
@@ -720,10 +1156,37 @@ export class CRMService {
                     .update({ facts: newFacts })
                     .eq('id', conversationId);
 
-                console.log(`[CRMService] facts updated for ${conversationId}`);
+                console.log(`[CRMService] facts updated for ${conversationId} (Predicted Friction: ${result.friction_score})`);
             }
         } catch (err) {
             console.error('[CRMService] syncConversationFacts failed:', err);
         }
+    }
+
+    /**
+     * Orchestrator: Chips Management
+     */
+    public async getChannelChips() {
+        const { data, error } = await supabase.from('channel_chips').select('*').order('created_at', { ascending: false });
+        if (error) throw error;
+        return data;
+    }
+
+    public async getMiniChips() {
+        const { data, error } = await supabase.from('mini_chips').select('*').order('priority', { ascending: false });
+        if (error) throw error;
+        return data;
+    }
+
+    public async upsertChannelChip(chip: any) {
+        const { data, error } = await supabase.from('channel_chips').upsert(chip).select().single();
+        if (error) throw error;
+        return data;
+    }
+
+    public async upsertMiniChip(chip: any) {
+        const { data, error } = await supabase.from('mini_chips').upsert(chip).select().single();
+        if (error) throw error;
+        return data;
     }
 }

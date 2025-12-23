@@ -1,0 +1,18 @@
+#!/usr/bin/expect -f
+set timeout 60
+set password ")l2fyDHz60u,nTAd,@tD"
+
+spawn scp src/services/chipEngine.ts root@148.230.88.203:/var/www/coa-viewer/backend/src/services/
+expect {
+    "password:" { send "$password\r" }
+    "yes/no" { send "yes\r"; exp_continue }
+}
+expect eof
+
+# Restart backend to apply code changes
+spawn ssh root@148.230.88.203 "pm2 restart coa-backend"
+expect {
+    "password:" { send "$password\r" }
+    "yes/no" { send "yes\r"; exp_continue }
+}
+expect eof

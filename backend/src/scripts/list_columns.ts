@@ -1,24 +1,22 @@
 
-import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 import path from 'path';
-
 dotenv.config({ path: path.join(__dirname, '../../.env') });
+import { supabase } from '../config/supabase';
 
-const supabaseUrl = process.env.SUPABASE_URL!;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const supabase = createClient(supabaseUrl, supabaseKey);
-
-async function list() {
-    const { data, error } = await supabase
+async function main() {
+    console.log('--- FETCH COLUMNS ---');
+    const { data: cols, error } = await supabase
         .from('crm_columns')
-        .select('*');
+        .select('id, name, position')
+        .order('position', { ascending: true });
 
     if (error) {
         console.error('Error:', error);
-    } else {
-        console.log('Columns:', data);
+        return;
     }
+
+    console.log('Columns:', JSON.stringify(cols, null, 2));
 }
 
-list();
+main();

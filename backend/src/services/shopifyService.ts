@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { supabase } from '../config/supabase';
+import { normalizePhone } from '../utils/phoneUtils';
 
 // Shopify API configuration from environment variables
 const SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN || '';
@@ -143,6 +144,48 @@ export const searchShopifyCustomers = async (query: string): Promise<ShopifyCust
     } catch (error: any) {
         console.error('Error searching Shopify customers:', error.response?.data || error.message);
         throw new Error(`Error al buscar clientes: ${error.message}`);
+    }
+};
+
+/**
+ * Normalizes phone number for Shopify search.
+ * Shopify stores phones in E.164 format (+52...) but search is flexible.
+ * We'll try to search by last 10 digits as a fail-safe or the full normalized number.
+ */
+export const searchShopifyCustomerByPhone = async (phone: string): Promise<ShopifyCustomer[]> => {
+    if (!isShopifyConfigured()) return [];
+
+    try {
+        // Strip non-digits
+        const digits = phone.replace(/\D/g, '');
+
+        // Strategy 1: Search raw query (Shopify fuzzy search)
+        let results = await searchShopifyCustomers(`phone:${phone}`);
+        if (results.length > 0) return results;
+
+        // Strategy 2: If we have 10+ digits, search by last 10 (common in MX)
+        if (digits.length >= 10) {
+            const last10 = digits.slice(-10);
+            results = await searchShopifyCustomers(`phone:${last10}`);
+            if (results.length > 0) return results;
+
+            // Strategy 3: Try adding country code using centralized logic (likely +521 or +52)
+            if (!phone.startsWith('+')) {
+                // Generates +521 for 10 digits
+                const normalized = normalizePhone(last10, 'vapi'); // 'vapi' mode returns E.164 (+521...)
+                results = await searchShopifyCustomers(`phone:${normalized}`);
+                if (results.length > 0) return results;
+
+                // Also try +52 just in case Shopify has clean +52
+                results = await searchShopifyCustomers(`phone:+52${last10}`);
+                if (results.length > 0) return results;
+            }
+        }
+
+        return [];
+    } catch (error: any) {
+        console.error('Error searching Shopify customer by phone:', error.message);
+        return [];
     }
 };
 
@@ -762,6 +805,45 @@ export const getAllCustomerTags = async (): Promise<string[]> => {
 const TAGS_CACHE_ID = '00000000-0000-0000-0000-000000000001';
 
 // Get tags from cache (fast)
+// ... existing code ...
+
+// ============ COUPON & DISCOUNT METHODS ============
+
+/**
+ * Creates a Price Rule (prerequisite for discount codes)
+ */
+export const createShopifyPriceRule = async (priceRuleData: any): Promise<any> => {
+    if (!isShopifyConfigured()) throw new Error('Shopify not configured');
+
+    try {
+        console.log('[ShopifyService] Creating Price Rule:', priceRuleData.title);
+        const response = await shopifyApi.post(`${getBaseUrl()}/price_rules.json`, {
+            price_rule: priceRuleData
+        });
+        return response.data.price_rule;
+    } catch (error: any) {
+        console.error('[ShopifyService] Create Price Rule failed:', error.response?.data || error.message);
+        throw new Error(`Failed to create price rule: ${error.message}`);
+    }
+};
+
+/**
+ * Creates a Discount Code for a specific Price Rule
+ */
+export const createShopifyDiscountCode = async (priceRuleId: string | number, code: string): Promise<any> => {
+    if (!isShopifyConfigured()) throw new Error('Shopify not configured');
+
+    try {
+        console.log(`[ShopifyService] Creating Discount Code "${code}" for Rule ${priceRuleId}`);
+        const response = await shopifyApi.post(`${getBaseUrl()}/price_rules/${priceRuleId}/discount_codes.json`, {
+            discount_code: { code }
+        });
+        return response.data.discount_code;
+    } catch (error: any) {
+        console.error('[ShopifyService] Create Discount Code failed:', error.response?.data || error.message);
+        throw new Error(`Failed to create discount code: ${error.message}`);
+    }
+};
 export const getCachedTags = async (): Promise<TagWithCount[]> => {
     try {
         const { data, error } = await supabase
@@ -1064,45 +1146,3 @@ export const getCustomersByTagFromBackup = async (
     }
 };
 
-/**
- * Create a Price Rule in Shopify
- */
-export const createShopifyPriceRule = async (params: {
-    title: string,
-    target_type: 'line_item' | 'shipping_line',
-    target_selection: 'all' | 'entitled',
-    allocation_method: 'across' | 'each',
-    value_type: 'percentage' | 'fixed_amount',
-    value: string,
-    customer_selection: 'all' | 'prerequisite',
-    starts_at: string
-}): Promise<any> => {
-    if (!isShopifyConfigured()) throw new Error('Shopify not configured');
-
-    try {
-        const response = await shopifyApi.post(`${getBaseUrl()}/price_rules.json`, {
-            price_rule: params
-        });
-        return response.data.price_rule;
-    } catch (error: any) {
-        console.error('[Shopify] Error creating price rule:', error.response?.data || error.message);
-        throw error;
-    }
-};
-
-/**
- * Create a Discount Code for a Price Rule
- */
-export const createShopifyDiscountCode = async (priceRuleId: number | string, code: string): Promise<any> => {
-    if (!isShopifyConfigured()) throw new Error('Shopify not configured');
-
-    try {
-        const response = await shopifyApi.post(`${getBaseUrl()}/price_rules/${priceRuleId}/discount_codes.json`, {
-            discount_code: { code }
-        });
-        return response.data.discount_code;
-    } catch (error: any) {
-        console.error('[Shopify] Error creating discount code:', error.response?.data || error.message);
-        throw error;
-    }
-};

@@ -162,6 +162,24 @@ interface SendNotificationOptions {
     channels?: string[];  // For multi-channel support (push, whatsapp)
 }
 
+/**
+ * Helper to get client first name for personalization
+ */
+const getClientFirstName = async (clientId: string, clientData?: any): Promise<string | null> => {
+    if (clientData?.name) return clientData.name.split(' ')[0];
+
+    try {
+        const { data } = await supabase
+            .from('clients')
+            .select('name')
+            .eq('id', clientId)
+            .single();
+        return data?.name?.split(' ')[0] || null;
+    } catch (err) {
+        return null;
+    }
+};
+
 interface NotificationResult {
     success: boolean;
     notificationId?: string;
@@ -734,13 +752,13 @@ export const notifyLoyaltyUpdate = async (clientId: string, tierName: string, ty
 export const notifyOrderCreated = async (clientId: string, orderNumber: string, clientData?: any) => {
     // --- DEDUPLICATION ---
     try {
-        const tenMinsAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+        const sixtyMinsAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
         const { data: recentNotif } = await supabase
             .from('system_logs')
             .select('id, payload')
             .eq('event_type', 'order_created_sent')
             .eq('client_id', clientId)
-            .gte('created_at', tenMinsAgo);
+            .gte('created_at', sixtyMinsAgo);
 
         if (recentNotif && recentNotif.length > 0) {
             const isDuplicate = recentNotif.some(n => n.payload?.orderNumber === orderNumber);
@@ -753,8 +771,10 @@ export const notifyOrderCreated = async (clientId: string, orderNumber: string, 
         console.warn('[OneSignal] Deduplication check failed for created notif:', err);
     }
 
+    const firstName = await getClientFirstName(clientId, clientData);
+    const greeting = firstName ? `Hola ${firstName}! ` : '';
     const title = '🛒 ¡Pedido Recibido!';
-    const message = `Hemos recibido tu pedido ${orderNumber}. En breve te avisaremos cuando sea enviado.`;
+    const message = `${greeting}Hemos recibido tu pedido ${orderNumber}. En breve te avisaremos cuando sea enviado.`;
 
     // Send Push
     await sendNotification({
@@ -786,21 +806,29 @@ export const notifyOrderCreated = async (clientId: string, orderNumber: string, 
 /**
  * Notify user of order shipment
  */
-export const notifyOrderShipped = async (clientId: string, orderNumber: string, carrier: string, trackingNumbers: string | string[], clientData?: any) => {
+export const notifyOrderShipped = async (
+    clientId: string,
+    orderNumber: string,
+    carrier: string,
+    trackingNumbers: string | string[],
+    clientData?: any,
+    estimatedDelivery?: string,
+    serviceType?: string
+) => {
     const guides = Array.isArray(trackingNumbers) ? trackingNumbers : [trackingNumbers];
     const trackingString = guides.join(', ');
     const isPlural = guides.length > 1;
 
     // --- DEDUPLICATION ---
-    // Check if we already sent a notification for these SAME guides for this order in the last 10 minutes
+    // Check if we already sent a notification for these SAME guides for this order in the last 60 minutes
     try {
-        const tenMinsAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+        const sixtyMinsAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
         const { data: recentNotif } = await supabase
             .from('system_logs')
             .select('id, payload')
             .eq('event_type', 'order_shipped_sent')
             .eq('client_id', clientId)
-            .gte('created_at', tenMinsAgo);
+            .gte('created_at', sixtyMinsAgo);
 
         if (recentNotif && recentNotif.length > 0) {
             // Check if any of the recent notifications have the same orderNumber and tracking_numbers
@@ -824,10 +852,24 @@ export const notifyOrderShipped = async (clientId: string, orderNumber: string, 
         console.warn('[OneSignal] Deduplication check failed, proceeding with notification:', err);
     }
 
+    const firstName = await getClientFirstName(clientId, clientData);
+    const greeting = firstName ? `Hola ${firstName}! ` : '';
+
+    const carrierAndService = serviceType ? `${carrier} (${serviceType})` : carrier;
     const title = '📦 ¡Tu pedido va en camino!';
-    const message = isPlural
-        ? `Tu pedido ${orderNumber} ha sido enviado por ${carrier}. Guías: ${trackingString}`
-        : `Tu pedido ${orderNumber} ha sido enviado por ${carrier}. Guía: ${guides[0]}`;
+    let message = isPlural
+        ? `${greeting}Tu pedido ${orderNumber} ha sido enviado por ${carrierAndService}. Guías: ${trackingString}`
+        : `${greeting}Tu pedido ${orderNumber} ha sido enviado por ${carrierAndService}. Guía: ${guides[0]}`;
+
+    if (estimatedDelivery) {
+        try {
+            const date = new Date(estimatedDelivery);
+            const formattedDate = date.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' });
+            message += `\n\n📅 Fecha estimada de entrega: ${formattedDate.charAt(0).toUpperCase() + formattedDate.slice(1)}`;
+        } catch (e) {
+            console.warn('[OneSignal] Failed to format estimatedDelivery date', e);
+        }
+    }
 
     console.log(`[OneSignal] notifyOrderShipped for ${orderNumber}, guides: ${trackingString}`);
 
@@ -858,22 +900,29 @@ export const notifyOrderShipped = async (clientId: string, orderNumber: string, 
         await sendOrderShippedEmail(email, orderNumber, carrier, guides);
     }
 
-    await logNotification('order_shipped_sent', { orderNumber, carrier, tracking_numbers: guides }, clientId);
+    await logNotification('order_shipped_sent', { orderNumber, carrier, tracking_numbers: guides, message }, clientId);
 };
 
 /**
  * Notify user of a tracking status update
  */
-export const notifyTrackingUpdate = async (clientId: string, orderNumber: string, status: string, details?: string, clientData?: any) => {
+export const notifyTrackingUpdate = async (
+    clientId: string,
+    orderNumber: string,
+    status: string,
+    details?: string,
+    clientData?: any,
+    location?: string
+) => {
     // --- DEDUPLICATION ---
     try {
-        const tenMinsAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+        const sixtyMinsAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
         const { data: recentNotif } = await supabase
             .from('system_logs')
             .select('id, payload')
             .eq('event_type', 'tracking_update_sent')
             .eq('client_id', clientId)
-            .gte('created_at', tenMinsAgo);
+            .gte('created_at', sixtyMinsAgo);
 
         if (recentNotif && recentNotif.length > 0) {
             const isDuplicate = recentNotif.some(n =>
@@ -888,7 +937,20 @@ export const notifyTrackingUpdate = async (clientId: string, orderNumber: string
         console.warn('[OneSignal] Deduplication check failed for tracking notif:', err);
     }
 
-    const { title, message } = getTrackingCopy(status, orderNumber, details);
+    const firstName = await getClientFirstName(clientId, clientData);
+    const greeting = firstName ? `Hola ${firstName}! ` : '';
+
+    let { title, message } = getTrackingCopy(status, orderNumber, details);
+
+    if (location) {
+        if (status === 'in_transit') {
+            message = `Tu pedido ${orderNumber} se encuentra en ${location.toUpperCase()} y viene hacia ti.`;
+        } else if (status === 'out_for_delivery') {
+            message = `El repartidor ya tiene tu pedido en ruta por ${location.toUpperCase()}. ¡Prepárate!`;
+        }
+    }
+
+    message = `${greeting}${message}`;
     console.log(`[OneSignal] notifyTrackingUpdate for ${orderNumber}, status: ${status}`);
 
     // Send Push
@@ -918,7 +980,83 @@ export const notifyTrackingUpdate = async (clientId: string, orderNumber: string
         await sendTrackingUpdateEmail(email, orderNumber, title, message);
     }
 
-    await logNotification('tracking_update_sent', { orderNumber, status, friendlyStatus: getStatusText(status) }, clientId);
+    await logNotification('tracking_update_sent', { orderNumber, status, friendlyStatus: getStatusText(status), location, message }, clientId);
+};
+
+/**
+ * Notify user of failed delivery attempt
+ */
+export const notifyDeliveryAttemptFailed = async (clientId: string, orderNumber: string, reason?: string, clientData?: any) => {
+    const firstName = await getClientFirstName(clientId, clientData);
+    const greeting = firstName ? `Hola ${firstName}, ` : '';
+    const title = '⚠️ Intento de entrega fallido';
+    const message = `${greeting}Estafeta intentó entregar tu pedido ${orderNumber} pero no fue posible. Detalle: ${reason || 'Ver guía para más info'}.`;
+
+    await sendNotification({
+        title,
+        message,
+        data: { type: 'failed_attempt', order_number: orderNumber },
+        targetType: 'individual',
+        targetValue: clientId
+    });
+
+    if (isWhapiConfigured()) {
+        const phone = clientData?.phone || await getClientPhone(clientId);
+        if (phone) {
+            const waMsg = `*${title}*\n\n${message}\n\nSigue tu paquete aquí: https://coa.extractoseum.com/my-orders`;
+            await sendWhatsAppMessage({ to: phone, body: waMsg });
+        }
+    }
+
+    await logNotification('failed_attempt_sent', { orderNumber, reason, message }, clientId);
+};
+
+/**
+ * Notify user that package is at office/ready for pickup
+ */
+export const notifyPackageAtOffice = async (clientId: string, orderNumber: string, location?: string, clientData?: any) => {
+    const firstName = await getClientFirstName(clientId, clientData);
+    const greeting = firstName ? `Hola ${firstName}! ` : '';
+    const title = '📍 Paquete listo para recolectar';
+    const message = `${greeting}Tu pedido ${orderNumber} ya está disponible para recoger en la oficina de Estafeta${location ? ` en ${location}` : ''}.`;
+
+    await sendNotification({
+        title,
+        message,
+        data: { type: 'at_office', order_number: orderNumber },
+        targetType: 'individual',
+        targetValue: clientId
+    });
+
+    if (isWhapiConfigured()) {
+        const phone = clientData?.phone || await getClientPhone(clientId);
+        if (phone) {
+            const waMsg = `*${title}*\n\n${message}\n\nUbicación: ${location || 'Ver en rastreo'}\n\nSigue tu paquete aquí: https://coa.extractoseum.com/my-orders`;
+            await sendWhatsAppMessage({ to: phone, body: waMsg });
+        }
+    }
+
+    await logNotification('at_office_sent', { orderNumber, location, message }, clientId);
+};
+
+/**
+ * Notify user of delivery delay
+ */
+export const notifyDeliveryDelay = async (clientId: string, orderNumber: string, clientData?: any) => {
+    const firstName = await getClientFirstName(clientId, clientData);
+    const greeting = firstName ? `Hola ${firstName}, ` : '';
+    const title = '⏰ Tu pedido está retrasado';
+    const message = `${greeting}Notamos que tu pedido ${orderNumber} ha excedido la fecha estimada de entrega. Estamos monitoreando el envío para que llegue lo antes posible.`;
+
+    await sendNotification({
+        title,
+        message,
+        data: { type: 'delivery_delay', order_number: orderNumber },
+        targetType: 'individual',
+        targetValue: clientId
+    });
+
+    await logNotification('delivery_delay_sent', { orderNumber, message }, clientId);
 };
 
 /**

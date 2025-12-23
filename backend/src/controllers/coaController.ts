@@ -416,6 +416,11 @@ export const reExtractCOA = async (req: Request, res: Response) => {
         const updatedMetadata = {
             ...coa.metadata,
             ...extractedData.metadata,
+            technicians: extractedData.technicians,
+            terpenes: extractedData.terpenes,
+            terpenes_status: extractedData.terpenes_status,
+            sample_info: extractedData.sample_info,
+            client_info: extractedData.client_info,
             re_extracted_at: new Date().toISOString()
         };
 

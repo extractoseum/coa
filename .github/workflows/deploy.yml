@@ -1,0 +1,83 @@
+name: Deploy Production
+
+on:
+  workflow_dispatch:
+  # Uncomment to deploy automatically on push to main
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - 'frontend/**'
+  #     - 'backend/**'
+
+jobs:
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build Frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      - name: Deploy Frontend Files
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          source: "frontend/dist/*"
+          target: "/var/www/coa-viewer"
+          strip_components: 1
+
+  deploy-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Build Backend
+        run: |
+          cd backend
+          npm ci
+          npm run build
+
+      - name: Copy AI Knowledge Base
+        run: |
+          mkdir -p backend/dist/data
+          cp -r backend/data/ai_knowledge_base backend/dist/data/
+
+      - name: Deploy Backend Files
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          source: "backend/dist,backend/package.json"
+          target: "/var/www/coa-viewer/backend"
+          strip_components: 1
+
+      - name: Install Prod Deps & Restart
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          script: |
+            cd /var/www/coa-viewer/backend
+            npm install --omit=dev
+            pm2 restart coa-backend

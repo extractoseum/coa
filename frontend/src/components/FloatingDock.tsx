@@ -79,7 +79,7 @@ const FloatingDock: React.FC<FloatingDockProps> = ({
     return (
         <div
             ref={dockRef}
-            className="fixed z-[9999] flex flex-col items-center gap-3 transition-transform duration-75 pointer-events-auto select-none"
+            className="fixed z-[inherit] flex flex-col items-center gap-3 transition-transform duration-75 pointer-events-auto select-none"
             style={{
                 bottom: `${position.bottom}px`,
                 right: `${position.right}px`,

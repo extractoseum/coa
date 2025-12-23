@@ -148,7 +148,7 @@ function Home() {
     <Layout>
       <div className="flex flex-col items-center justify-center min-h-screen p-4 pb-24">
         <div
-          className="max-w-md w-full rounded-2xl shadow-xl overflow-hidden"
+          className="max-w-md w-full rounded-2xl shadow-xl overflow-hidden transition-all duration-300"
           style={{
             backgroundColor: theme.cardBg,
             border: `1px solid ${theme.border}`,
@@ -156,12 +156,12 @@ function Home() {
         >
           {/* Header with Company Logo */}
           <div
-            className="p-6 text-center"
+            className="p-8 text-center"
             style={{ backgroundColor: theme.cardBg2 }}
           >
             {logoSvg ? (
               <div
-                className="mx-auto h-20 mb-4 transition-all duration-300 flex items-center justify-center"
+                className="mx-auto h-24 mb-6 transition-all duration-300 flex items-center justify-center"
                 dangerouslySetInnerHTML={{ __html: getThemedSvg() || '' }}
                 style={{ maxWidth: '280px' }}
               />
@@ -169,76 +169,87 @@ function Home() {
               <img
                 src={logoUrl}
                 alt="Company Logo"
-                className="mx-auto h-20 object-contain mb-4 transition-all duration-300"
+                className="mx-auto h-24 object-contain mb-6 transition-all duration-300"
               />
             ) : (
-              <div className="mx-auto bg-white/20 w-16 h-16 rounded-full flex items-center justify-center mb-4 backdrop-blur-sm" style={{ backgroundColor: theme.accent }}>
-                <Leaf className="w-8 h-8 text-white" />
+              <div
+                className="mx-auto w-24 h-24 rounded-3xl flex items-center justify-center mb-6 backdrop-blur-md shadow-lg"
+                style={{
+                  backgroundColor: `${theme.accent}20`,
+                  boxShadow: `0 0 20px ${theme.accent}40`
+                }}
+              >
+                <Leaf className="w-12 h-12" style={{ color: theme.accent }} />
               </div>
             )}
-            <h1 className="text-2xl font-bold tracking-wide" style={{ color: theme.text }}>EUM Viewer 2.0</h1>
-            <p className="text-sm mt-1" style={{ color: theme.textMuted }}>Calidad Certificada & IA-Verified</p>
+            <h1 className="text-3xl font-black tracking-tight mb-2" style={{ color: theme.text }}>EUM Viewer <span style={{ color: theme.accent }}>2.0</span></h1>
+            <p className="text-sm font-medium opacity-80" style={{ color: theme.textMuted }}>
+              Plataforma de Integridad y Verificación
+            </p>
           </div>
 
           {/* Content */}
-          <div className="p-6 space-y-4">
-            <div className="text-center space-y-2">
-              <h2 className="text-xl font-semibold" style={{ color: theme.text }}>
-                Sistema de Certificados
-              </h2>
-              <p className="text-sm" style={{ color: theme.textMuted }}>
-                Verifica la autenticidad de tus productos
-              </p>
-            </div>
+          <div className="p-8 space-y-6">
 
-            {/* User Options */}
-            <div className="space-y-2">
-              {userItems.map((item) => (
-                <button
-                  key={item.path}
-                  onClick={() => navigate(item.path)}
-                  data-testid={`nav.user.${item.label.toLowerCase().replace(/\s/g, '_')}`}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200"
-                  style={{
-                    backgroundColor: theme.cardBg2,
-                    border: `1px solid ${theme.border}`,
-                    color: theme.text,
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = item.color;
-                    e.currentTarget.style.backgroundColor = `${item.color}15`;
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = theme.border;
-                    e.currentTarget.style.backgroundColor = theme.cardBg2;
-                  }}
-                >
-                  <span style={{ color: item.color }}>{item.icon}</span>
-                  <span className="font-medium">{item.label}</span>
-                </button>
-              ))}
-            </div>
+            {/* Authenticated User Navigation */}
+            {isAuthenticated && (
+              <div className="space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="text-center mb-4">
+                  <p className="text-sm font-medium" style={{ color: theme.text }}>Bienvenido de nuevo</p>
+                </div>
+
+                <div className="space-y-2">
+                  {userItems.map((item) => (
+                    <button
+                      key={item.path}
+                      onClick={() => navigate(item.path)}
+                      data-testid={`nav.user.${item.label.toLowerCase().replace(/\s/g, '_')}`}
+                      className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all duration-200 group relative overflow-hidden"
+                      style={{
+                        backgroundColor: theme.cardBg2,
+                        border: `1px solid ${theme.border}`,
+                        color: theme.text,
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = item.color;
+                        e.currentTarget.style.backgroundColor = `${item.color}15`;
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = theme.border;
+                        e.currentTarget.style.backgroundColor = theme.cardBg2;
+                      }}
+                    >
+                      <span style={{ color: item.color }} className="transition-transform duration-300 group-hover:scale-110">{item.icon}</span>
+                      <span className="font-medium">{item.label}</span>
+                      <div className="absolute right-4 opacity-0 group-hover:opacity-100 transition-opacity transform translate-x-2 group-hover:translate-x-0">
+                        {/* Arrow icon could go here */}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Admin Options */}
-            {isSuperAdmin && (
-              <>
+            {isSuperAdmin && isAuthenticated && (
+              <div className="animate-in fade-in slide-in-from-bottom-8 duration-700 delay-100">
                 <div
-                  className="h-px my-4"
+                  className="h-px my-6"
                   style={{ backgroundColor: theme.border }}
                 />
                 <p
-                  className="text-xs font-semibold uppercase tracking-wider"
+                  className="text-xs font-bold uppercase tracking-widest mb-4"
                   style={{ color: theme.textMuted }}
                 >
-                  Administracion
+                  Panel de Control
                 </p>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-3">
                   {adminItems.map((item) => (
                     <button
                       key={item.path}
                       onClick={() => navigate(item.path)}
                       data-testid={`nav.admin.${item.label.toLowerCase().replace(/\s/g, '_')}`}
-                      className="flex flex-col items-center gap-2 px-3 py-4 rounded-xl transition-all duration-200"
+                      className="flex flex-col items-center gap-2 px-3 py-4 rounded-xl transition-all duration-200 hover:-translate-y-1"
                       style={{
                         backgroundColor: theme.cardBg2,
                         border: `1px solid ${theme.border}`,
@@ -258,37 +269,52 @@ function Home() {
                     </button>
                   ))}
                 </div>
-              </>
+              </div>
             )}
 
-            {/* Login prompt for non-authenticated users */}
+            {/* Guest View: Premium Login Trigger */}
             {!isAuthenticated && (
-              <>
-                <div
-                  className="h-px my-4"
-                  style={{ backgroundColor: theme.border }}
-                />
+              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="text-center space-y-4">
+                  <p className="text-sm leading-relaxed opacity-80" style={{ color: theme.textMuted }}>
+                    Accede para gestionar tus certificados, ver tu historial de pedidos y administrar tu colección segura.
+                  </p>
+                </div>
+
                 <button
                   onClick={() => navigate(ROUTES.login)}
                   data-testid="home.login"
-                  className="w-full py-3 rounded-xl font-medium transition-all duration-200"
+                  className="w-full py-4 rounded-xl font-bold text-lg shadow-lg shadow-primary/20 transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98]"
                   style={{
                     backgroundColor: theme.accent,
                     color: '#ffffff',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = theme.accentHover;
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = theme.accent;
+                    boxShadow: `0 4px 14px 0 ${theme.accent}60`
                   }}
                 >
-                  Iniciar Sesion
+                  Iniciar Sesión
                 </button>
-              </>
+
+                <div className="pt-2 flex justify-center">
+                  <button
+                    onClick={() => navigate(to.coa('demo'))}
+                    className="text-xs font-medium hover:underline flex items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity"
+                    style={{ color: theme.textMuted }}
+                  >
+                    <ShieldCheck size={14} />
+                    <span>Ver Demo Interactiva</span>
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         </div>
+
+        {/* Footer info for guests */}
+        {!isAuthenticated && (
+          <p className="mt-8 text-xs text-center opacity-40" style={{ color: theme.textMuted }}>
+            EUM Viewer 2.0 • Powered by Extractos EUM
+          </p>
+        )}
       </div>
     </Layout>
   );
@@ -298,6 +324,7 @@ import { ROUTES, to } from './routes';
 import { BuildStamp } from './components/BuildStamp';
 import { Screen } from './telemetry/Screen';
 import { QAOverlay } from './telemetry/QAOverlay';
+import { TelemetryTracker } from './telemetry/TelemetryTracker';
 import { ThemeSwitcher } from './components/ThemeSwitcher';
 
 function App() {
@@ -305,7 +332,10 @@ function App() {
     <BrowserRouter>
       <AuthProvider>
         <ThemeProvider>
-          <ThemeSwitcher />
+          <div className="hidden md:block">
+            <ThemeSwitcher />
+          </div>
+          <TelemetryTracker />
           <Screen id="app.root">
             <Suspense fallback={
               <div className="min-h-screen flex items-center justify-center bg-gray-900">
@@ -423,9 +453,11 @@ function App() {
               <BuildStamp />
             </Suspense>
 
-            <FloatingDock initialBottom={80} initialRight={24}>
-              <AdminSidekick />
-            </FloatingDock>
+            <div className="z-40 relative md:z-auto">
+              <FloatingDock initialBottom={80} initialRight={24}>
+                <AdminSidekick />
+              </FloatingDock>
+            </div>
             <QAOverlay />
           </Screen>
         </ThemeProvider>

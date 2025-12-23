@@ -1,0 +1,11 @@
+#!/usr/bin/expect -f
+set timeout 20
+spawn ssh -o StrictHostKeyChecking=no root@148.230.88.203 "pm2 describe coa-backend | grep 'pm_cwd'"
+expect "plus" {
+    # If key verification happens (unlikely with StrictHostKeyChecking=no but possible)
+    send "yes\r"
+    exp_continue
+}
+expect "password:"
+send ")l2fyDHz60u,nTAd,@tD\r"
+expect eof

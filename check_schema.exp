@@ -1,0 +1,27 @@
+#!/usr/bin/expect -f
+set timeout 10
+set host "148.230.88.203"
+set user "root"
+set password "Mv+7c#dQ4U9ALV4Lup#p"
+
+# SCP
+spawn scp -o StrictHostKeyChecking=no check_schema.js $user@$host:/var/www/coa-viewer/
+expect {
+    "password:" {
+        send "$password\r"
+        exp_continue
+    }
+    eof
+}
+
+# Run
+spawn ssh -o StrictHostKeyChecking=no $user@$host "cd /var/www/coa-viewer && node check_schema.js"
+expect {
+    "password:" {
+        send "$password\r"
+        exp_continue
+    }
+    eof
+}
+catch wait result
+exit [lindex $result 3]
