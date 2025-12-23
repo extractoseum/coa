@@ -1,11 +1,13 @@
 import { v4 as uuidv4 } from 'uuid';
 
-export enum LogLevel {
-    INFO = 'info',
-    WARN = 'warn',
-    ERROR = 'error',
-    DEBUG = 'debug'
-}
+export const LogLevel = {
+    INFO: 'info',
+    WARN: 'warn',
+    ERROR: 'error',
+    DEBUG: 'debug'
+} as const;
+
+export type LogLevel = typeof LogLevel[keyof typeof LogLevel];
 
 interface LogPayload {
     event: string;
