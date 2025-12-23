@@ -1,3 +1,4 @@
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { telemetry } from '../services/telemetryService';
