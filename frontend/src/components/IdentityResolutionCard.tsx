@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
-import { User, ShieldAlert, Check, X, Edit2 } from 'lucide-react';
-import { theme } from '../theme';
+import { ShieldAlert, Check, X, Edit2 } from 'lucide-react';
+import { useTheme } from '../contexts/ThemeContext';
 
 interface IdentityResolutionCardProps {
     conversation: any;
@@ -9,6 +9,7 @@ interface IdentityResolutionCardProps {
 }
 
 export const IdentityResolutionCard: React.FC<IdentityResolutionCardProps> = ({ conversation, onResolve }) => {
+    const { theme } = useTheme();
     const [isResolving, setIsResolving] = useState(false);
     const [customName, setCustomName] = useState('');
     const [showCustomInput, setShowCustomInput] = useState(false);
