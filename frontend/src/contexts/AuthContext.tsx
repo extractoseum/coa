@@ -206,6 +206,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
     };
 
+    const loginWithTotp = async (email: string, token: string): Promise<{ success: boolean; error?: string }> => {
+        try {
+            const res = await fetch(`${API_BASE}/auth/login-totp`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, token })
+            });
+            const data = await res.json();
+
+            if (data.success) {
+                localStorage.setItem('accessToken', data.accessToken);
+                localStorage.setItem('refreshToken', data.refreshToken);
+                setClient(data.client);
+                return { success: true };
+            }
+            return { success: false, error: data.error || 'Código incorrecto' };
+        } catch (error) {
+            console.error('Login TOTP error:', error);
+            return { success: false, error: 'Error de conexión' };
+        }
+    };
+
     const verifyOTP = async (identifier: string, code: string): Promise<{ success: boolean; error?: string }> => {
         try {
             const res = await fetch(`${API_BASE}/auth/verify-otp`, {
