@@ -640,7 +640,7 @@ export class CRMService {
         // 2. Fetch snapshots
         const { data: snapshots } = await supabase
             .from('crm_contact_snapshots')
-            .select('handle, name, ltv, risk_level, tags')
+            .select('handle, name, ltv, risk_level, tags, avatar_url')
             .in('handle', handles);
 
         // 3. Merge snapshots into conversations for UI enrichment
