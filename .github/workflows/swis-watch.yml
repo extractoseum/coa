@@ -58,6 +58,10 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+            backend/package-lock.json
 
       - name: Get Playwright version
         id: playwright-version
@@ -72,8 +76,11 @@ jobs:
           restore-keys: |
             playwright-${{ runner.os }}-
 
-      - name: Install All Dependencies
-        run: npm run install-all
+      - name: Install All Dependencies (CI Mode)
+        run: |
+          npm ci
+          cd backend && npm ci
+          cd ../frontend && npm ci
 
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps
