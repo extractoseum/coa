@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { supabase } from '../config/supabase';
+import { normalizePhone, cleanupPhone } from '../utils/phoneUtils';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
@@ -661,7 +662,7 @@ export const sendOTP = async (req: Request, res: Response) => {
             cleanIdentifier = cleanIdentifier.toLowerCase();
         } else {
             // Normalize phone: remove non-digits
-            cleanIdentifier = cleanIdentifier.replace(/\D/g, '');
+            cleanIdentifier = cleanupPhone(identifier);
         }
 
         // 1. Validate user exists
@@ -843,7 +844,7 @@ export const verifyOTP = async (req: Request, res: Response) => {
         if (isEmail) {
             cleanIdentifier = cleanIdentifier.toLowerCase();
         } else {
-            cleanIdentifier = cleanIdentifier.replace(/\D/g, '');
+            cleanIdentifier = cleanupPhone(identifier);
         }
 
         // 1. Get OTP record
@@ -1260,7 +1261,7 @@ async function findShopifyCustomerByPhone(phone: string): Promise<any> {
 
         // Strip country code for broader search if needed, or search as is
         // Shopify phone search can be tricky. Try searching last 10 digits
-        const cleanPhone = phone.replace(/\D/g, '').slice(-10);
+        const cleanPhone = cleanupPhone(phone);
 
         console.log(`[Shopify] Searching for phone containing: ${cleanPhone}`);
 

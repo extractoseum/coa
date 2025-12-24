@@ -3,6 +3,14 @@
  * Handles Mexico-specific logic (521 prefix) and provider nuances.
  */
 
+/**
+ * Simple cleanup for DB matching and deduplication.
+ * Returns last 10 digits only.
+ */
+export const cleanupPhone = (phone: string): string => {
+    return phone.replace(/\D/g, '').slice(-10);
+};
+
 export const normalizePhone = (phone: string, provider: 'whapi' | 'twilio' | 'vapi' | 'general' = 'general'): string => {
     // 1. Remove non-digits
     let clean = phone.replace(/\D/g, '');

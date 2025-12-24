@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import { requireAuth, requireSuperAdmin } from '../middleware/authMiddleware'; // We can't import middleware here to wrap, we usually wrap in routes.
 // But we can check req.userRole if the middleware WAS used.
 import { supabase } from '../config/supabase';
+import { cleanupPhone } from '../utils/phoneUtils';
 
 export const trackBehaviorEvent = async (req: Request, res: Response) => {
     try {
@@ -30,7 +31,7 @@ export const trackBehaviorEvent = async (req: Request, res: Response) => {
             if (isEmail) {
                 query = query.ilike('email', handle);
             } else {
-                query = query.ilike('phone', `%${handle.slice(-10)}`);
+                query = query.ilike('phone', `%${cleanupPhone(handle)}`);
             }
 
             const { data: client } = await query.maybeSingle();
@@ -102,7 +103,7 @@ export const getClientActivity = async (req: Request, res: Response) => {
         if (isEmail) {
             filters.push(`email.ilike.${handle}`);
         } else {
-            const last10 = handle.replace(/\D/g, '').slice(-10);
+            const last10 = cleanupPhone(handle);
             if (last10.length >= 10) {
                 filters.push(`phone.ilike.%${last10}`);
             } else {
@@ -126,7 +127,7 @@ export const getClientActivity = async (req: Request, res: Response) => {
             .order('created_at', { ascending: false })
             .limit(20);
 
-        const last10Digits = handle.replace(/\D/g, '').slice(-10);
+        const last10Digits = cleanupPhone(handle);
         let handleMatch = isEmail ? `handle.ilike.${handle}` : `handle.ilike.%${last10Digits || handle}%`;
 
         // --- IDENTITY BRIDGE: Also search for the email directly in events handle ---

@@ -1,6 +1,7 @@
 import { supabase } from '../config/supabase';
 import { logger } from '../utils/Logger';
 import { CRMService } from './CRMService';
+import { cleanupPhone } from '../utils/phoneUtils';
 
 export class AuditorService {
     private static instance: AuditorService;
@@ -144,7 +145,7 @@ export class AuditorService {
                 });
 
                 // Self-Correction
-                const cleanPhone = conv.contact_handle.replace(/\D/g, '').slice(-10);
+                const cleanPhone = cleanupPhone(conv.contact_handle);
                 await supabase.from('clients').upsert({
                     email: email,
                     phone: cleanPhone,

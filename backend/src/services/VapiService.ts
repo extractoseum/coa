@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { supabase } from '../config/supabase';
-import { normalizePhone } from '../utils/phoneUtils';
+import { normalizePhone, cleanupPhone } from '../utils/phoneUtils';
 
 const VAPI_API_KEY = process.env.VAPI_API_KEY;
 const VAPI_BASE_URL = 'https://api.vapi.ai';
@@ -210,7 +210,7 @@ export class VapiService {
     // Helper functions
     private async lookupClient(args: { phone?: string; email?: string }) {
         const query = supabase.from('clients').select('*');
-        if (args.phone) query.ilike('phone', `%${normalizePhone(args.phone, 'whapi').slice(-10)}%`); // Fuzzy match using last 10
+        if (args.phone) query.ilike('phone', `%${cleanupPhone(args.phone)}%`); // Fuzzy match using last 10
         if (args.email) query.eq('email', args.email);
         const { data } = await query.maybeSingle();
         return data || { found: false };

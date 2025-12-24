@@ -7,6 +7,7 @@ import { searchShopifyCustomers, getShopifyCustomerOrders, searchShopifyCustomer
 import { ChannelRouter } from './channelRouter';
 import { ChipEngine } from './chipEngine';
 import { VoiceService } from './VoiceService';
+import { normalizePhone, cleanupPhone } from '../utils/phoneUtils';
 import fs from 'fs';
 import path from 'path';
 
@@ -37,7 +38,22 @@ export interface CRMConversation {
     summary?: string;
     summary_version?: number;
     last_summarized_at?: string;
-    facts?: any;
+    facts?: {
+        personality?: string[];
+        interests?: string[];
+        intent_score?: number;
+        friction_score?: number;
+        emotional_vibe?: string;
+        browsing_summary?: string;
+        user_email?: string;
+        user_name?: string;
+        action_plan?: Array<{
+            label: string;
+            meta?: string;
+            action_type: 'coupon' | 'link' | 'text';
+            payload: any;
+        }>;
+    };
     facts_version?: number;
     agent_override_id?: string;
     model_override?: string;
@@ -422,13 +438,9 @@ export class CRMService {
     }
 
     // Standardize phone normalization (Fix #9)
+    // Uses centralized cleanup utility for DB consistency
     private normalizePhone(phone: string): string {
-        let clean = phone.replace(/\D/g, '');
-        // If 13 digits (521XXXXXXXXXX), convert to 12 (52XXXXXXXXXX)
-        if (clean.length === 13 && clean.startsWith('521')) {
-            clean = clean.replace('521', '52');
-        }
-        return clean.slice(-10);
+        return cleanupPhone(phone);
     }
 
     /**
@@ -444,11 +456,14 @@ export class CRMService {
 
         const conversation = await this.getOrCreateConversation(channel, handle, channelRef);
 
-        // --- NEW: AUTO-ENRICHMENT (Phase 53) ---
+        // --- NEW: AUTO-ENRICHMENT (Phase 53/59 - AWAITED) ---
         // Ensure we always have the latest Avatar/Name when they write to us.
-        this.syncContactSnapshot(handle, channel).catch(e =>
-            console.error(`[CRMService] Background enrichment failed for ${handle}:`, e)
-        );
+        // Awaiting this (Phase 59) guarantees UI parity on new message arrival.
+        try {
+            await this.syncContactSnapshot(handle, channel);
+        } catch (e) {
+            console.error(`[CRMService] Enrichment failed for ${handle}:`, e);
+        }
 
         // --- NEW: DEDUPLICATION CHECK ---
         // If external_id (raw.id) already exists, skip insertion!
@@ -650,10 +665,13 @@ export class CRMService {
         }
 
         // 6. Automatic Fact Synchronization (AI Analysis) - RUNS ALWAYS for Inbound
+        // Awaiting this (Phase 59) ensures action plans are updated before the user refreshes.
         if (createdMsg && createdMsg.direction === 'inbound') {
-            this.syncConversationFacts(conversation.id).catch(err =>
-                console.error(`[CRMService] Fact sync failed for ${conversation.id}:`, err)
-            );
+            try {
+                await this.syncConversationFacts(conversation.id);
+            } catch (err) {
+                console.error(`[CRMService] Fact sync failed for ${conversation.id}:`, err);
+            }
         }
 
         return createdMsg;
@@ -910,7 +928,7 @@ export class CRMService {
                     // --- IDENTITY BRIDGE: PERSIST LINK TO CLIENTS TABLE ---
                     if (shopifyCustomer.email || shopifyCustomer.phone) {
                         try {
-                            const cleanPhone = (shopifyCustomer.phone || handle).replace(/\D/g, '').slice(-10);
+                            const cleanPhone = this.normalizePhone(shopifyCustomer.phone || handle);
                             await supabase.from('clients').upsert({
                                 phone: cleanPhone,
                                 email: shopifyCustomer.email || client?.email,
@@ -1052,7 +1070,7 @@ export class CRMService {
                 query = query.eq('customer_email', handle);
             } else {
                 // Robust Phone Match: Last 10 digits to handle country codes (e.g. +52)
-                const cleanPhone = handle.replace(/\D/g, '').slice(-10);
+                const cleanPhone = this.normalizePhone(handle);
                 if (cleanPhone.length >= 10) {
                     query = query.ilike('customer_phone', `%${cleanPhone}`);
                 } else {
@@ -1148,7 +1166,7 @@ export class CRMService {
             if (!conv || messages.length < 2) return;
 
             // 2. Fetch Recent Browsing Behavior
-            const last10 = conv.contact_handle.replace(/\D/g, '').slice(-10);
+            const last10 = this.normalizePhone(conv.contact_handle);
             const { data: client } = await supabase
                 .from('clients')
                 .select('id, email')
@@ -1220,7 +1238,7 @@ export class CRMService {
                 // --- IDENTITY BRIDGE: IF EMAIL FOUND, UPDATE CLIENT RECORD ---
                 if (result.user_email && !conv.contact_handle.includes('@')) {
                     try {
-                        const cleanPhone = conv.contact_handle.replace(/\D/g, '').slice(-10);
+                        const cleanPhone = this.normalizePhone(conv.contact_handle);
                         await supabase.from('clients').upsert({
                             phone: cleanPhone,
                             email: result.user_email,
