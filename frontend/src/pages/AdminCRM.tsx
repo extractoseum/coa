@@ -21,6 +21,7 @@ import {
     Award, Star, Heart, ThumbsUp, ThumbsDown, Smile, Frown, FileBox, Facebook
 } from 'lucide-react';
 import { MessageAudioPlayer } from '../components/MessageAudioPlayer';
+import { IdentityResolutionCard } from '../components/IdentityResolutionCard';
 import ToolEditor from '../components/ToolEditor';
 import OrchestratorConfig from '../components/OrchestratorConfig';
 import { VoiceSelector } from '../components/VoiceSelector';
@@ -1308,17 +1309,40 @@ const AdminCRM: React.FC = () => {
                                     </div>
                                     <div>
                                         <h3 className="font-bold text-sm" style={{ color: theme.text }}>{selectedConv.contact_handle}</h3>
-                                        {/* Dynamic Online Status */}
+                                        {/* Last Activity Status */}
                                         {(() => {
-                                            const lastSeen = selectedConv.updated_at ? new Date(selectedConv.updated_at).getTime() : 0;
+                                            // Usar last_message_at (más preciso) o updated_at como fallback
+                                            const lastActivity = selectedConv.last_message_at || selectedConv.updated_at;
+                                            if (!lastActivity) {
+                                                return <span className="text-[10px] text-gray-500">Sin actividad</span>;
+                                            }
+
+                                            const lastSeen = new Date(lastActivity).getTime();
                                             const now = Date.now();
                                             const diffMinutes = Math.floor((now - lastSeen) / 60000);
-                                            const isOnline = diffMinutes < 15; // Online if active in last 15 min
+
+                                            // Determinar estado basado en tiempo
+                                            const isRecent = diffMinutes < 5;      // < 5 min = muy reciente
+                                            const isActive = diffMinutes < 30;     // < 30 min = activo
+                                            const isWarm = diffMinutes < 360;      // < 6h = tibio
+
+                                            // Formatear tiempo legible
+                                            let timeText = '';
+                                            if (diffMinutes < 1) timeText = 'Ahora';
+                                            else if (diffMinutes < 60) timeText = `${diffMinutes}min`;
+                                            else if (diffMinutes < 1440) timeText = `${Math.floor(diffMinutes / 60)}h`;
+                                            else timeText = `${Math.floor(diffMinutes / 1440)}d`;
 
                                             return (
-                                                <div className={`flex items-center gap-1 text-[10px] ${isOnline ? 'text-green-500' : 'text-gray-400'}`}>
-                                                    <div className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
-                                                    {isOnline ? 'ONLINE' : `Hace ${diffMinutes} min`}
+                                                <div className={`flex items-center gap-1 text-[10px] ${isRecent ? 'text-green-500' :
+                                                        isActive ? 'text-green-400' :
+                                                            isWarm ? 'text-yellow-500' : 'text-gray-500'
+                                                    }`}>
+                                                    <div className={`w-1.5 h-1.5 rounded-full ${isRecent ? 'bg-green-500 animate-pulse' :
+                                                            isActive ? 'bg-green-400' :
+                                                                isWarm ? 'bg-yellow-500' : 'bg-gray-500'
+                                                        }`} />
+                                                    {isRecent ? 'Activo' : timeText}
                                                 </div>
                                             );
                                         })()}
@@ -1511,6 +1535,12 @@ const AdminCRM: React.FC = () => {
                                         <div className="flex-1 overflow-y-auto scrollbar-thin">
                                             {resourceDockTab === 'tools' && (
                                                 <div className="p-4 space-y-6 animate-in fade-in duration-300">
+                                                    {/* Identity Resolution Widget (Phase 64) */}
+                                                    <IdentityResolutionCard
+                                                        conversation={selectedConv}
+                                                        onResolve={fetchData}
+                                                    />
+
                                                     {/* Section: Quick Actions */}
                                                     <div className="space-y-3">
                                                         <div className="flex items-center gap-2 text-[10px] uppercase font-bold opacity-40">

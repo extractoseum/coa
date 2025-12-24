@@ -1197,7 +1197,9 @@ export class CRMService {
             - emotional_vibe: One descriptive phrase of their current mood (e.g., "Frustrado por envío tardío", "Entusiasta esperando preventa").
             - browsing_summary: Concisely describe what they were looking at in the store (max 15 words).
             - user_email: Extract if mentioned in chat (e.g., "test@gmail.com").
-            - user_name: Extract if mentioned or inferred (e.g., "Juan Perez").
+            - user_name: Extract ONLY if it belongs to the CUSTOMER. DO NOT extract the Agent/Admin's name (e.g. Bernardo, Ara).
+            - identity_ambiguity: Boolean (true if you detect conflicting names or are unsure who the customer is).
+            - ambiguity_candidates: Array of strings (e.g. ["Bernardo", "Brittany"]) if ambiguity exists.
             - action_plan: Array of items { label, meta, action_type, payload }.
               - COMPULSORY: You MUST provide at least 1-3 actionable steps. If no urgent issue, suggest proactive outreach (e.g., "Saludar proactivamente", "Confirmar recepción de pedido", "Enviar recomendación de producto").
               - action_type: 'coupon' (payload: {discount, code}), 'link' (payload: {url}), or 'text' (payload: {newMessageText}).
@@ -1213,18 +1215,28 @@ export class CRMService {
                 // --- NEW: PROACTIVE NAME EXTRACTION (FAST GATE) ---
                 // If AI missed it, look for patterns in last 5 messages
                 if (!result.user_name) {
-                    const greetingRegex = /(?:hola|hello|hi|buen(?:as)?\s*(?:dias|tardes|noches)),?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i;
+                    const greetingRegex = /(?:hola|hello|hi|buen(?:as)?\s*(?:dias|tardes|noches)),?\s*(?:soy|me llamo)?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i;
                     for (const msg of messages.slice(-5)) {
-                        if (msg.role === 'assistant' || msg.direction === 'outbound') {
-                            const match = msg.content.match(greetingRegex);
+                        // STRICT RULE: Only extract name from INBOUND messages (User saying their own name)
+                        // OR Outbound messages where Agent says "Hola [ClientName]"
+                        if (msg.direction === 'inbound') {
+                            const match = msg.content.match(/(?:soy|me llamo)\s+([A-Z][a-z]+)/i); // User intro "Soy Juan"
                             if (match && match[1]) {
                                 result.user_name = match[1];
-                                logger.info(`[CRMService] Proactive Name Discovery: Caught "${result.user_name}" from history greeting.`, { handle: conv.contact_handle });
+                                logger.info(`[CRMService] Proactive Name Discovery (Inbound): Caught "${result.user_name}"`, { handle: conv.contact_handle });
+                                break;
+                            }
+                        } else if (msg.direction === 'outbound' || msg.role === 'assistant') {
+                            // Agent saying "Hola Brittany" -> Brittany is the user
+                            const match = msg.content.match(/hola\s+([A-Z][a-z]+)/i);
+                            if (match && match[1] && match[1].toLowerCase() !== 'bernardo') { // Safety check against self-greeting loops
+                                result.user_name = match[1];
+                                logger.info(`[CRMService] Proactive Name Discovery (Outbound): Caught "${result.user_name}"`, { handle: conv.contact_handle });
                                 break;
                             }
                         }
                     }
-                }
+                } // End if !result.user_name
                 // 4. Merge with existing facts
                 const newFacts = {
                     ...conv.facts,
@@ -1277,6 +1289,60 @@ export class CRMService {
                     .from('conversations')
                     .update({ facts: newFacts })
                     .eq('id', conversationId);
+
+                // --- NEW: IDENTITY PROMOTION (Phase 63) ---
+                if (result.user_name) {
+                    try {
+                        const { data: currentSnapshot } = await supabase
+                            .from('crm_contact_snapshots')
+                            .select('name')
+                            .eq('handle', conv.contact_handle)
+                            .single();
+
+                        // Promote if snapshot has no name OR name is just the phone number
+                        const needsPromotion =
+                            !currentSnapshot?.name ||
+                            currentSnapshot.name === conv.contact_handle ||
+                            currentSnapshot.name.replace(/\D/g, '') === conv.contact_handle.replace(/\D/g, '');
+
+                        if (needsPromotion) {
+                            console.log(`[CRMService] Promoting Identity: "${result.user_name}" for ${conv.contact_handle}`);
+                            await supabase
+                                .from('crm_contact_snapshots')
+                                .update({ name: result.user_name })
+                                .eq('handle', conv.contact_handle);
+                        }
+                    } catch (promoErr) {
+                        console.error('[CRMService] Identity promotion failed:', promoErr);
+                    }
+                }
+
+                // --- NEW: IDENTITY PROMOTION (Phase 63) ---
+                if (result.user_name) {
+                    try {
+                        const { data: currentSnapshot } = await supabase
+                            .from('crm_contact_snapshots')
+                            .select('name')
+                            .eq('handle', conv.contact_handle)
+                            .single();
+
+                        // Promote if snapshot has no name OR name is just the phone number
+                        const needsPromotion =
+                            !currentSnapshot?.name ||
+                            currentSnapshot.name === conv.contact_handle ||
+                            currentSnapshot.name.replace(/\D/g, '') === conv.contact_handle.replace(/\D/g, ''); // e.g. "+52..." vs "52..."
+
+                        if (needsPromotion) {
+                            console.log(`[CRMService] Promoting Identity: "${result.user_name}" for ${conv.contact_handle}`);
+                            await supabase
+                                .from('crm_contact_snapshots')
+                                .update({ name: result.user_name })
+                                .eq('handle', conv.contact_handle);
+                        }
+                    } catch (promoErr) {
+                        console.error('[CRMService] Identity promotion failed:', promoErr);
+                    }
+                }
 
                 console.log(`[CRMService] facts updated for ${conversationId} (Predicted Friction: ${result.friction_score})`);
 
