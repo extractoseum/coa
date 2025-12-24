@@ -30,13 +30,12 @@ import { Screen } from '../telemetry/Screen';
 import AppLayout from '../components/Layout';
 import { ROUTES } from '../routes';
 
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-// Init Supabase Client for Realtime
-const supabase = createClient(
-    import.meta.env.VITE_SUPABASE_URL,
-    import.meta.env.VITE_SUPABASE_ANON_KEY
-);
+// Init Supabase Client for Realtime (with fallback for test/CI environments)
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://placeholder.supabase.co';
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'placeholder-key';
+const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 interface Column {
     id: string;
