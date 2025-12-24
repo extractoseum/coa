@@ -21,7 +21,7 @@ import {
     Award, Star, Heart, ThumbsUp, ThumbsDown, Smile, Frown, FileBox, Facebook
 } from 'lucide-react';
 import { MessageAudioPlayer } from '../components/MessageAudioPlayer';
-import { IdentityResolutionCard } from '../components/IdentityResolutionCard';
+import { SystemInquiryCard } from '../components/SystemInquiryCard';
 import ToolEditor from '../components/ToolEditor';
 import OrchestratorConfig from '../components/OrchestratorConfig';
 import { VoiceSelector } from '../components/VoiceSelector';
@@ -1335,12 +1335,12 @@ const AdminCRM: React.FC = () => {
 
                                             return (
                                                 <div className={`flex items-center gap-1 text-[10px] ${isRecent ? 'text-green-500' :
-                                                        isActive ? 'text-green-400' :
-                                                            isWarm ? 'text-yellow-500' : 'text-gray-500'
+                                                    isActive ? 'text-green-400' :
+                                                        isWarm ? 'text-yellow-500' : 'text-gray-500'
                                                     }`}>
                                                     <div className={`w-1.5 h-1.5 rounded-full ${isRecent ? 'bg-green-500 animate-pulse' :
-                                                            isActive ? 'bg-green-400' :
-                                                                isWarm ? 'bg-yellow-500' : 'bg-gray-500'
+                                                        isActive ? 'bg-green-400' :
+                                                            isWarm ? 'bg-yellow-500' : 'bg-gray-500'
                                                         }`} />
                                                     {isRecent ? 'Activo' : timeText}
                                                 </div>
@@ -1536,7 +1536,7 @@ const AdminCRM: React.FC = () => {
                                             {resourceDockTab === 'tools' && (
                                                 <div className="p-4 space-y-6 animate-in fade-in duration-300">
                                                     {/* Identity Resolution Widget (Phase 64) */}
-                                                    <IdentityResolutionCard
+                                                    <SystemInquiryCard
                                                         conversation={selectedConv}
                                                         onResolve={fetchData}
                                                     />
