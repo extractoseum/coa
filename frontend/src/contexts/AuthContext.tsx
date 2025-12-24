@@ -33,6 +33,7 @@ interface AuthContextType {
     isSuperAdmin: boolean;
     authLevel: 'guest' | 'registered' | 'verified';
     login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+    loginWithTotp: (email: string, token: string) => Promise<{ success: boolean; error?: string }>;
     sendOTP: (identifier: string) => Promise<{ success: boolean; error?: string; channel?: string }>;
     verifyOTP: (identifier: string, code: string) => Promise<{ success: boolean; error?: string }>;
     quickRegister: (identifier: string) => Promise<{ success: boolean; error?: string; isNewUser?: boolean }>;
@@ -358,6 +359,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isSuperAdmin: !!isSuperAdmin,
         authLevel,
         login,
+        loginWithTotp,
         sendOTP,
         verifyOTP,
         quickRegister,

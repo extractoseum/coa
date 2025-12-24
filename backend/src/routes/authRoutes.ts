@@ -11,7 +11,8 @@ import {
     quickRegister,
     sendOTP,
     verifyOTP,
-    debugDBChecks
+    debugDBChecks,
+    loginWithTotp
 } from '../controllers/authController';
 import { requireAuth, requireSuperAdmin, requireStepUp } from '../middleware/authMiddleware';
 
@@ -19,6 +20,7 @@ const router = Router();
 
 // Public routes
 router.post('/login', login);
+router.post('/login-totp', loginWithTotp); // NEW: Passwordless TOTP
 router.post('/refresh', refreshToken);
 router.post('/logout', logout);
 router.post('/quick-register', quickRegister); // Quick registration with email/phone

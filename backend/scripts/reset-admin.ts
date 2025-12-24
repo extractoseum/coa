@@ -11,7 +11,12 @@ const supabase = createClient(
 
 async function resetAdmin() {
     const email = 'badlt@extractoseum.com';
-    const newPassword = 'EUM2024Admin!'; // Cambia esto por tu contraseña deseada
+    const newPassword = process.env.RESET_ADMIN_PASSWORD;
+
+    if (!newPassword) {
+        console.error('❌ Error: RESET_ADMIN_PASSWORD environment variable is required.');
+        process.exit(1);
+    }
 
     console.log(`Resetting password for: ${email}`);
 
@@ -62,7 +67,7 @@ async function resetAdmin() {
 
     console.log('\n=== CREDENCIALES ===');
     console.log(`Email: ${email}`);
-    console.log(`Password: ${newPassword}`);
+    console.log(`Password: [HIDDEN]`);
     console.log('====================\n');
 }
 

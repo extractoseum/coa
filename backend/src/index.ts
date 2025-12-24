@@ -94,8 +94,7 @@ app.use(cors({
         }
 
         const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-        return callback(null, true); // TEMPORARY FAIL-OPEN FOR DEBUGGING IF NEEDED, BUT LETS KEEP STRICT LOGIC AND ADD DOMAINS
-        // return callback(new Error(msg), false);
+        return callback(new Error(msg), false);
     },
     credentials: true
 }));

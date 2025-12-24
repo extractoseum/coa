@@ -154,17 +154,6 @@ export const ADMIN_TOOLS: AIToolDefinition[] = [
     {
         type: 'function',
         function: {
-            name: 'restart_backend_service',
-            description: 'Restarts the backend server process (PM2). Use with caution.',
-            parameters: {
-                type: 'object',
-                properties: {}
-            }
-        }
-    },
-    {
-        type: 'function',
-        function: {
             name: 'search_products_db',
             description: 'Search for products in the local database. Returns name, price, stock status, and purchase link. ALWAYS use this before answering product questions.',
             parameters: {
@@ -657,20 +646,6 @@ export const TOOL_HANDLERS: Record<string, (args: any) => Promise<any>> = {
         return { log_file: logPath, lines: recentLines };
     },
 
-    restart_backend_service: async () => {
-        const { exec } = require('child_process');
-        // We return a promise that resolves differently because the process will die
-        return new Promise((resolve, reject) => {
-            exec('pm2 restart coa-backend', (error: any, stdout: any, stderr: any) => {
-                if (error) {
-                    console.error(`exec error: ${error}`);
-                    // If we are killed instantly, this might not reach
-                    return reject({ status: 'Failed', error: error.message });
-                }
-                resolve({ status: 'Restart Initiated', output: stdout });
-            });
-        });
-    },
     search_products_db: async ({ query }: { query: string }) => {
         try {
             console.log(`[AITools] Searching products for: "${query}"`);

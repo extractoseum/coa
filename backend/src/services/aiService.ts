@@ -235,7 +235,9 @@ export class AIService {
                 try {
                     const meta = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
                     if (meta.instructivePath) instructiveFileName = meta.instructivePath;
-                } catch (e) { }
+                } catch (e: any) {
+                    console.warn(`[AIService] Failed to parse metadata at ${metadataPath}:`, e.message);
+                }
             }
 
             const identityPath = path.join(agentFolderPath, instructiveFileName);
@@ -252,7 +254,11 @@ export class AIService {
                 const metaPath = path.join(agentFolderPath, 'metadata.json');
                 let metadata: any = { files: {} };
                 if (fs.existsSync(metaPath)) {
-                    try { metadata = JSON.parse(fs.readFileSync(metaPath, 'utf8')); } catch (e) { }
+                    try {
+                        metadata = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+                    } catch (e: any) {
+                        console.warn(`[AIService] Failed to parse metadata during summary load at ${metaPath}:`, e.message);
+                    }
                 }
 
                 if (files.length > 0) {

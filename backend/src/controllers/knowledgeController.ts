@@ -139,22 +139,30 @@ export const readKnowledgeFile = async (req: Request, res: Response) => {
             // Remove folder prefix if present (e.g. agents_god_mode/admin_sidekick/identity.md)
             let cleanSubPath = subPath.startsWith(folder + '/') ? subPath.replace(folder + '/', '') : subPath;
 
-            // SECURITY: Prevent traversal
-            if (cleanSubPath.includes('..') || cleanSubPath.includes('~')) {
-                return res.status(400).json({ error: 'Invalid path' });
+            // Normalize and resolve the full path
+            const resolvedPath = path.resolve(KNOWLEDGE_BASE_DIR, folder, cleanSubPath);
+
+            // SECURITY: Ensure the resolved path remains within the forbidden directory
+            const allowedRoot = path.resolve(KNOWLEDGE_BASE_DIR, folder);
+            if (!resolvedPath.startsWith(allowedRoot)) {
+                return res.status(403).json({ error: 'Access denied: Path traversal detected' });
             }
 
-            safePath = path.join(KNOWLEDGE_BASE_DIR, folder, cleanSubPath);
+            safePath = resolvedPath;
         } else {
             if (!ALLOWED_FOLDERS.includes(folder)) return res.status(400).json({ error: 'Invalid folder' });
             const subPath = req.params[0] || req.params.filename || (req.query.path as string);
             if (!subPath) return res.status(400).json({ error: 'Filename is required' });
 
+            // Standard folders: Only allow filenames, no slashes strictly? 
+            // Existing logic allowed path.basename(subPath) which forces it to be a flat file.
+            // But let's be consistent.
             safePath = path.join(KNOWLEDGE_BASE_DIR, folder, path.basename(subPath));
         }
 
-        // Security check
-        if (!safePath.startsWith(KNOWLEDGE_BASE_DIR)) {
+        // Final Global Security Check
+        const normalizedSafePath = path.resolve(safePath);
+        if (!normalizedSafePath.startsWith(path.resolve(KNOWLEDGE_BASE_DIR))) {
             return res.status(403).json({ error: 'Access denied' });
         }
 

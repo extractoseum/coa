@@ -149,6 +149,81 @@ export const login = async (req: Request, res: Response) => {
     }
 };
 
+// Login with TOTP (Passwordless)
+export const loginWithTotp = async (req: Request, res: Response) => {
+    try {
+        // Dynamic import to ensure otplib is available
+        const { authenticator } = await import('otplib');
+
+        const { email, token } = req.body;
+
+        if (!email || !token) {
+            return res.status(400).json({ success: false, error: 'Email y código requeridos' });
+        }
+
+        // Find client
+        const { data: client, error } = await supabase
+            .from('clients')
+            .select('*')
+            .eq('email', email.toLowerCase())
+            .eq('is_active', true)
+            .single();
+
+        if (error || !client) {
+            return res.status(401).json({ success: false, error: 'Credenciales inválidas' });
+        }
+
+        // Check if MFA is enabled
+        if (!client.mfa_enabled || !client.mfa_secret) {
+            return res.status(403).json({ success: false, error: '2FA no configurado para este usuario.' });
+        }
+
+        // Verify Token
+        const isValid = authenticator.verify({ token, secret: client.mfa_secret });
+
+        if (!isValid) {
+            return res.status(401).json({ success: false, error: 'Código inválido' });
+        }
+
+        // Success - Generate Tokens
+        const { accessToken, refreshToken } = generateTokens(client);
+
+        // Save session
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + REFRESH_TOKEN_EXPIRES_DAYS);
+
+        await supabase.from('sessions').insert({
+            client_id: client.id,
+            refresh_token: refreshToken,
+            expires_at: expiresAt.toISOString()
+        });
+
+        // Update login stats
+        await supabase.from('clients').update({
+            last_login_at: new Date().toISOString(),
+            last_verified_at: new Date().toISOString()
+        }).eq('id', client.id);
+
+        res.json({
+            success: true,
+            accessToken,
+            refreshToken,
+            client: {
+                id: client.id,
+                email: client.email,
+                name: client.name,
+                role: getEffectiveRole(client),
+                tags: client.tags,
+                company: client.company
+            }
+        });
+
+    } catch (err) {
+        console.error('TOTP Login error:', err);
+        res.status(500).json({ success: false, error: 'Error del servidor' });
+    }
+};
+
 // Refresh token
 export const refreshToken = async (req: Request, res: Response) => {
     try {
