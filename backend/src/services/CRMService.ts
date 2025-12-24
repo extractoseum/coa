@@ -1015,8 +1015,42 @@ export class CRMService {
 
         if (error) throw new Error(`Failed to fetch orders: ${error.message}`);
 
+        // --- NEW: FETCH ABANDONED CHECKOUTS (Phase 53) ---
+        let abandoned: any[] = [];
+        if (client) {
+            const { data: abandData } = await supabase
+                .from('abandoned_checkouts')
+                .select('*')
+                .eq('client_id', client.id)
+                .order('created_at', { ascending: false });
+            abandoned = abandData || [];
+        } else if (handle.includes('@')) {
+            const { data: abandData } = await supabase
+                .from('abandoned_checkouts')
+                .select('*')
+                .eq('email', handle)
+                .order('created_at', { ascending: false });
+            abandoned = abandData || [];
+        }
+
+        const abandonedFormatted = abandoned.map(a => ({
+            id: 'ac_' + a.id,
+            order_number: 'Carrito Abandonado',
+            status: 'abandoned',
+            total_amount: a.total_price,
+            currency: a.currency,
+            created_at: a.updated_at || a.created_at,
+            shopify_order_id: a.shopify_checkout_id,
+            is_abandoned: true,
+            checkout_url: a.checkout_url
+        }));
+
+        const unifiedOrders = [...(orders || []), ...abandonedFormatted].sort((a, b) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+
         // --- FALLBACK: If local DB empty, try Live Shopify Search ---
-        if (!orders || orders.length === 0) {
+        if (unifiedOrders.length === 0) {
             console.log(`[CRMService] Local orders empty for ${handle}. Falling back to Live Shopify Search...`);
             try {
                 // 1. Search customer in Shopify
@@ -1046,7 +1080,7 @@ export class CRMService {
             }
         }
 
-        return orders || [];
+        return unifiedOrders;
     }
 
     /**

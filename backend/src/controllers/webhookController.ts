@@ -4,6 +4,7 @@ import { supabase } from '../config/supabase';
 import { notifyLoyaltyUpdate, notifyOrderCreated, notifyOrderShipped, updateOneSignalTags } from '../services/onesignalService';
 import { getShopifyCustomerById, getShopifyOrderById } from '../services/shopifyService';
 import { logWebhook, logClient } from '../services/loggerService';
+import { crmService } from '../index';
 
 // Shopify webhook secret (optional, for HMAC verification)
 const SHOPIFY_WEBHOOK_SECRET = process.env.SHOPIFY_WEBHOOK_SECRET || '';
@@ -791,6 +792,31 @@ export const handleCheckoutUpdate = async (req: Request, res: Response) => {
                         recovery_next_check_at: oneHourLater,
                         updated_at: new Date().toISOString()
                     }, { onConflict: 'shopify_checkout_id' });
+
+                // --- NEW: PROACTIVE ENRICHMENT (Phase 53) ---
+                // 1. Force Sync Snapshot to get Name/Avatar immediately
+                const phone = client.phone || customer.phone || customer.default_address?.phone;
+                if (phone) {
+                    console.log(`[Webhook] Proactively syncing snapshot for ${phone}...`);
+                    // We assume WA channel for now as primary, or we could check if they have a conversation
+                    crmService.syncContactSnapshot(phone, 'WA').catch(err =>
+                        console.error('[Webhook] Failed to sync snapshot:', err)
+                    );
+                }
+
+                // 2. Insert into Browsing Events for AI Context
+                await supabase.from('browsing_events').insert({
+                    event_type: 'checkout_abandoned',
+                    handle: phone || email, // Prefer phone if available for AI matching
+                    client_id: client.id,
+                    url: checkout.abandoned_checkout_url,
+                    metadata: {
+                        value: checkout.total_price,
+                        currency: checkout.currency,
+                        items_count: checkout.line_items?.length || 0,
+                        checkout_id: checkoutId
+                    }
+                });
             }
         }
 
