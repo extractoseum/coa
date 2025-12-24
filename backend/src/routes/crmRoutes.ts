@@ -38,4 +38,20 @@ router.get('/chips/mini', requireAuth, requireRole('admin', 'super_admin'), (req
 router.post('/chips/mini', requireAuth, requireRole('admin', 'super_admin'), (req, res) => require('../controllers/crmController').upsertMiniChip(req, res));
 router.post('/chips/channel', requireAuth, requireRole('admin', 'super_admin'), (req, res) => require('../controllers/crmController').upsertChannelChip(req, res));
 
+// System Inquiry
+router.post('/conversations/:id/inquiry', requireAuth, requireRole('admin', 'super_admin', 'staff'), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { inquiry_id, action, payload, custom_value } = req.body;
+        // Lazy load service to reuse singleton or plain class
+        const { CRMService } = require('../services/CRMService');
+        const service = new CRMService();
+        const result = await service.resolveInquiry(id, inquiry_id, action, payload, custom_value);
+        res.json({ success: true, data: result });
+    } catch (e: any) {
+        console.error('Inquiry Error:', e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 export default router;

@@ -1474,3 +1474,57 @@ export class CRMService {
         return data.facts;
     }
 }
+
+    public async resolveInquiry(conversationId: string, inquiryId: string, action: string, payload: any, customValue ?: string): Promise < any > {
+    console.log(`[CRMService] Resolving inquiry ${inquiryId} with action ${action}`);
+
+    // 1. Get Conversation to check handle and facts
+    const { data: conv } = await supabase
+        .from('conversations')
+        .select('*')
+        .eq('id', conversationId)
+        .single();
+
+    if(!conv) throw new Error('Conversation not found');
+
+    // 2. Handle Action Logic
+    if(action === 'update_contact_name' || action === 'custom_response') {
+    const name = customValue || payload?.name;
+    if (name) {
+        await this.updateContactSnapshot(conv.contact_handle, conv.channel, { name });
+    }
+}
+
+// Ghost Data Logic (Example)
+if (action === 'ghost_mark_delivered') {
+    // Logic to update order status would go here
+    // For now, we assume the AI just needed confirmation
+}
+
+// 3. Clear Inquiry from Facts (Resolution)
+const currentFacts = conv.facts || {};
+const newFacts = { ...currentFacts };
+
+// Remove system_inquiry
+if (newFacts.system_inquiry && newFacts.system_inquiry.id === inquiryId) {
+    delete newFacts.system_inquiry;
+}
+
+// Also remove legacy identity_ambiguity if present
+if (newFacts.identity_ambiguity) {
+    delete newFacts.identity_ambiguity;
+    delete newFacts.ambiguity_candidates;
+}
+
+// Update DB
+const { data, error } = await supabase
+    .from('conversations')
+    .update({ facts: newFacts })
+    .eq('id', conversationId)
+    .select('facts')
+    .single();
+
+if (error) throw new Error(error.message);
+return data.facts;
+    }
+}
