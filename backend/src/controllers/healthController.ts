@@ -18,3 +18,21 @@ export const checkStatus = async (req: Request, res: Response): Promise<void> =>
         });
     }
 };
+
+export const getDiagnostics = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const result = await healthService.runDiagnostics();
+        res.json({ success: true, ...result });
+    } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+export const getMetrics = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const metrics = healthService.getSystemMetrics();
+        res.json({ success: true, metrics });
+    } catch (error: any) {
+        res.status(500).json({ success: false, error: 'Failed to fetch system metrics' });
+    }
+};

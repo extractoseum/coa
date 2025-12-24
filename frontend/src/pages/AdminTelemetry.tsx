@@ -3,7 +3,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useAuthHeaders } from '../contexts/AuthContext';
 import Layout from '../components/Layout';
 import { Screen } from '../telemetry/Screen';
-import { AlertCircle, AlertTriangle, Info, Terminal, RefreshCw, XCircle, ShieldCheck } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Info, Terminal, RefreshCw, XCircle, ShieldCheck, Activity, CheckCircle, Play } from 'lucide-react';
 
 import { InsightsSummary } from '../components/InsightsSummary';
 import type { InsightSignal } from '../components/InsightsSummary';
@@ -23,6 +23,7 @@ export default function AdminTelemetry() {
     const [logs, setLogs] = useState<Log[]>([]);
     const [signals, setSignals] = useState<InsightSignal[]>([]);
     const [auditorStats, setAuditorStats] = useState<any>(null);
+    const [diagnostics, setDiagnostics] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState<'all' | 'error' | 'warn' | 'info'>('all');
 
@@ -60,6 +61,17 @@ export default function AdminTelemetry() {
             }
 
             if (insightsData.success) setSignals(insightsData.signals);
+
+            // Fetch Diagnostics
+            try {
+                const diagRes = await fetch('/api/v1/health/diagnostics', { headers: authHeaders });
+                const diagData = await diagRes.json();
+                if (diagData.success) {
+                    setDiagnostics(diagData);
+                }
+            } catch (err) {
+                console.error('Diagnostics fetch error:', err);
+            }
 
             // Fetch Auditor Stats
             try {
@@ -129,6 +141,64 @@ export default function AdminTelemetry() {
 
                     {/* Insights HUD */}
                     <InsightsSummary signals={signals} loading={loading} />
+
+                    {/* Mission Control / Health Gate */}
+                    {diagnostics && (
+                        <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+                            {/* Verdict Card */}
+                            <div className={`p-4 rounded-xl border flex flex-col justify-between ${diagnostics.exitCode === 0 ? 'bg-green-500/10 border-green-500/30' :
+                                    diagnostics.exitCode === 1 ? 'bg-red-500/10 border-red-500/30' :
+                                        'bg-yellow-500/10 border-yellow-500/30'
+                                }`}>
+                                <div className="flex items-center gap-2">
+                                    <Activity className={diagnostics.exitCode === 0 ? 'text-green-400' : 'text-red-400'} size={20} />
+                                    <h3 className="font-bold text-sm" style={{ color: theme.text }}>System Gate</h3>
+                                </div>
+                                <div>
+                                    <p className={`text-2xl font-bold ${diagnostics.exitCode === 0 ? 'text-green-400' :
+                                            diagnostics.exitCode === 1 ? 'text-red-400' : 'text-yellow-400'
+                                        }`}>
+                                        {diagnostics.verdict || 'UNKNOWN'}
+                                    </p>
+                                    <p className="text-xs opacity-60">Pre-deploy Verification</p>
+                                </div>
+                            </div>
+
+                            {/* Build & Checks */}
+                            <div className="p-4 rounded-xl border bg-black/20" style={{ borderColor: theme.border }}>
+                                <div className="flex items-center gap-2 mb-2">
+                                    <CheckCircle className="text-blue-400" size={20} />
+                                    <h3 className="font-bold text-sm" style={{ color: theme.text }}>Diagnostics</h3>
+                                </div>
+                                <div className="space-y-1">
+                                    <div className="flex justify-between text-xs">
+                                        <span className="opacity-70">Critical Checks</span>
+                                        <span className={diagnostics.summary?.criticalFailed > 0 ? 'text-red-400 font-bold' : 'text-green-400'}>
+                                            {diagnostics.summary?.criticalPassed}/{diagnostics.critical?.length} PASSED
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between text-xs">
+                                        <span className="opacity-70">Warnings</span>
+                                        <span className={diagnostics.summary?.warningFailed > 0 ? 'text-yellow-400' : 'text-green-400'}>
+                                            {diagnostics.summary?.warningPassed}/{diagnostics.warning?.length} PASSED
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Actions */}
+                            <div className="p-4 rounded-xl border bg-black/20 flex flex-col justify-center items-center gap-2" style={{ borderColor: theme.border }}>
+                                <button
+                                    onClick={fetchData}
+                                    className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg flex items-center justify-center gap-2 transition-colors text-sm font-bold"
+                                >
+                                    <Play size={16} />
+                                    Run Diagnostics
+                                </button>
+                                <p className="text-[10px] opacity-40">Executes server-side CLI analysis</p>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Auditor Robot Status */}
                     <div className="mb-6 rounded-xl border p-4 flex items-center justify-between"

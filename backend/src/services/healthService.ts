@@ -3,6 +3,11 @@ import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
 import dotenv from 'dotenv';
 import path from 'path';
+import { exec } from 'child_process';
+import util from 'util';
+import os from 'os';
+
+const execPromise = util.promisify(exec);
 
 // Load env if not already loaded
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
@@ -85,5 +90,45 @@ export class HealthService {
         } catch (err: any) {
             return { status: 'error', latency_ms: Date.now() - start, error: err.message || 'Unknown Whapi Error' };
         }
+    }
+
+    public async runDiagnostics(): Promise<any> {
+        try {
+            // Locate script: 
+            // In Prod: /var/www/coa-viewer/backend/../scripts/system-diagnostics.js (Need to ensure scripts are deployed)
+            // In Dev: src/../scripts/system-diagnostics.js
+
+            // We assume scripts are at the project root.
+            // process.cwd() in backend usually is <root>/backend
+            const rootDir = path.resolve(process.cwd(), '..');
+            const scriptPath = path.join(rootDir, 'scripts', 'system-diagnostics.js');
+
+            const { stdout } = await execPromise(`node "${scriptPath}" --json`);
+            return JSON.parse(stdout);
+        } catch (error: any) {
+            // capturing stdout if it failed with exit code 1 but still output JSON
+            if (error.stdout) {
+                try {
+                    return JSON.parse(error.stdout);
+                } catch (parseErr) {
+                    // ignore
+                }
+            }
+
+            return {
+                timestamp: new Date().toISOString(),
+                verdict: 'ERROR',
+                error: error.message || 'Diagnostics execution failed'
+            };
+        }
+    }
+
+    public getSystemMetrics() {
+        return {
+            memory: process.memoryUsage(),
+            uptime: process.uptime(),
+            loadavg: os.loadavg(),
+            cpus: os.cpus().length
+        };
     }
 }
