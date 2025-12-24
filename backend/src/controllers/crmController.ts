@@ -450,16 +450,57 @@ export const upsertChannelChip = async (req: Request, res: Response): Promise<vo
         res.status(500).json({ success: false, error: error.message });
     }
 };
-export const syncFacts = async (req: Request, res: Response): Promise<void> => {
+
+export const updateContact = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { handle } = req.params;
+        if (!handle) {
+            res.status(400).json({ success: false, error: 'Missing handle' });
+            return;
+        }
+        // Assuming channel WA by default if not provided, or handle logic in service
+        const snapshot = await crmService.updateContactSnapshot(handle, 'WA', req.body);
+        res.json({ success: true, data: snapshot });
+    } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+export const updateConversation = async (req: Request, res: Response): Promise<void> => {
     try {
         const { conversationId } = req.params;
         if (!conversationId) {
             res.status(400).json({ success: false, error: 'Missing conversationId' });
             return;
         }
-        const facts = await crmService.syncConversationFacts(conversationId);
-        res.json({ success: true, data: facts });
+        // Supports partial updates to root or facts? 
+        // For now, if body has 'facts', we update facts specifically using the service method
+        // If body has other fields, we could generic update. 
+        // IdentityResolutionCard sends { facts: ... } which replaces the whole object or merges?
+        // IdentityResolutionCard sends { facts: newFacts } which is the COMPLETE object.
+        // But our new service method `updateConversationFacts` does a MERGE.
+        // Let's check what the frontend sends.
+        // Frontend sends: body: JSON.stringify({ facts: newFacts }) where newFacts is the complete object excluding ambiguity.
+
+        let result;
+        if (req.body.facts) {
+            // If payload is { facts: ... }, treat keys inside facts as updates if using merge, or replace?
+            // The frontend provided the FULL facts object.
+            // Our service `updateConversationFacts` does { ...current, ...updates }.
+            // If we pass the full object as `updates`, it works fine (overwrites keys, keeps others).
+            // However, `updateConversationFacts` expects `updates` to be the fields of facts, not { facts: ... }.
+            // Wait, the frontend sends body: { facts: { ... } }
+            // So here req.body.facts IS the dictionary of facts.
+            result = await crmService.updateConversationFacts(conversationId, req.body.facts);
+        } else {
+            // Generic update not implemented yet
+            res.status(400).json({ success: false, error: 'Only facts update supported via this endpoint currently' });
+            return;
+        }
+
+        res.json({ success: true, data: result });
     } catch (error: any) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
+

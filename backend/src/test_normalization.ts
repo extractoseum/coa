@@ -1,17 +1,18 @@
 import { normalizePhone } from './services/whapiService';
 
 const testNumbers = [
-    { input: '17022137213', expected: '5217022137213', note: 'US-looking number (treated as MX)' },
-    { input: '7022137213', expected: '5217022137213', note: 'US-looking without prefix (treated as MX)' },
-    { input: '+52 1 702 213 7213', expected: '5217022137213', note: 'Misformatted MX/US' },
-    { input: '4613638719', expected: '5214613638719', note: 'Random 10 digits as MX' },
-    { input: '5512345678', expected: '5215512345678', note: 'MX number (CDMX area)' },
-    { input: '+1 (702) 213-7213', expected: '5217022137213', note: 'Formatted looking number' }
+    { input: '13038159669', expected: '13038159669', note: 'US number (Colorado) - Preserved' },
+    { input: '17022137213', expected: '17022137213', note: 'US number - Preserved 11 digits' },
+    { input: '+1 303 815 9669', expected: '13038159669', note: 'Formatted US' },
+    { input: '5512345678', expected: '5215512345678', note: 'MX number (10 digits) -> Add 521' },
+    { input: '1234567890', expected: '5211234567890', note: '10 digits (treated as MX)' },
+    { input: '+5215512345678', expected: '5215512345678', note: 'Already normalized MX' }
 ];
 
-console.log('--- WhatsApp Normalization Test ---');
+console.log('--- WhatsApp Normalization Test (Phase 62) ---');
 testNumbers.forEach(test => {
-    const result = normalizePhone(test.input);
+    // Note: normalizePhone expects a second argument for provider, defaulting to 'whapi' for testing
+    const result = normalizePhone(test.input, 'whapi');
     const pass = result === test.expected;
     console.log(`${pass ? '✅' : '❌'} [${test.note}]`);
     console.log(`   Input:    ${test.input}`);

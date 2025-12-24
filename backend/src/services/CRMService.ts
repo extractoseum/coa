@@ -47,6 +47,8 @@ export interface CRMConversation {
         browsing_summary?: string;
         user_email?: string;
         user_name?: string;
+        identity_ambiguity?: boolean;
+        ambiguity_candidates?: string[];
         action_plan?: Array<{
             label: string;
             meta?: string;
@@ -59,7 +61,32 @@ export interface CRMConversation {
     model_override?: string;
     channel_chip_id?: string;
     last_message_at: string;
+    contact_name?: string;
+    avatar_url?: string;
+    ltv?: number;
+    risk_level?: string;
+    tags?: string[];
 }
+
+export interface ContactSnapshot {
+    id?: string;
+    handle: string;
+    channel: string;
+    name?: string;
+    ltv?: number;
+    orders_count?: number;
+    average_ticket?: number;
+    risk_level?: string;
+    tags?: string[];
+    last_shipping_status?: string;
+    last_shipping_carrier?: string;
+    last_shipping_tracking?: string;
+    avatar_url?: string;
+    last_updated_at?: string;
+    created_at?: string;
+    updated_at?: string;
+}
+
 
 export class CRMService {
     private static instance: CRMService;
@@ -1379,5 +1406,70 @@ export class CRMService {
         const { data, error } = await supabase.from('mini_chips').upsert(chip).select().single();
         if (error) throw error;
         return data;
+    }
+
+    public async updateContactSnapshot(handle: string, channel: string, updates: Partial<ContactSnapshot>): Promise<ContactSnapshot> {
+        console.log(`[CRMService] Updating snapshot for ${handle}: ${JSON.stringify(updates)}`);
+
+        // 1. Get existing or create if missing
+        const { data: existing } = await supabase
+            .from('crm_contact_snapshots')
+            .select('*')
+            .eq('contact_handle', handle)
+            .eq('channel', channel)
+            .maybeSingle();
+
+        if (existing) {
+            const { data, error } = await supabase
+                .from('crm_contact_snapshots')
+                .update({ ...updates, updated_at: new Date().toISOString() })
+                .eq('id', existing.id)
+                .select('*')
+                .single();
+
+            if (error) throw new Error(error.message);
+            return data;
+        } else {
+            // Create new
+            const { data, error } = await supabase
+                .from('crm_contact_snapshots')
+                .insert({
+                    contact_handle: handle,
+                    channel,
+                    ...updates,
+                    updated_at: new Date().toISOString()
+                })
+                .select('*')
+                .single();
+
+            if (error) throw new Error(error.message);
+            return data;
+        }
+    }
+
+    public async updateConversationFacts(conversationId: string, updates: Partial<any>): Promise<any> {
+        console.log(`[CRMService] Updating facts for conv ${conversationId}: ${JSON.stringify(updates)}`);
+
+        // 1. Get current facts
+        const { data: conv } = await supabase
+            .from('conversations')
+            .select('facts')
+            .eq('id', conversationId)
+            .single();
+
+        if (!conv) throw new Error('Conversation not found');
+
+        const currentFacts = conv.facts || {};
+        const newFacts = { ...currentFacts, ...updates };
+
+        const { data, error } = await supabase
+            .from('conversations')
+            .update({ facts: newFacts })
+            .eq('id', conversationId)
+            .select('facts')
+            .single();
+
+        if (error) throw new Error(error.message);
+        return data.facts;
     }
 }

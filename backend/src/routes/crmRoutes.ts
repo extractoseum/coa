@@ -29,6 +29,8 @@ router.get('/contacts/:handle/orders', requireAuth, requireRole('admin', 'super_
 router.get('/orders/:orderId', requireAuth, requireRole('admin', 'super_admin', 'staff'), getOrderDetails);
 router.post('/coupons', requireAuth, requireRole('admin', 'super_admin', 'staff'), createCoupon);
 router.post('/conversations/:conversationId/sync-facts', requireAuth, requireRole('admin', 'super_admin', 'staff'), (req, res) => require('../controllers/crmController').syncFacts(req, res));
+router.put('/contacts/:handle', requireAuth, requireRole('admin', 'super_admin', 'staff'), (req, res) => require('../controllers/crmController').updateContact(req, res));
+router.patch('/conversations/:conversationId', requireAuth, requireRole('admin', 'super_admin', 'staff'), (req, res) => require('../controllers/crmController').updateConversation(req, res));
 
 // Orchestrator Chips
 router.get('/chips/channel', requireAuth, requireRole('admin', 'super_admin'), (req, res) => require('../controllers/crmController').getChannelChips(req, res));
