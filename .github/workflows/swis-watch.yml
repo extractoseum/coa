@@ -72,7 +72,8 @@ jobs:
           restore-keys: |
             playwright-${{ runner.os }}-
 
-      - run: npm ci
+      - name: Install All Dependencies
+        run: npm run install-all
 
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps
