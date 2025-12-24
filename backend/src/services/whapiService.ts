@@ -9,7 +9,7 @@ import axios from 'axios';
 import { supabase } from '../config/supabase';
 import { normalizePhone } from '../utils/phoneUtils';
 
-const WHAPI_BASE_URL = 'https://gate.whapi.cloud';
+const WHAPI_BASE_URL = process.env.WHAPI_BASE_URL || 'https://gate.whapi.cloud';
 const WHAPI_TOKEN = process.env.WHAPI_TOKEN;
 
 // Rate limit: 1 mensaje por segundo para evitar bloqueos de WhatsApp
@@ -327,6 +327,24 @@ export const checkPhoneExists = async (phone: string): Promise<boolean> => {
  * Obtener información de contacto
  */
 /**
+ * Habilitar obtención de avatares en Whapi
+ * PATCH /settings { media: { init_avatars: true } }
+ */
+export const enableAvatarFetching = async (): Promise<boolean> => {
+    try {
+        console.log('[Whapi] Enabling avatar fetching via PATCH /settings...');
+        const response = await whapiApi.patch('/settings', {
+            media: { init_avatars: true }
+        });
+        console.log('[Whapi] Avatar fetching enabled. Response:', response.data);
+        return true;
+    } catch (error: any) {
+        console.error('[Whapi] Failed to enable avatars:', error.response?.data || error.message);
+        return false;
+    }
+};
+
+/**
  * Obtener información de contacto (Foto y nombre)
  * Usa el endpoint /profile recomendado para obtener el avatar on-demand
  */
@@ -346,8 +364,11 @@ export const getContactInfo = async (phone: string): Promise<{
         const response = await whapiApi.get(`/contacts/${normalizedPhone}/profile`);
         const data = response.data;
 
-        // Whapi returns icon_full or icon for the image
-        const profilePic = data?.icon_full || data?.icon || null;
+        // Log raw response for debugging (Audit Request)
+        console.log(`[Whapi] Profile Response for ${phone}:`, JSON.stringify(data));
+
+        // Whapi returns icon_full, icon, chat_pic, avatar, or image depending on version/context
+        const profilePic = data?.icon_full || data?.icon || data?.chat_pic || data?.avatar || data?.image || null;
         const name = data?.name || data?.pushname || null;
 
         return {
@@ -358,5 +379,28 @@ export const getContactInfo = async (phone: string): Promise<{
     } catch (error: any) {
         console.warn(`[Whapi] Failed to get profile for ${phone}:`, error.message);
         return { exists: false };
+    }
+};
+
+/**
+ * Obtener binario de nota de voz
+ * GET /media/:id
+ */
+export const getVoiceMessage = async (mediaId: string): Promise<Buffer | null> => {
+    if (!isWhapiConfigured()) return null;
+
+    try {
+        console.log(`[Whapi] Fetching voice binary for mediaId ${mediaId.substring(0, 10)}...`);
+        // Note: Check if endpoint is /media or /messages/:id/voice. 
+        // Debug proved /media/{voiceId} works for retrieving the OGG file.
+        const response = await whapiApi.get(`/media/${mediaId}`, {
+            responseType: 'arraybuffer'
+        });
+
+        console.log(`[Whapi] Voice fetched. Size: ${response.data.length} bytes`);
+        return Buffer.from(response.data);
+    } catch (error: any) {
+        console.error(`[Whapi] Failed to fetch voice for ${mediaId}:`, error.message);
+        return null;
     }
 };

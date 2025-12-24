@@ -2,6 +2,8 @@
 import { Request, Response } from 'express';
 import { CRMService } from '../services/CRMService';
 import { getShopifyOrderById, createShopifyPriceRule, createShopifyDiscountCode } from '../services/shopifyService';
+import { getVoiceMessage } from '../services/whapiService'; // Phase 69: Audio Fix
+import { supabase } from '../config/supabase'; // Phase 69: Storage upload
 
 const crmService = CRMService.getInstance();
 
@@ -100,7 +102,40 @@ export const handleInbound = async (req: Request, res: Response): Promise<void> 
                     content = url ? `[Sticker](${url})` : '[Sticker]';
                     type = 'sticker'; // Using specific type if DB supports it, else map to image in service
                 } else if (msg.type === 'audio' || msg.type === 'voice') {
-                    const url = msg.audio?.link || msg.audio?.url || msg.voice?.link || msg.voice?.url || '';
+                    let url = msg.audio?.link || msg.audio?.url || msg.voice?.link || msg.voice?.url || '';
+
+                    // Phase 69: Server-Side Audio Fetch (Fix for [Audio] text only)
+                    if (!url) {
+                        try {
+                            const mediaId = msg.voice?.id || msg.audio?.id;
+                            if (mediaId) {
+                                console.log(`[CRM] Audio URL missing for ${msg.id}. Fetching binary for mediaId ${mediaId}...`);
+                                const buffer = await getVoiceMessage(mediaId);
+                                if (buffer) {
+                                    // Fallback to 'images' bucket which exists, using 'voice_inbound' folder
+                                    const bucket = process.env.STORAGE_BUCKET_ATTACHMENTS || 'images';
+                                    const filename = `voice_inbound/${Date.now()}_${msg.id}.ogg`; // Whapi usually sends OGG/Opus
+
+                                    const { error: uploadError } = await supabase.storage
+                                        .from(bucket)
+                                        .upload(filename, buffer, { contentType: 'audio/ogg', upsert: false });
+
+                                    if (!uploadError) {
+                                        const { data: publicData } = supabase.storage.from(bucket).getPublicUrl(filename);
+                                        url = publicData.publicUrl;
+                                        console.log(`[CRM] Audio uploaded to Storage: ${url}`);
+                                    } else {
+                                        console.warn(`[CRM] Storage upload failed: ${uploadError.message}`);
+                                    }
+                                }
+                            } else {
+                                console.warn(`[CRM] No voice/audio ID found for msg ${msg.id}`);
+                            }
+                        } catch (fetchErr) {
+                            console.error(`[CRM] Failed to recover audio binary:`, fetchErr);
+                        }
+                    }
+
                     content = url ? `[Audio](${url})` : '[Audio]';
                     type = 'audio';
                     // Voice pipeline triggered after DB insert via .then() below
