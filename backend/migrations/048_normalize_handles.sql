@@ -16,4 +16,11 @@ UPDATE crm_contact_snapshots
 SET handle = right(handle, 10)
 WHERE channel = 'WA' 
 AND length(handle) > 10 
-AND handle ~ '^[0-9]+$';
+AND (handle ~ '^[0-9]+$' OR handle ~ '^\+[0-9]+$');
+
+-- 3. Update channel_chips table (Phase 61)
+UPDATE channel_chips
+SET account_reference = right(account_reference, 10)
+WHERE platform = 'whatsapp'
+AND length(account_reference) > 10
+AND (account_reference ~ '^[0-9]+$' OR account_reference ~ '^\+[0-9]+$');

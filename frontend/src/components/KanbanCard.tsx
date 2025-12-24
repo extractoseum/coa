@@ -33,7 +33,19 @@ const KanbanCard = memo(({ conv, isSelected, theme, onDragStart, onClick }: Kanb
             <div className="flex justify-between items-start mb-1">
                 <div className="flex items-center gap-3 min-w-0">
                     <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${getAvatarGradient(conv.contact_handle)} p-[1px] shadow-lg shrink-0`}>
-                        <div className="w-full h-full rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
+                        {conv.avatar_url ? (
+                            <img
+                                src={conv.avatar_url}
+                                alt={conv.contact_name || conv.contact_handle}
+                                className="w-full h-full rounded-full object-cover"
+                                onError={(e) => {
+                                    // Fallback to icon on error
+                                    e.currentTarget.style.display = 'none';
+                                    e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                                }}
+                            />
+                        ) : null}
+                        <div className={`w-full h-full rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center ${conv.avatar_url ? 'hidden' : ''}`}>
                             {conv.channel === 'WA' && <MessageSquare size={14} className="text-white" />}
                             {conv.channel === 'IG' && <Instagram size={14} className="text-white" />}
                             {conv.channel === 'EMAIL' && <Mail size={14} className="text-white" />}

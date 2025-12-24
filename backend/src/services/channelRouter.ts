@@ -1,4 +1,5 @@
 import { supabase } from '../config/supabase';
+import { cleanupPhone } from '../utils/phoneUtils';
 
 export interface RoutingDecision {
     column_id: string | null;
@@ -34,13 +35,20 @@ export class ChannelRouter {
         };
 
         const targetPlatform = platformMap[platform] || platform.toLowerCase();
+        let targetIdentifier = identifier;
+
+        // Normalize WhatsApp identifier to 10 digits as anchor (Phase 61)
+        if (targetPlatform === 'whatsapp') {
+            targetIdentifier = cleanupPhone(identifier);
+            console.log(`[ChannelRouter] Normalizing WA identifier: ${identifier} -> ${targetIdentifier}`);
+        }
 
         // 1. Look for chip by exact account_reference
         const { data: chip, error } = await supabase
             .from('channel_chips')
             .select('*')
             .eq('platform', targetPlatform)
-            .eq('account_reference', identifier)
+            .eq('account_reference', targetIdentifier)
             .eq('is_active', true)
             .maybeSingle();
 
@@ -49,7 +57,7 @@ export class ChannelRouter {
         }
 
         if (chip) {
-            console.log(`[ChannelRouter] Found Chip: ${chip.channel_id} for ${identifier}`);
+            console.log(`[ChannelRouter] Found Chip: ${chip.channel_id} for ${targetIdentifier}`);
             return chip;
         }
 
