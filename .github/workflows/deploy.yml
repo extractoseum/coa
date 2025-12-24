@@ -38,7 +38,7 @@ jobs:
           key: ${{ secrets.DEPLOY_KEY }}
           source: "frontend/dist/*"
           target: "/var/www/coa-viewer"
-          strip_components: 1
+          strip_components: 2
 
   deploy-backend:
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
