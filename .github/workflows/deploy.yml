@@ -3,14 +3,16 @@ name: Deploy Production
 on:
   workflow_dispatch:
   # Uncomment to deploy automatically on push to main
-  push:
-    branches: [main]
-    paths:
-      - 'frontend/**'
-      - 'backend/**'
+  workflow_run:
+    workflows: ["SWIS Watch Guardrails"]
+    types:
+      - completed
+    branches:
+      - main
 
 jobs:
   deploy-frontend:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,6 +41,7 @@ jobs:
           strip_components: 1
 
   deploy-backend:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
