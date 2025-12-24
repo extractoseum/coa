@@ -228,89 +228,16 @@ export default function Login() {
                                     className="text-xs hover:underline"
                                     style={{ color: theme.accent }}
                                 >
-                                    {isAuthenticatorMode ? 'Usar Contraseña' : 'Usar Google Authenticator'}
+                                    {isAuthenticatorMode ? 'Volver a Opciones' : 'Soy Super Admin (Authenticator)'}
                                 </button>
                             </div>
 
                             {!isAuthenticatorMode ? (
-                                // Password Login Form
-                                <form onSubmit={handlePasswordLogin} className="space-y-4">
-                                    <div>
-                                        <label
-                                            className="block text-sm mb-2"
-                                            style={{ color: theme.textMuted }}
-                                        >
-                                            Correo Electronico
-                                        </label>
-                                        <div className="relative">
-                                            <Mail
-                                                className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5"
-                                                style={{ color: theme.textMuted }}
-                                            />
-                                            <input
-                                                type="email"
-                                                value={email}
-                                                onChange={(e) => setEmail(e.target.value)}
-                                                placeholder="admin@email.com"
-                                                required
-                                                className="w-full pl-10 pr-4 py-3 rounded-lg focus:outline-none transition-all"
-                                                style={{
-                                                    backgroundColor: theme.cardBg2,
-                                                    border: `1px solid ${theme.border}`,
-                                                    color: theme.text,
-                                                }}
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <label
-                                            className="block text-sm mb-2"
-                                            style={{ color: theme.textMuted }}
-                                        >
-                                            Contrasena
-                                        </label>
-                                        <div className="relative">
-                                            <Lock
-                                                className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5"
-                                                style={{ color: theme.textMuted }}
-                                            />
-                                            <input
-                                                type="password"
-                                                value={password}
-                                                onChange={(e) => setPassword(e.target.value)}
-                                                placeholder="********"
-                                                required
-                                                className="w-full pl-10 pr-4 py-3 rounded-lg focus:outline-none transition-all"
-                                                style={{
-                                                    backgroundColor: theme.cardBg2,
-                                                    border: `1px solid ${theme.border}`,
-                                                    color: theme.text,
-                                                }}
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <button
-                                        type="submit"
-                                        disabled={isLoading || !email || !password}
-                                        className="w-full font-medium py-3 rounded-lg transition-all flex items-center justify-center gap-2"
-                                        style={{
-                                            backgroundColor: isLoading || !email || !password ? theme.border : theme.accent,
-                                            color: '#ffffff',
-                                            cursor: isLoading || !email || !password ? 'not-allowed' : 'pointer',
-                                        }}
-                                    >
-                                        {isLoading ? (
-                                            <>
-                                                <Loader2 className="w-5 h-5 animate-spin" />
-                                                Iniciando...
-                                            </>
-                                        ) : (
-                                            'Iniciar Sesion'
-                                        )}
-                                    </button>
-                                </form>
+                                <div className="text-center py-8 space-y-4">
+                                    <p style={{ color: theme.textMuted }}>
+                                        Selecciona el método de acceso seguro
+                                    </p>
+                                </div>
                             ) : (
                                 // Authenticator Login Form
                                 <form onSubmit={handleAuthenticatorLogin} className="space-y-4">

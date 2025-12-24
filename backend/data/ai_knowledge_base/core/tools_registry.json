@@ -612,5 +612,49 @@
                 }
             }
         ]
+    },
+    {
+        "category": "communication",
+        "name": "send_sms_notification",
+        "description": "Send an SMS notification via Twilio (High Reliability). Use for urgent alerts or verification codes.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "phone": {
+                    "type": "string",
+                    "description": "Phone number (E.164 format, e.g. +521...)"
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Message content"
+                }
+            },
+            "required": [
+                "phone",
+                "message"
+            ]
+        }
+    },
+    {
+        "category": "communication",
+        "name": "make_verification_call",
+        "description": "Initiate a Twilio voice call to speak a verification code (OTP).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "phone": {
+                    "type": "string",
+                    "description": "Phone number (E.164 format)"
+                },
+                "code": {
+                    "type": "string",
+                    "description": "The numeric code to speak (e.g. \"123456\")"
+                }
+            },
+            "required": [
+                "phone",
+                "code"
+            ]
+        }
     }
 ]

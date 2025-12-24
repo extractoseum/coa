@@ -233,6 +233,36 @@ export const ADMIN_TOOLS: AIToolDefinition[] = [
     {
         type: 'function',
         function: {
+            name: 'send_sms_notification',
+            description: 'Send an SMS notification via Twilio (High Reliability). Use for urgent alerts or verification codes.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    phone: { type: 'string', description: 'Phone number (E.164 format, e.g. +521...)' },
+                    message: { type: 'string', description: 'Message content' }
+                },
+                required: ['phone', 'message']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'make_verification_call',
+            description: 'Initiate a Twilio voice call to speak a verification code (OTP).',
+            parameters: {
+                type: 'object',
+                properties: {
+                    phone: { type: 'string', description: 'Phone number (E.164 format)' },
+                    code: { type: 'string', description: 'The numeric code to speak (e.g. "123456")' }
+                },
+                required: ['phone', 'code']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
             name: 'get_voice_call_history',
             description: 'Get voice call logs for a conversation.',
             parameters: {
@@ -753,6 +783,16 @@ export const TOOL_HANDLERS: Record<string, (args: any) => Promise<any>> = {
         } catch (e: any) {
             return { success: false, error: e.message };
         }
+    },
+    send_sms_notification: async ({ phone, message }) => {
+        const { sendSMS } = require('./twilioService');
+        const result = await sendSMS(phone, message);
+        return result;
+    },
+    make_verification_call: async ({ phone, code }) => {
+        const { makeVoiceCall } = require('./twilioService');
+        const result = await makeVoiceCall(phone, code);
+        return result;
     },
     get_voice_call_history: async ({ conversation_id }) => {
         const { data, error } = await supabase
