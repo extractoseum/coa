@@ -126,6 +126,12 @@ jobs:
         run: npx playwright install-deps
         if: steps.playwright-cache.outputs.cache-hit == 'true'
 
+      - name: Build Frontend for E2E
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: cd frontend && npm run build
+
       - name: Run E2E Tests
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
