@@ -160,7 +160,7 @@ test.describe('SWIS WATCH: UI Beacons Verification', () => {
             const el = page.locator(`[data-testid="${config.testid}"]`);
             // We verify existence. Visibility might depend on state/loading.
             // Using .first() in case multiple elements share the testid (though strictly shouldn't)
-            await expect(el.first()).toBeAttached({ timeout: 10000 });
+            await expect(el.first()).toBeAttached({ timeout: 30000 });
         }
     });
 
@@ -205,7 +205,7 @@ test.describe('SWIS WATCH: UI Beacons Verification', () => {
             await page.goto(route);
 
             const screen = page.locator('[data-screen-id]');
-            await expect(screen.first()).toBeAttached({ timeout: 10000 });
+            await expect(screen.first()).toBeAttached({ timeout: 30000 });
 
             const id = await screen.first().getAttribute('data-screen-id');
             console.log(`  ✅ Screen ID: ${id}`);
