@@ -6,9 +6,55 @@ const ts = require('typescript');
 const config = require('./config');
 
 /**
+ * Parses routes.ts to create a map of ROUTES.key -> value
+ */
+function getRouteMap(rootDir) {
+    const fullPath = path.resolve(rootDir, 'frontend/src/routes.ts');
+    if (!fs.existsSync(fullPath)) return {};
+
+    const content = fs.readFileSync(fullPath, 'utf-8');
+    const sourceFile = ts.createSourceFile(
+        fullPath,
+        content,
+        ts.ScriptTarget.Latest,
+        true
+    );
+
+    const routeMap = {};
+
+    function visit(node) {
+        if (ts.isVariableDeclaration(node) && node.name.getText(sourceFile) === 'ROUTES') {
+            let initializer = node.initializer;
+
+            // Handle "as const" assertion
+            if (initializer && ts.isAsExpression(initializer)) {
+                initializer = initializer.expression;
+            }
+
+            if (initializer && ts.isObjectLiteralExpression(initializer)) {
+                initializer.properties.forEach(prop => {
+                    if (ts.isPropertyAssignment(prop) && ts.isStringLiteral(prop.initializer)) {
+                        const key = prop.name.getText(sourceFile);
+                        const val = prop.initializer.text;
+                        console.log(`DEBUG: Found Route: ROUTES.${key} -> ${val}`);
+                        routeMap[`ROUTES.${key}`] = val;
+                    }
+                });
+            }
+        }
+        ts.forEachChild(node, visit);
+    }
+
+    visit(sourceFile);
+    return routeMap;
+}
+
+/**
  * Parses uiMap.ts using TypeScript AST to extract defined TestIDs and Metadata.
  */
 function getDefinedIDs(rootDir) {
+    const routeMap = getRouteMap(rootDir);
+    console.log('DEBUG: RouteMap Keys:', Object.keys(routeMap));
     const fullPath = path.resolve(rootDir, config.uiMapPath);
     if (!fs.existsSync(fullPath)) {
         throw new Error(`UIMap file not found at: ${fullPath}`);
@@ -30,6 +76,17 @@ function getDefinedIDs(rootDir) {
             // We are looking for: testid: "value"
             const name = node.name.getText(sourceFile);
             if (name === 'testid' || name === "'testid'" || name === '"testid"') {
+                // Check if this is inside an 'open' action definition (Reference, not Definition)
+                // Hierarchy: PropertyAssignment(testid) -> ObjectLiteral -> PropertyAssignment(open)
+                const objLiteralParent = node.parent; // ObjectLiteral
+                if (ts.isObjectLiteralExpression(objLiteralParent) && objLiteralParent.parent && ts.isPropertyAssignment(objLiteralParent.parent)) {
+                    const grandParentName = objLiteralParent.parent.name.getText(sourceFile);
+                    if (grandParentName === 'open') {
+                        // specific exclusion for known nested action properties
+                        return;
+                    }
+                }
+
                 if (ts.isStringLiteral(node.initializer)) {
                     const testId = node.initializer.text;
                     const line = sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1;
@@ -38,6 +95,7 @@ function getDefinedIDs(rootDir) {
                     const parent = node.parent; // ObjectLiteralExpression
                     let visibility = 'always';
                     let ignoreDrift = false;
+                    let route = null; // Initialize route
 
                     if (ts.isObjectLiteralExpression(parent)) {
                         parent.properties.forEach(prop => {
@@ -49,6 +107,22 @@ function getDefinedIDs(rootDir) {
                                 if (propName === 'ignoreDrift' && prop.initializer.kind === ts.SyntaxKind.TrueKeyword) {
                                     ignoreDrift = true;
                                 }
+                                if (propName === 'route') {
+                                    // Handle: route: "/foo"
+                                    if (ts.isStringLiteral(prop.initializer)) {
+                                        route = prop.initializer.text;
+                                    }
+                                    // Handle: route: ROUTES.dashboard
+                                    else if (ts.isPropertyAccessExpression(prop.initializer)) {
+                                        const raw = prop.initializer.getText(sourceFile);
+                                        // Try to resolve using routeMap
+                                        if (routeMap[raw]) {
+                                            route = routeMap[raw];
+                                        } else {
+                                            route = raw; // Fallback to raw string if not resolved
+                                        }
+                                    }
+                                }
                             }
                         });
                     }
@@ -57,7 +131,8 @@ function getDefinedIDs(rootDir) {
                         file: config.uiMapPath,
                         line,
                         visibility,
-                        ignoreDrift
+                        ignoreDrift,
+                        route
                     };
                 }
             }
