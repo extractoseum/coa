@@ -3,11 +3,11 @@ name: Deploy Production
 on:
   workflow_dispatch:
   # Uncomment to deploy automatically on push to main
-  # push:
-  #   branches: [main]
-  #   paths:
-  #     - 'frontend/**'
-  #     - 'backend/**'
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
 
 jobs:
   deploy-frontend:
