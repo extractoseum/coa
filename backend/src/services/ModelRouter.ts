@@ -69,8 +69,8 @@ export class ModelRouter {
         const policy = this.policies.get(input.taskType);
 
         if (!policy) {
-            // Default fallback
-            return this.createOutput('gpt-4o', 1000, 'unknown task type fallback');
+            // Default fallback (Fix #15: Avoid expensive gpt-4o default, use mini)
+            return this.createOutput('gpt-4o-mini', 1000, 'unknown task type fallback (default)');
         }
 
         // 5. Seleccionar modelo

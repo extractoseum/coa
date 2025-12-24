@@ -24,7 +24,9 @@ import { MessageAudioPlayer } from '../components/MessageAudioPlayer';
 import ToolEditor from '../components/ToolEditor';
 import OrchestratorConfig from '../components/OrchestratorConfig';
 import { VoiceSelector } from '../components/VoiceSelector';
-import type { VoiceProfileConfig } from '../components/VoiceSelector';
+import KanbanCard from '../components/KanbanCard';
+import type { Column, Conversation, AgentMetadata, ToolRegistryItem, ContactSnapshot } from '../types/crm';
+import { getAvatarGradient, getTagColor, getChannelIcon } from '../utils/crmUtils';
 import { useNavigate } from 'react-router-dom';
 import { Screen } from '../telemetry/Screen';
 import AppLayout from '../components/Layout';
@@ -37,76 +39,7 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://placeholder.s
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'placeholder-key';
 const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-interface Column {
-    id: string;
-    name: string;
-    mode: 'AI_MODE' | 'HUMAN_MODE' | 'HYBRID';
-    position: number;
-    assigned_agent_id?: string;
-    objectives?: string;
-    voice_profile?: string | VoiceProfileConfig;
-    config?: {
-        agent_id?: string; // Legacy/Fallback
-        model?: string;
-        tools_policy?: {
-            mode: 'inherit' | 'override';
-            allowed_tools: string[];
-        };
-        automations?: any;
-        guardrails?: any;
-    };
-}
-
-interface AgentMetadata {
-    id: string;
-    label: string;
-    category: string;
-    status: 'Ready' | 'Broken';
-    default_tools: string[];
-    description: string;
-    error?: string;
-}
-
-interface ToolRegistryItem {
-    name: string;
-    label?: string;
-    description: string;
-    category: string;
-}
-
-interface Conversation {
-    id: string;
-    channel: 'WA' | 'IG' | 'FB' | 'EMAIL' | 'WEBCHAT';
-    contact_handle: string;
-    status: 'active' | 'paused' | 'review' | 'archived';
-    column_id: string;
-    last_message_at: string;
-    summary?: string;
-    tags?: string[];
-    facts?: any; // e.g. { action_plan: [] }
-    contact_name?: string;
-    avatar_url?: string;
-    ltv?: number;
-    risk_level?: string;
-    updated_at?: string;
-}
-
-interface ContactSnapshot {
-    id: string;
-    handle: string;
-    channel: string;
-    name: string;
-    ltv: number;
-    orders_count: number;
-    average_ticket: number;
-    risk_level: string;
-    tags: string[];
-    last_shipping_status?: string;
-    last_shipping_carrier?: string;
-    last_shipping_tracking?: string;
-    last_updated_at: string;
-    summary_bullets?: string[];
-}
+// Interfaces moved to ../types/crm.ts
 
 const AdminCRM: React.FC = () => {
     // Build version: 2025-12-20-16-05
@@ -300,27 +233,7 @@ const AdminCRM: React.FC = () => {
         }
     };
 
-    const getTagColor = (tag: string) => {
-        const t = tag.toLowerCase();
-        if (t.includes('gold')) return 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30 shadow-[0_0_10px_rgba(234,179,8,0.2)]';
-        if (t.includes('partner')) return 'bg-purple-500/20 text-purple-300 border-purple-500/30 shadow-[0_0_10px_rgba(168,85,247,0.2)]';
-        if (t.includes('user')) return 'bg-blue-500/20 text-blue-300 border-blue-500/30';
-        if (t.includes('shop')) return 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30';
-        if (t.includes('vip')) return 'bg-gradient-to-r from-pink-500/20 to-purple-500/20 text-white border-pink-500/30 shadow-[0_0_15px_rgba(236,72,153,0.3)] animate-pulse';
-        return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
-    };
-
-    const getAvatarGradient = (handle: string) => {
-        const colors = [
-            'from-pink-500 to-purple-600',
-            'from-blue-500 to-cyan-400',
-            'from-emerald-500 to-green-400',
-            'from-orange-500 to-red-500',
-            'from-indigo-500 to-purple-500'
-        ];
-        const index = handle.length % colors.length;
-        return colors[index];
-    };
+    // Helpers moved to ../utils/crmUtils.ts
 
     const handleSimulateVisit = async () => {
         if (!selectedConv) return;
@@ -967,14 +880,7 @@ const AdminCRM: React.FC = () => {
 
     if (!isSuperAdmin) return null;
 
-    const getChannelIcon = (channel: string) => {
-        switch (channel) {
-            case 'WA': return <MessageSquare size={14} className="text-green-500" />;
-            case 'IG': return <Instagram size={14} className="text-pink-500" />;
-            case 'FB': return <Facebook size={14} className="text-blue-600" />;
-            default: return <Globe size={14} />;
-        }
-    };
+    // getChannelIcon moved to ../utils/crmUtils.ts
 
     return (
         <Screen id="screen.admin.crm">
@@ -1072,110 +978,14 @@ const AdminCRM: React.FC = () => {
                                     {filteredConversations
                                         .filter(c => c.column_id === col.id)
                                         .map(conv => (
-                                            <div
+                                            <KanbanCard
                                                 key={conv.id}
-                                                draggable
-                                                onDragStart={(e) => handleDragStart(e, conv.id)}
-                                                onClick={() => setSelectedConv(conv)}
-                                                className={`p-4 rounded-xl border backdrop-blur-md transition-all cursor-pointer group hover:scale-[1.02] active:scale-95 relative overflow-hidden
-                                            ${selectedConv?.id === conv.id
-                                                        ? 'ring-2 ring-pink-500 border-pink-500/50 bg-pink-500/[0.05] shadow-[0_0_30px_rgba(236,72,153,0.15)]'
-                                                        : 'border-white/5 bg-white/[0.03] hover:bg-white/[0.07] hover:border-pink-500/30 hover:shadow-lg'
-                                                    }`}
-                                                style={{
-                                                    boxShadow: selectedConv?.id === conv.id ? '0 0 30px rgba(236,72,153,0.15)' : '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-                                                }}
-                                            >
-                                                {/* Status Line for Active Cards */}
-                                                {conv.status === 'active' && (
-                                                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-pink-500 to-purple-600" />
-                                                )}
-                                                <div className="flex justify-between items-start mb-1">
-                                                    <div className="flex items-center gap-3 min-w-0">
-                                                        <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${getAvatarGradient(conv.contact_handle)} p-[1px] shadow-lg shrink-0`}>
-                                                            <div className="w-full h-full rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
-                                                                {conv.channel === 'WA' && <MessageSquare size={14} className="text-white" />}
-                                                                {conv.channel === 'IG' && <Instagram size={14} className="text-white" />}
-                                                                {conv.channel === 'EMAIL' && <Mail size={14} className="text-white" />}
-                                                            </div>
-                                                        </div>
-                                                        <div className="flex flex-col min-w-0">
-                                                            <span className="text-sm font-black tracking-tight truncate max-w-[140px] text-white group-hover:text-pink-200 transition-colors">
-                                                                {conv.contact_name || conv.facts?.user_name || conv.contact_handle}
-                                                            </span>
-                                                            {conv.contact_name && (
-                                                                <span className="text-[10px] opacity-40 truncate font-mono">{conv.contact_handle}</span>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                    <div className="flex flex-col items-end gap-1">
-                                                        <span className="text-[10px] opacity-40 font-mono" style={{ color: theme.textMuted }}>
-                                                            {new Date(conv.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                        </span>
-                                                        {conv.ltv && conv.ltv > 0 ? (
-                                                            <div className="flex items-center gap-1">
-                                                                <span className="text-[9px] font-bold text-green-500/80 bg-green-500/10 px-1.5 py-0.5 rounded border border-green-500/20">
-                                                                    ${Math.round(conv.ltv).toLocaleString()}
-                                                                </span>
-                                                                {conv.risk_level === 'vip' && (
-                                                                    <Zap size={10} className="text-yellow-500 animate-pulse" fill="currentColor" />
-                                                                )}
-                                                            </div>
-                                                        ) : null}
-                                                    </div>
-                                                </div>
-
-                                                <p className="text-[11px] line-clamp-2 mb-2 leading-relaxed opacity-60 font-light mt-2 pl-1 border-l-2 border-white/5" style={{ color: theme.text }}>
-                                                    {conv.summary}
-                                                </p>
-
-                                                {/* Predictors layer (Phase 4) */}
-                                                {conv.facts && (conv.facts.friction_score !== undefined || conv.facts.emotional_vibe) && (
-                                                    <div className="flex items-center justify-between gap-3 mb-3 bg-black/20 p-2 rounded-lg border border-white/5">
-                                                        {conv.facts?.emotional_vibe && (
-                                                            <div className="flex items-center gap-1.5 min-w-0">
-                                                                <Smile size={10} className="text-pink-400 shrink-0" />
-                                                                <span className="text-[9px] font-bold text-pink-300 truncate tracking-tight uppercase">
-                                                                    {conv.facts.emotional_vibe}
-                                                                </span>
-                                                            </div>
-                                                        )}
-                                                        {conv.facts?.friction_score !== undefined && (
-                                                            <div className="flex flex-col items-end gap-1 shrink-0">
-                                                                <span className="text-[7px] uppercase font-bold opacity-30 tracking-widest">Friction</span>
-                                                                <div className="w-12 h-1 bg-white/10 rounded-full overflow-hidden">
-                                                                    <div
-                                                                        className={`h-full rounded-full transition-all duration-500 ${conv.facts.friction_score > 70 ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]' :
-                                                                            conv.facts.friction_score > 30 ? 'bg-yellow-500' : 'bg-green-500'
-                                                                            }`}
-                                                                        style={{ width: `${conv.facts.friction_score}%` }}
-                                                                    />
-                                                                </div>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )}
-
-                                                <div className="flex flex-wrap gap-1">
-                                                    {conv.tags?.map(tag => (
-                                                        <span
-                                                            key={tag}
-                                                            className={`text-[9px] font-bold px-2 py-0.5 rounded-md border ${getTagColor(tag)}`}
-                                                        >
-                                                            {tag}
-                                                        </span>
-                                                    ))}
-                                                </div>
-
-                                                {/* Footer Actions */}
-                                                <div className="mt-4 pt-3 border-t flex justify-between items-center opacity-0 group-hover:opacity-100 transition-opacity" style={{ borderColor: `${theme.border}55` }}>
-                                                    <div className="flex gap-2">
-                                                        <button className="text-[10px] uppercase font-bold text-blue-400 hover:text-blue-300">Resumen</button>
-                                                        <button className="text-[10px] uppercase font-bold text-gray-400 hover:text-white">Mover</button>
-                                                    </div>
-                                                    <ChevronRight size={14} style={{ color: theme.accent }} />
-                                                </div>
-                                            </div>
+                                                conv={conv}
+                                                isSelected={selectedConv?.id === conv.id}
+                                                theme={theme}
+                                                onDragStart={handleDragStart}
+                                                onClick={setSelectedConv}
+                                            />
                                         ))}
 
                                     <button
@@ -1619,7 +1429,7 @@ const AdminCRM: React.FC = () => {
                                                 />
                                             </div>
 
-                                            <div className="flex flex-col gap-1 justify-end pb-1 pl-1">
+                                            <div className="flex flex-row gap-2 justify-end pb-1 pl-1">
                                                 <button
                                                     onClick={handleSendVoice}
                                                     disabled={sendingMessage}

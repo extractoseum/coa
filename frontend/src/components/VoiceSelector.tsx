@@ -12,7 +12,7 @@ const AVAILABLE_VOICES = [
 export interface VoiceProfileConfig {
     provider: 'openai' | 'elevenlabs';
     voice_id: string;
-    settings: {
+    settings?: {
         stability: number;
         similarity_boost: number;
         style: number;

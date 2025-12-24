@@ -62,7 +62,9 @@ export class ChipEngine {
      */
     private isMatch(content: string, chip: MiniChip): boolean {
         const config = chip.trigger_config;
-        const text = content.toLowerCase();
+        // Fix #13: Robust Normalization (Case + Accents)
+        const normalize = (str: string) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+        const text = normalize(content);
 
         if (chip.trigger_type === 'keyword') {
             const keywords = config.keywords || [];

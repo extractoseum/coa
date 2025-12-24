@@ -457,8 +457,8 @@ export const syncFacts = async (req: Request, res: Response): Promise<void> => {
             res.status(400).json({ success: false, error: 'Missing conversationId' });
             return;
         }
-        await crmService.syncConversationFacts(conversationId);
-        res.json({ success: true });
+        const facts = await crmService.syncConversationFacts(conversationId);
+        res.json({ success: true, data: facts });
     } catch (error: any) {
         res.status(500).json({ success: false, error: error.message });
     }

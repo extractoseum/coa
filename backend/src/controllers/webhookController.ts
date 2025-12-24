@@ -554,9 +554,6 @@ const processOrderInternal = async (order: any, eventType: 'create' | 'update') 
                     if (!existingOrder?.fulfilled_notified) {
                         console.log(`[Webhook] Triggering SHIPPED notification via fallback for order ${orderNumber}`);
 
-                        // Mark as notified FIRST to prevent race condition duplicates
-                        await supabase.from('orders').update({ fulfilled_notified: true }).eq('id', savedOrder.id);
-
                         await notifyOrderShipped(
                             client.id,
                             orderNumber,
@@ -566,6 +563,9 @@ const processOrderInternal = async (order: any, eventType: 'create' | 'update') 
                             mainEstimatedDelivery,
                             mainServiceType
                         );
+
+                        // Fix Ghost Data: Only mark as notified AFTER successful send
+                        await supabase.from('orders').update({ fulfilled_notified: true }).eq('id', savedOrder.id);
                     } else {
                         console.log(`[Webhook] Shipped notification already sent for ${orderNumber}, skipping fallback.`);
                     }

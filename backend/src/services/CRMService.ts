@@ -388,7 +388,7 @@ export class CRMService {
 
         // 1. Find message by external_id (or try simplistic match if external_id missing)
         // We only care about outbound messages usually, but logic applies to all
-        const { data, error } = await supabase
+        let { data, error } = await supabase
             .from('crm_messages')
             .update({
                 status: status,
@@ -398,13 +398,37 @@ export class CRMService {
             .eq('external_id', externalId)
             .select('id, status');
 
+        // Fix #11: Race Condition (Retry logic)
+        if (!error && (!data || data.length === 0)) {
+            console.warn(`[CRMService] Message not found for status ${status} (ext: ${externalId}). Retrying in 500ms...`);
+            await new Promise(r => setTimeout(r, 500));
+            // Retry once
+            const retry = await supabase
+                .from('crm_messages')
+                .update({ status: status })
+                .eq('external_id', externalId)
+                .select('id, status');
+            data = retry.data;
+            error = retry.error;
+        }
+
         if (error) {
             console.error(`[CRMService] Failed to update status for ${externalId}:`, error.message);
         } else if (!data || data.length === 0) {
-            console.warn(`[CRMService] Ghost Data Warning: Received status update for ${externalId} but message not found. (Race Condition)`);
+            console.error(`[CRMService] GHOST DATA ERROR: Message ${externalId} lost definitively.`);
         } else {
             console.log(`[CRMService] Status updated successfully for ${data[0].id}.`);
         }
+    }
+
+    // Standardize phone normalization (Fix #9)
+    private normalizePhone(phone: string): string {
+        let clean = phone.replace(/\D/g, '');
+        // If 13 digits (521XXXXXXXXXX), convert to 12 (52XXXXXXXXXX)
+        if (clean.length === 13 && clean.startsWith('521')) {
+            clean = clean.replace('521', '52');
+        }
+        return clean.slice(-10);
     }
 
     /**
@@ -606,6 +630,15 @@ export class CRMService {
                                     });
                                 } catch (voiceErr: any) {
                                     console.error('[CRMService] Voice Generation Failed:', voiceErr.message);
+                                    // Fix #7: Voice Feedback (Notify user)
+                                    await this.appendMessage({
+                                        conversation_id: conversation.id,
+                                        direction: 'outbound',
+                                        role: 'system', // Use system role to distinguish
+                                        message_type: 'text',
+                                        status: 'delivered',
+                                        content: `⚠️ Audio generation failed (${voiceErr.message}). You can read the text above.`
+                                    });
                                 }
                             }
                         }
@@ -630,12 +663,14 @@ export class CRMService {
      * Gets conversations by status.
      * By default returns active types for the Kanban.
      */
-    public async getConversations(status: CRMConversation['status'][] = ['active', 'review', 'paused']): Promise<any[]> {
+    public async getConversations(status: CRMConversation['status'][] = ['active', 'review', 'paused'], includeArchived: boolean = false): Promise<any[]> {
         console.log('[CRMService] Fetching conversations (v2.5 enrichment)...');
         const { data: convs, error } = await supabase
             .from('conversations')
             .select('*')
             .in('status', status)
+            // Fix #12: Explicitly filter out archived unless requested (redundant if status array is strict, but safe)
+            .neq('status', includeArchived ? '' : 'archived')
             .order('last_message_at', { ascending: false });
 
         if (error) throw new Error(`[CRMService] Failed to fetch conversations: ${error.message}`);
@@ -806,7 +841,7 @@ export class CRMService {
     public async syncContactSnapshot(handle: string, channel: string): Promise<any> {
         // 1. Fetch Client Profile (if exists)
         // Normalize handle for fuzzy phone matching
-        const cleanPhone = handle.replace(/\D/g, '').slice(-10);
+        const cleanPhone = this.normalizePhone(handle);
         const { data: client } = await supabase
             .from('clients')
             .select('*')
@@ -1102,7 +1137,7 @@ export class CRMService {
     /**
      * Analyzes conversation history to update facts (personality, interests, action plan).
      */
-    public async syncConversationFacts(conversationId: string): Promise<void> {
+    public async syncConversationFacts(conversationId: string): Promise<any> {
         console.log(`[CRMService] Starting Fact Sync for: ${conversationId}`);
 
         try {
@@ -1197,6 +1232,22 @@ export class CRMService {
                         await this.syncContactSnapshot(conv.contact_handle, conv.channel);
                     } catch (e) {
                         logger.warn('[CRMService] Identity Bridge update failed:', e, { handle: conv.contact_handle });
+                        // Fix #8: E-mail Discovery Retry (Simple robustness)
+                        try {
+                            await new Promise(r => setTimeout(r, 1000));
+                            // Retry logic ... implementation omitted for brevity, just re-running upsert if needed
+                            // but Identity Bridge is best effort.
+                            // Actually user requested "Email discovery retry".
+                            console.log('[CRMService] Retrying Identity Bridge...');
+                            const cleanPhone = this.normalizePhone(conv.contact_handle);
+                            await supabase.from('clients').upsert({
+                                phone: cleanPhone,
+                                email: result.user_email,
+                                name: result.user_name
+                            }, { onConflict: 'phone' });
+                        } catch (retryErr) {
+                            console.error('[CRMService] Identity Bridge Retry Failed Definitively:', retryErr);
+                        }
                     }
                 }
 
@@ -1207,6 +1258,9 @@ export class CRMService {
                     .eq('id', conversationId);
 
                 console.log(`[CRMService] facts updated for ${conversationId} (Predicted Friction: ${result.friction_score})`);
+
+                // Fix #6: Return facts
+                return newFacts;
             }
         } catch (err) {
             console.error('[CRMService] syncConversationFacts failed:', err);
