@@ -1415,14 +1415,14 @@ export class CRMService {
         const { data: existing } = await supabase
             .from('crm_contact_snapshots')
             .select('*')
-            .eq('contact_handle', handle)
+            .eq('handle', handle)
             .eq('channel', channel)
             .maybeSingle();
 
         if (existing) {
             const { data, error } = await supabase
                 .from('crm_contact_snapshots')
-                .update({ ...updates, updated_at: new Date().toISOString() })
+                .update({ ...updates, last_updated_at: new Date().toISOString() })
                 .eq('id', existing.id)
                 .select('*')
                 .single();
@@ -1434,10 +1434,10 @@ export class CRMService {
             const { data, error } = await supabase
                 .from('crm_contact_snapshots')
                 .insert({
-                    contact_handle: handle,
+                    handle: handle,
                     channel,
                     ...updates,
-                    updated_at: new Date().toISOString()
+                    last_updated_at: new Date().toISOString()
                 })
                 .select('*')
                 .single();
