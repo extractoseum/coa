@@ -1,113 +1,116 @@
 {
-  "version": "2.0",
-  "generatedAt": "2025-12-21T20:38:55.570Z",
-  "beacons": {
-    "nav.user.dashboard": {
-      "testid": "nav.user.mi_dashboard",
-      "route": "[Ref: ROUTES.dashboard]",
-      "requiresAuth": true,
-      "description": "Interactive element: nav.user.dashboard"
+  "version": "1.0.0",
+  "generatedAt": "2025-12-24T04:20:47.920Z",
+  "capabilities": [
+    {
+      "id": "build.stamp",
+      "auth": false,
+      "dynamic": false
     },
-    "nav.user.orders": {
-      "testid": "nav.user.mis_pedidos",
-      "route": "[Ref: ROUTES.myOrders]",
-      "requiresAuth": true,
-      "description": "Interactive element: nav.user.orders"
+    {
+      "id": "home.login",
+      "route": "/",
+      "auth": false,
+      "dynamic": false
     },
-    "nav.user.collection": {
-      "testid": "nav.user.mi_coleccion",
-      "route": "[Ref: ROUTES.folders]",
-      "requiresAuth": true,
-      "description": "Interactive element: nav.user.collection"
+    {
+      "id": "nav.admin.administrar_coas",
+      "route": "/admin/coas",
+      "auth": true,
+      "dynamic": true
     },
-    "nav.user.demo": {
-      "testid": "nav.user.ver_demo_coa",
-      "route": "/coa/demo",
-      "requiresAuth": false,
-      "description": "Interactive element: nav.user.demo"
+    {
+      "id": "nav.admin.badges",
+      "route": "/badges",
+      "auth": true,
+      "dynamic": true
     },
-    "nav.admin.coas": {
-      "testid": "nav.admin.administrar_coas",
-      "route": "[Ref: ROUTES.adminCoas]",
-      "requiresAuth": true,
-      "description": "Interactive element: nav.admin.coas"
+    {
+      "id": "nav.admin.banners",
+      "route": "/banners",
+      "auth": true,
+      "dynamic": true
     },
-    "nav.admin.upload": {
-      "testid": "nav.admin.subir_coa",
-      "route": "[Ref: ROUTES.upload]",
-      "requiresAuth": true,
-      "description": "Interactive element: nav.admin.upload"
+    {
+      "id": "nav.admin.cerebro_ai",
+      "route": "/admin/knowledge",
+      "auth": true,
+      "dynamic": true
     },
-    "nav.admin.inventory": {
-      "testid": "nav.admin.hologramas",
-      "route": "[Ref: ROUTES.inventory]",
-      "requiresAuth": true,
-      "description": "Interactive element: nav.admin.inventory"
+    {
+      "id": "nav.admin.configuracion",
+      "route": "/settings",
+      "auth": true,
+      "dynamic": true
     },
-    "nav.admin.badges": {
-      "testid": "nav.admin.badges",
-      "route": "[Ref: ROUTES.badges]",
-      "requiresAuth": true,
-      "description": "Interactive element: nav.admin.badges"
+    {
+      "id": "nav.admin.hologramas",
+      "route": "/inventory",
+      "auth": true,
+      "dynamic": true
     },
-    "nav.admin.banners": {
-      "testid": "nav.admin.banners",
-      "route": "[Ref: ROUTES.banners]",
-      "requiresAuth": true,
-      "description": "Interactive element: nav.admin.banners"
+    {
+      "id": "nav.admin.navegación",
+      "route": "/admin/navigation",
+      "auth": true,
+      "dynamic": true
     },
-    "nav.admin.templates": {
-      "testid": "nav.admin.templates",
-      "route": "[Ref: ROUTES.templates]",
-      "requiresAuth": true,
-      "description": "Interactive element: nav.admin.templates"
+    {
+      "id": "nav.admin.omni_crm",
+      "route": "/admin/crm",
+      "auth": true,
+      "dynamic": true
     },
-    "nav.admin.chemists": {
-      "testid": "nav.admin.quimicos",
-      "route": "[Ref: ROUTES.chemists]",
-      "requiresAuth": true,
-      "description": "Interactive element: nav.admin.chemists"
+    {
+      "id": "nav.admin.push_notif",
+      "route": "/admin/push",
+      "auth": true,
+      "dynamic": true
     },
-    "nav.admin.push": {
-      "testid": "nav.admin.push_notif.",
-      "route": "[Ref: ROUTES.adminPush]",
-      "requiresAuth": true,
-      "description": "Interactive element: nav.admin.push"
+    {
+      "id": "nav.admin.quimicos",
+      "route": "/chemists",
+      "auth": true,
+      "dynamic": true
     },
-    "nav.admin.navigation": {
-      "testid": "nav.admin.navegación",
-      "route": "[Ref: ROUTES.adminNavigation]",
-      "requiresAuth": true,
-      "description": "Interactive element: nav.admin.navigation"
+    {
+      "id": "nav.admin.subir_coa",
+      "route": "/upload",
+      "auth": true,
+      "dynamic": true
     },
-    "nav.admin.knowledge": {
-      "testid": "nav.admin.cerebro_ai",
-      "route": "[Ref: ROUTES.adminKnowledge]",
-      "requiresAuth": true,
-      "description": "Interactive element: nav.admin.knowledge"
+    {
+      "id": "nav.admin.templates",
+      "route": "/templates",
+      "auth": true,
+      "dynamic": true
     },
-    "nav.admin.crm": {
-      "testid": "nav.admin.omni_crm",
-      "route": "[Ref: ROUTES.adminCrm]",
-      "requiresAuth": true,
-      "description": "Interactive element: nav.admin.crm"
+    {
+      "id": "nav.user.mi_coleccion",
+      "route": "/folders",
+      "auth": true,
+      "dynamic": false
     },
-    "nav.admin.settings": {
-      "testid": "nav.admin.configuracion",
-      "route": "[Ref: ROUTES.settings]",
-      "requiresAuth": true,
-      "description": "Interactive element: nav.admin.settings"
+    {
+      "id": "nav.user.mi_dashboard",
+      "route": "/dashboard",
+      "auth": true,
+      "dynamic": false
     },
-    "home.login": {
-      "testid": "home.login",
-      "route": "[Ref: ROUTES.home]",
-      "requiresAuth": false,
-      "description": "Interactive element: home.login"
+    {
+      "id": "nav.user.mis_pedidos",
+      "route": "/my-orders",
+      "auth": true,
+      "dynamic": false
     },
-    "build.stamp": {
-      "testid": "build.stamp",
-      "requiresAuth": false,
-      "description": "Interactive element: build.stamp"
+    {
+      "id": "nav.user.ver_demo_coa",
+      "route": "/coa/:token",
+      "auth": false,
+      "dynamic": false,
+      "params": {
+        "token": "demo"
+      }
     }
-  }
+  ]
 }

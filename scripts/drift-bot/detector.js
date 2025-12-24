@@ -94,45 +94,81 @@ function getDefinedIDs(rootDir) {
                     // Now try to find siblings for metadata (visibility, etc.)
                     const parent = node.parent; // ObjectLiteralExpression
                     let visibility = 'always';
+                    // Extract Metadata
+                    let route = undefined;
+                    let routeParams = undefined;
                     let ignoreDrift = false;
-                    let route = null; // Initialize route
+                    let authRequired = undefined;
+                    let dynamic = false;
+                    let description = undefined;
 
-                    if (ts.isObjectLiteralExpression(parent)) {
-                        parent.properties.forEach(prop => {
-                            if (ts.isPropertyAssignment(prop)) {
-                                const propName = prop.name.getText(sourceFile);
-                                if (propName === 'visibility' && ts.isStringLiteral(prop.initializer)) {
-                                    visibility = prop.initializer.text;
+                    if (ts.isObjectLiteralExpression(parent)) { // Metadata is sibling properties to 'testid'
+                        parent.properties.forEach(p => {
+                            if (!ts.isPropertyAssignment(p)) return;
+                            const propName = p.name.getText(sourceFile);
+
+                            // Route
+                            if (propName === 'route') {
+                                if (ts.isPropertyAccessExpression(p.initializer)) {
+                                    const raw = p.initializer.getText(sourceFile);
+                                    if (routeMap[raw]) route = routeMap[raw];
+                                    else route = raw; // Fallback to raw constant name
+                                } else if (ts.isStringLiteral(p.initializer)) {
+                                    route = p.initializer.text;
                                 }
-                                if (propName === 'ignoreDrift' && prop.initializer.kind === ts.SyntaxKind.TrueKeyword) {
-                                    ignoreDrift = true;
-                                }
-                                if (propName === 'route') {
-                                    // Handle: route: "/foo"
-                                    if (ts.isStringLiteral(prop.initializer)) {
-                                        route = prop.initializer.text;
+                            }
+
+                            // Route Params
+                            if (propName === 'routeParams' && ts.isObjectLiteralExpression(p.initializer)) {
+                                routeParams = {};
+                                p.initializer.properties.forEach(param => {
+                                    if (ts.isPropertyAssignment(param) && ts.isStringLiteral(param.initializer)) {
+                                        routeParams[param.name.getText(sourceFile)] = param.initializer.text;
                                     }
-                                    // Handle: route: ROUTES.dashboard
-                                    else if (ts.isPropertyAccessExpression(prop.initializer)) {
-                                        const raw = prop.initializer.getText(sourceFile);
-                                        // Try to resolve using routeMap
-                                        if (routeMap[raw]) {
-                                            route = routeMap[raw];
-                                        } else {
-                                            route = raw; // Fallback to raw string if not resolved
-                                        }
-                                    }
-                                }
+                                });
+                            }
+
+                            // Ignore Drift
+                            if (propName === 'ignoreDrift' && p.initializer.kind === ts.SyntaxKind.TrueKeyword) {
+                                ignoreDrift = true;
+                            }
+
+                            // Auth Required
+                            if (propName === 'authRequired') {
+                                if (p.initializer.kind === ts.SyntaxKind.TrueKeyword) authRequired = true;
+                                if (p.initializer.kind === ts.SyntaxKind.FalseKeyword) authRequired = false;
+                            }
+
+                            // Dynamic
+                            if (propName === 'dynamic' && p.initializer.kind === ts.SyntaxKind.TrueKeyword) {
+                                dynamic = true;
+                            }
+
+                            // Description (if we assume it exists, though uiMap doesn't seem to have it in example?)
+                            if (propName === 'description' && ts.isStringLiteral(p.initializer)) {
+                                description = p.initializer.text;
+                            }
+                            // Also handle visibility, which was already there
+                            if (propName === 'visibility' && ts.isStringLiteral(p.initializer)) {
+                                visibility = p.initializer.text;
                             }
                         });
                     }
 
+                    // The testid is already extracted as `testId`
+                    // The line is already extracted as `line`
+
                     definedIndices[testId] = {
+                        id: testId, // Use the already extracted testId
                         file: config.uiMapPath,
-                        line,
-                        visibility,
+                        line: line, // Use the already extracted line
+                        visibility, // Keep visibility
+                        route,
+                        routeParams,
+                        authRequired,
+                        dynamic,
                         ignoreDrift,
-                        route
+                        description
                     };
                 }
             }

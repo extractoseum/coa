@@ -6,13 +6,15 @@ const detector = require('./detector');
 const analyzer = require('./analyzer');
 const reporter = require('./reporter');
 const suggester = require('./suggester');
+const agentGen = require('./agent-gen');
 const config = require('./config');
 
 const args = {
     json: process.argv.includes('--json'),
     markdown: process.argv.includes('--markdown'),
     strict: process.argv.includes('--strict'),
-    fix: process.argv.includes('--fix')
+    fix: process.argv.includes('--fix'),
+    gen: process.argv.includes('--gen')
 };
 
 function main() {
@@ -48,6 +50,16 @@ function main() {
         if (args.json) {
             console.log(JSON.stringify(report, null, 2));
         }
+
+        // 6. Generate Agent Map (Phase 46)
+        // Auto-generate if requested OR if verified clean (optional, stick to flag for now)
+        if (args.gen) {
+            agentGen.generate(process.cwd());
+        }
+
+        const success = report.summary.ghostCount === 0 &&
+            (report.routeMismatches ? report.routeMismatches.length === 0 : true) &&
+            (!args.strict || report.summary.zombieCount === 0);
 
         // Exit Codes
         // 0: Success
