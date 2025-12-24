@@ -368,7 +368,8 @@ export class CRMService {
                     external_id: externalId, // SAVE THE EXTERNAL ID
                     raw_payload: !success ? { error: errorMsg } : (res as any)?.message || res || {}
                 })
-                .eq('id', messageId);
+                .eq('id', messageId)
+                .select('id, status, external_id');
 
         } catch (err: any) {
             console.error('[CRMService] Dispatch failed:', err);
@@ -387,19 +388,22 @@ export class CRMService {
 
         // 1. Find message by external_id (or try simplistic match if external_id missing)
         // We only care about outbound messages usually, but logic applies to all
-        const { error } = await supabase
+        const { data, error } = await supabase
             .from('crm_messages')
             .update({
                 status: status,
                 // Optionally update metadata with timestamp if needed
                 // raw_payload: { ...existing, status_history: [...] } 
             })
-            .eq('external_id', externalId);
+            .eq('external_id', externalId)
+            .select('id, status');
 
         if (error) {
             console.error(`[CRMService] Failed to update status for ${externalId}:`, error.message);
+        } else if (!data || data.length === 0) {
+            console.warn(`[CRMService] Ghost Data Warning: Received status update for ${externalId} but message not found. (Race Condition)`);
         } else {
-            console.log(`[CRMService] Status updated successfully.`);
+            console.log(`[CRMService] Status updated successfully for ${data[0].id}.`);
         }
     }
 
@@ -477,14 +481,20 @@ export class CRMService {
         // 2. Load Column Brain (Inheritance)
         // ... (existing logic) ...
 
-        // NEW: Trigger Chip Engine (Async, don't block AI or main flow)
+        // NEW: Trigger Chip Engine (Synchronous await to ensure context for AI)
+        // Fixes "Ghost Data #2": ChipEngine failing silently/race condition
         if (createdMsg && createdMsg.id && createdMsg.direction === 'inbound') {
-            this.chipEngine.processMessage(
-                createdMsg.id,
-                createdMsg.content,
-                conversation.id,
-                conversation.channel_chip_id || null
-            ).catch(err => console.error('[CRMService] ChipEngine error:', err));
+            try {
+                await this.chipEngine.processMessage(
+                    createdMsg.id,
+                    createdMsg.content,
+                    conversation.id,
+                    conversation.channel_chip_id || null
+                );
+            } catch (err) {
+                console.error('[CRMService] ChipEngine Critical Error:', err);
+                // We continue, but now we know it failed before AI starts
+            }
         }
 
         const { data: column } = await supabase

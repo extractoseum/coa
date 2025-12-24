@@ -731,9 +731,6 @@ export const handleFulfillmentUpdate = async (req: Request, res: Response) => {
                 if (!order.fulfilled_notified) {
                     console.log(`[Webhook] Triggering SHIPPED notification for order ${order.order_number}`);
 
-                    // Mark as notified FIRST
-                    await supabase.from('orders').update({ fulfilled_notified: true }).eq('id', order.id);
-
                     // Try to get enriched data from the fulfillment webhook body
                     const serviceType = fulfillment.service || undefined;
 
@@ -746,6 +743,10 @@ export const handleFulfillmentUpdate = async (req: Request, res: Response) => {
                         undefined,
                         serviceType
                     );
+
+                    // Mark as notified AFTER successful notification
+                    // Fixes "Ghost Data #4": Notification marked before sending
+                    await supabase.from('orders').update({ fulfilled_notified: true }).eq('id', order.id);
                 } else {
                     console.log(`[Webhook] Shipped notification already sent for ${order.order_number}, skipping fulfillment webhook notify.`);
                 }
@@ -800,9 +801,11 @@ export const handleCheckoutUpdate = async (req: Request, res: Response) => {
                 if (phone) {
                     console.log(`[Webhook] Proactively syncing snapshot for ${phone}...`);
                     // We assume WA channel for now as primary, or we could check if they have a conversation
-                    CRMService.getInstance().syncContactSnapshot(phone, 'WA').catch(err =>
-                        console.error('[Webhook] Failed to sync snapshot:', err)
-                    );
+                    try {
+                        await CRMService.getInstance().syncContactSnapshot(phone, 'WA');
+                    } catch (err) {
+                        console.error('[Webhook] Failed to sync snapshot:', err);
+                    }
                 }
 
                 // 2. Insert into Browsing Events for AI Context
