@@ -44,6 +44,9 @@ jobs:
       - name: Build Backend
         run: cd backend && npm ci && npm run build
       - name: Build Frontend
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: cd frontend && npm ci && npm run build
 
   e2e:
@@ -79,7 +82,12 @@ jobs:
         run: npx playwright install-deps
         if: steps.playwright-cache.outputs.cache-hit == 'true'
 
-      - run: npx playwright test e2e/verify-beacons.spec.ts --timeout=120000
+      - name: Run E2E Tests
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: npx playwright test e2e/verify-beacons.spec.ts --timeout=120000
+      
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
