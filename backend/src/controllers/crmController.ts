@@ -83,7 +83,13 @@ export const handleInbound = async (req: Request, res: Response): Promise<void> 
         if (payload.messages && Array.isArray(payload.messages)) {
             for (const msg of payload.messages) {
                 const handle = msg.chat_id || msg.from;
-                const fromMe = !!msg.from_me;
+
+                // Debug logging for Audio/Voice to trace Role issues
+                if (msg.type === 'audio' || msg.type === 'voice' || msg.type === 'ptt') {
+                    console.log(`[CRM] [DEBUG-AUDIO] Raw Msg ID: ${msg.id}, Type: ${msg.type}, FromMe (Raw): ${msg.from_me}, ChatID: ${msg.chat_id}, From: ${msg.from}`);
+                }
+
+                const fromMe = msg.from_me === true || msg.from_me === 'true';
                 console.log(`[CRM] Msg fromMe: ${fromMe}. Type: ${msg.type}`);
 
                 let content = '';
@@ -227,8 +233,9 @@ export const handleInbound = async (req: Request, res: Response): Promise<void> 
                 ).then(async (createdMsg: any) => {
                     console.log(`[CRM] processInbound .then() triggered. Type: ${type}, MsgID: ${createdMsg?.id}, HasContent: ${!!createdMsg?.content}`);
 
-                    // Trigger Voice Pipeline if audio and message was created
-                    if (createdMsg && type === 'audio' && createdMsg.content.includes('http')) {
+                    // Trigger Voice Pipeline if audio and message was created/returned, 
+                    // and it has an HTTP link but NO transcript yet.
+                    if (createdMsg && type === 'audio' && createdMsg.content.includes('http') && !createdMsg.content.includes('Transcripción')) {
                         console.log('[CRM] Voice condition PASSED. Extracting URL...');
                         const urlMatch = createdMsg.content.match(/\((.*?)\)/);
                         const audioUrl = urlMatch ? urlMatch[1] : null;
@@ -240,7 +247,9 @@ export const handleInbound = async (req: Request, res: Response): Promise<void> 
                                 const arrayBuffer = await audioRes.arrayBuffer();
                                 const buffer = Buffer.from(arrayBuffer);
 
-                                console.log('[CRM] Audio downloaded. Buffer size:', buffer.length);
+                                console.log(`[CRM] Audio downloaded. Buffer size: ${buffer.length}`);
+                                const resolvedRole = createdMsg.role === 'assistant' || createdMsg.role === 'system' ? 'assistant' : 'user';
+                                console.log(`[CRM] Analyze Voice with Role: ${createdMsg.role} (Resolved: ${resolvedRole})`);
 
                                 const vs = new (require('../services/VoiceService').VoiceService)();
                                 await vs.processVoiceMessage(
@@ -249,7 +258,8 @@ export const handleInbound = async (req: Request, res: Response): Promise<void> 
                                     undefined, // Client lookup handled in service if needed
                                     createdMsg.conversation_id,
                                     createdMsg.id,
-                                    audioUrl || undefined
+                                    audioUrl || undefined,
+                                    resolvedRole
                                 );
                                 console.log('[CRM] VoiceService executed successfully.');
                                 // Optional: Update message content with transcript here or let Service do it?
@@ -261,7 +271,7 @@ export const handleInbound = async (req: Request, res: Response): Promise<void> 
                             console.log('[CRM] No Audio URL found in content:', createdMsg.content);
                         }
                     } else {
-                        console.log('[CRM] Voice condition SKIPPED. Type check:', type === 'audio', 'Http check:', createdMsg?.content?.includes('http'));
+                        console.log(`[CRM] Voice condition SKIPPED. Type check: ${type}, HTTP check: ${createdMsg?.content?.includes('http')}`);
                     }
                 }).catch(err => console.error('[CRM] Background processInbound Error:', err));
             }

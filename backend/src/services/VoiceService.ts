@@ -108,14 +108,54 @@ export class VoiceService {
     /**
      * PASO 3: Análisis completo con LLM (emoción + intent + risk)
      */
+    /**
+     * PASO 3: Análisis completo con LLM (emoción + intent + risk)
+     */
     async analyzeTranscript(
         transcript: string,
-        clientContext?: any
+        clientContext?: any,
+        role: 'user' | 'assistant' = 'user'
     ): Promise<Omit<VoiceAnalysisResult, 'transcript' | 'transcriptConfidence' | 'language'>> {
 
         const deterministicFlags = this.detectRiskDeterministic(transcript);
-        const prompt = `
-Analiza el siguiente mensaje de voz transcrito de un cliente.
+
+        let prompt = '';
+
+        if (role === 'assistant') {
+            // PROMPT PARA EL AGENTE (Auto-Reflexión / Auditoría)
+            prompt = `
+Analiza el siguiente mensaje de voz enviado por el AGENTE (Nosotros) al cliente.
+
+TRANSCRIPT:
+${transcript}
+
+CONTEXTO DEL CLIENTE:
+${clientContext ? JSON.stringify(clientContext, null, 2) : 'No disponible'}
+
+OBJETIVO:
+Analizar la calidad, tono y contenido del mensaje enviado por el agente.
+
+Responde SOLO en JSON válido:
+{
+  "summary": "Resumen ejecutivo de lo que dijo el agente (1-2 oraciones)",
+  "intent": "informacion|soporte|venta|seguimiento|cierre|otro", 
+  "intent_confidence": 1.0,
+  "emotion_primary": "profesional|empatico|directo|apresurado|amable|cortante",
+  "emotion_score": 0.0-1.0,
+  "sentiment_score": 0.0,
+  "evidence_quotes": [],
+  "confidence_reason": "Análisis de salida de agente",
+  "risk_flags_llm": [], 
+  "predicted_action": "no_action",
+  "should_escalate": false,
+  "escalation_reason": null,
+  "suggested_response": null
+}`;
+
+        } else {
+            // PROMPT PARA EL CLIENTE (Standard)
+            prompt = `
+Analiza el siguiente mensaje de voz transcrito de un CLIENTE.
 
 TRANSCRIPT:
 ${transcript}
@@ -142,6 +182,7 @@ Responde SOLO en JSON válido:
   "escalation_reason": "..." o null,
   "suggested_response": "Respuesta empática sugerida"
 }`;
+        }
 
         const routerOutput = this.router.route({
             prompt,
@@ -260,7 +301,8 @@ Responde SOLO en JSON válido:
         clientId?: string,
         conversationId?: string,
         messageId?: string,
-        originalAudioUrl?: string
+        originalAudioUrl?: string,
+        role: 'user' | 'assistant' = 'user'
     ): Promise<VoiceAnalysisResult & { responseAudioBuffer?: Buffer }> {
 
         const traceId = getTraceId();
@@ -288,7 +330,8 @@ Responde SOLO en JSON válido:
         }
 
         // 3. Analyze
-        const analysis = await this.analyzeTranscript(transcription.transcript, clientContext);
+        // 3. Analyze
+        const analysis = await this.analyzeTranscript(transcription.transcript, clientContext, role);
 
         logger.info('VOICE_ANALYZED', {
             traceId,

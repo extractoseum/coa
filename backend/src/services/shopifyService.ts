@@ -441,7 +441,7 @@ export const searchLocalProducts = async (query: string): Promise<any[]> => {
     })) || [];
 };
 
-export const HOLOGRAM_PURCHASE_URL = 'https://extractoseum.com/collections/analisis-coa';
+export const HOLOGRAM_PURCHASE_URL = process.env.SHOPIFY_HOLOGRAM_URL || 'https://extractoseum.com/collections/analisis-coa';
 
 // COA metafield namespace and key
 const COA_METAFIELD_NAMESPACE = 'coa_system';

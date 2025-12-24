@@ -202,13 +202,16 @@ export class CRMService {
      */
     public async sendVoiceMessage(conversationId: string, text: string, role: CRMMessage['role'] = 'assistant'): Promise<CRMMessage> {
         // 1. Get Conversation to find voice profile
-        const { data: conv } = await supabase
+        const { data: conv, error } = await supabase
             .from('conversations')
             .select('*, crm_columns(voice_profile)')
             .eq('id', conversationId)
             .single();
 
-        if (!conv) throw new Error('Conversation not found');
+        if (error || !conv) {
+            console.error(`[CRMService] SendVoice error: ${error?.message || 'Conv not found'}`);
+            throw new Error('Conversation not found');
+        }
 
         // 2. Resolve Voice Profile
         // Priority: Conversation Override > Column Config > Default (Nova)
@@ -223,7 +226,7 @@ export class CRMService {
         let analysis: any;
 
         try {
-            analysis = await vs.analyzeTranscript(text);
+            analysis = await vs.analyzeTranscript(text, undefined, role);
             emotion = analysis.emotionFusionPrimary;
             console.log(`[CRMService] Analyzed text for voice. Emotion: ${emotion}, Intent: ${analysis.intent}`);
         } catch (ae) {
@@ -332,7 +335,7 @@ export class CRMService {
                 }
             };
 
-            attemptDispatch();
+            await attemptDispatch();
         }
 
         return insertedMsg;
@@ -467,32 +470,27 @@ export class CRMService {
         }
     }
 
-    // Standardize phone normalization (Fix #9)
-    // Uses centralized cleanup utility for DB consistency
-    private normalizePhone(phone: string): string {
-        return cleanupPhone(phone);
-    }
+
 
     /**
      * Dispatcher logic with Fast Gates.
      * Decides if an incoming message needs an AI response or just a status update.
      */
     public async processInbound(channel: CRMConversation['channel'], handle: string, content: string, raw: any): Promise<CRMMessage | void> {
-        console.log(`[CRMService] Incoming Inbound: ${handle} (Channel: ${channel})`);
-        console.log(`[CRMService] Incoming RAW:`, JSON.stringify(raw).substring(0, 500));
+        // STRICT: Enforce 10-digit handle consistency immediately
+        const cleanHandle = cleanupPhone(handle);
+        console.log(`[CRMService] Incoming Inbound: ${cleanHandle} (Raw: ${handle}, Channel: ${channel})`);
 
-        // Attempt to extract channel reference (Whapi ID)
-        const channelRef = raw.channel_id || null;
-
-        const conversation = await this.getOrCreateConversation(channel, handle, channelRef);
+        // Use cleanHandle everywhere below
+        const conversation = await this.getOrCreateConversation(channel, cleanHandle, raw.channel_id || null);
 
         // --- NEW: AUTO-ENRICHMENT (Phase 53/59 - AWAITED) ---
         // Ensure we always have the latest Avatar/Name when they write to us.
         // Awaiting this (Phase 59) guarantees UI parity on new message arrival.
         try {
-            await this.syncContactSnapshot(handle, channel);
+            await this.syncContactSnapshot(cleanHandle, channel);
         } catch (e) {
-            console.error(`[CRMService] Enrichment failed for ${handle}:`, e);
+            console.error(`[CRMService] Enrichment failed for ${cleanHandle}:`, e);
         }
 
         // --- NEW: DEDUPLICATION CHECK ---
@@ -505,12 +503,9 @@ export class CRMService {
                 .maybeSingle();
 
             if (existing) {
-                console.log(`[CRMService] Skipping duplicate message (external_id: ${raw.id} already exists)`);
-                // We still trigger the voice pipeline if it's audio and we just got the URL?
-                // Actually, if it exists, it was likely already processed or it's a status update.
-                // But statuses are handled by updateMessageStatus. 
-                // handleInbound should ONLY be for new messages.
-                return;
+                console.log(`[CRMService] Returning existing message for duplicate external_id: ${raw.id}`);
+                // Return existing to allow downstream (Voice Pipeline) to retry if it lacked media before
+                return existing as any;
             }
         }
 
@@ -566,11 +561,16 @@ export class CRMService {
             }
         }
 
-        const { data: column } = await supabase
+        const { data: column, error } = await supabase
             .from('crm_columns')
             .select('*')
             .eq('id', conversation.column_id)
+            .eq('id', conversation.column_id)
             .single();
+
+        if (error) {
+            console.warn(`[CRMService] Column fetch failed: ${error.message}`);
+        }
 
         if (!column || column.mode === 'HUMAN_MODE') {
             console.log(`[CRMService] Column ${column?.name || 'unknown'} is in HUMAN_MODE or missing. AI response silenced.`);
@@ -580,7 +580,7 @@ export class CRMService {
             // Check raw.from_me OR the explicit controller flag _generated_from_me
             if (raw.from_me || raw._generated_from_me === true || raw.direction === 'outbound' || raw.role === 'assistant') {
                 console.log(`[CRMService] Skipping AI for outbound/assistant message (Flag: ${raw._generated_from_me}, Raw: ${raw.from_me}).`);
-                return;
+                return createdMsg;
             }
 
             // 2.2 EMERGENCY LOOP BREAKER
@@ -889,12 +889,12 @@ export class CRMService {
     public async syncContactSnapshot(handle: string, channel: string): Promise<any> {
         // 1. Fetch Client Profile (if exists)
         // Normalize handle for fuzzy phone matching
-        const cleanPhone = this.normalizePhone(handle);
+        const cleanPhone = cleanupPhone(handle);
         const { data: client } = await supabase
             .from('clients')
             .select('*')
             .or(`phone.ilike.%${cleanPhone},email.eq.${handle}`)
-            .single();
+            .maybeSingle();
 
         let ltv = 0;
         let ordersCount = 0;
@@ -958,7 +958,7 @@ export class CRMService {
                     // --- IDENTITY BRIDGE: PERSIST LINK TO CLIENTS TABLE ---
                     if (shopifyCustomer.email || shopifyCustomer.phone) {
                         try {
-                            const cleanPhone = this.normalizePhone(shopifyCustomer.phone || handle);
+                            const cleanPhone = cleanupPhone(shopifyCustomer.phone || handle);
                             await supabase.from('clients').upsert({
                                 phone: cleanPhone,
                                 email: shopifyCustomer.email || client?.email,
@@ -1001,9 +1001,13 @@ export class CRMService {
         let avatarUrl = null;
         if (channel === 'WA') {
             try {
-                const waProfile = await getContactInfo(handle);
-                if (waProfile.exists && waProfile.profilePic) {
+                // FORCE use of cleanPhone (10 digits) which whapiService will normalize for API
+                const waProfile = await getContactInfo(cleanPhone);
+                if (waProfile.exists && waProfile.profilePic && waProfile.profilePic.startsWith('http')) {
                     avatarUrl = waProfile.profilePic;
+                    console.log(`[CRMService] Got avatar from Whapi for ${cleanPhone}: ${avatarUrl.substring(0, 60)}...`);
+                } else {
+                    console.log(`[CRMService] No avatar from Whapi for ${cleanPhone} (profilePic: ${waProfile.profilePic || 'null'})`);
                 }
             } catch (e) {
                 console.warn('[CRMService] Failed to fetch WA avatar:', e);
@@ -1011,23 +1015,40 @@ export class CRMService {
         }
 
         // 3. Update Snapshot Table
+        const payload = {
+            handle: cleanPhone,
+            channel,
+            name: name || cleanPhone,
+            ltv,
+            orders_count: ordersCount,
+            average_ticket: avgTicket,
+            risk_level: ltv > 5000 ? 'vip' : 'low',
+            tags,
+            last_shipping_status: lastShipping?.status,
+            last_shipping_carrier: lastShipping?.carrier,
+            last_shipping_tracking: lastShipping?.tracking,
+            last_updated_at: new Date().toISOString()
+        };
+
+        // Fix #15: Protect existing avatar if new one is null
+        if (avatarUrl) {
+            (payload as any).avatar_url = avatarUrl;
+        } else {
+            // Check if we need to preserve existing?
+            const { data: existing } = await supabase
+                .from('crm_contact_snapshots')
+                .select('avatar_url')
+                .eq('handle', handle)
+                .maybeSingle();
+
+            if (existing?.avatar_url) {
+                (payload as any).avatar_url = existing.avatar_url;
+            }
+        }
+
         const { data: snapshot, error } = await supabase
             .from('crm_contact_snapshots')
-            .upsert({
-                handle,
-                channel,
-                name: name || handle,
-                ltv,
-                orders_count: ordersCount,
-                average_ticket: avgTicket,
-                risk_level: ltv > 5000 ? 'vip' : 'low',
-                tags,
-                last_shipping_status: lastShipping?.status,
-                last_shipping_carrier: lastShipping?.carrier,
-                last_shipping_tracking: lastShipping?.tracking,
-                avatar_url: avatarUrl,
-                last_updated_at: new Date().toISOString()
-            }, { onConflict: 'handle' })
+            .upsert(payload, { onConflict: 'handle' })
             .select('*')
             .single();
 
@@ -1047,7 +1068,7 @@ export class CRMService {
             .from('crm_contact_snapshots')
             .select('*')
             .eq('handle', handle)
-            .single();
+            .maybeSingle();
 
         if (!data) {
             return this.syncContactSnapshot(handle, channel);
@@ -1100,7 +1121,7 @@ export class CRMService {
                 query = query.eq('customer_email', handle);
             } else {
                 // Robust Phone Match: Last 10 digits to handle country codes (e.g. +52)
-                const cleanPhone = this.normalizePhone(handle);
+                const cleanPhone = cleanupPhone(handle);
                 if (cleanPhone.length >= 10) {
                     query = query.ilike('customer_phone', `%${cleanPhone}`);
                 } else {
@@ -1196,7 +1217,7 @@ export class CRMService {
             if (!conv || messages.length < 2) return;
 
             // 2. Fetch Recent Browsing Behavior
-            const last10 = this.normalizePhone(conv.contact_handle);
+            const last10 = cleanupPhone(conv.contact_handle);
             const { data: client } = await supabase
                 .from('clients')
                 .select('id, email')
@@ -1280,7 +1301,7 @@ export class CRMService {
                 // --- IDENTITY BRIDGE: IF EMAIL FOUND, UPDATE CLIENT RECORD ---
                 if (result.user_email && !conv.contact_handle.includes('@')) {
                     try {
-                        const cleanPhone = this.normalizePhone(conv.contact_handle);
+                        const cleanPhone = cleanupPhone(conv.contact_handle);
                         await supabase.from('clients').upsert({
                             phone: cleanPhone,
                             email: result.user_email,
@@ -1299,7 +1320,7 @@ export class CRMService {
                             // but Identity Bridge is best effort.
                             // Actually user requested "Email discovery retry".
                             console.log('[CRMService] Retrying Identity Bridge...');
-                            const cleanPhone = this.normalizePhone(conv.contact_handle);
+                            const cleanPhone = cleanupPhone(conv.contact_handle);
                             await supabase.from('clients').upsert({
                                 phone: cleanPhone,
                                 email: result.user_email,
@@ -1344,32 +1365,7 @@ export class CRMService {
                     }
                 }
 
-                // --- NEW: IDENTITY PROMOTION (Phase 63) ---
-                if (result.user_name) {
-                    try {
-                        const { data: currentSnapshot } = await supabase
-                            .from('crm_contact_snapshots')
-                            .select('name')
-                            .eq('handle', conv.contact_handle)
-                            .single();
-
-                        // Promote if snapshot has no name OR name is just the phone number
-                        const needsPromotion =
-                            !currentSnapshot?.name ||
-                            currentSnapshot.name === conv.contact_handle ||
-                            currentSnapshot.name.replace(/\D/g, '') === conv.contact_handle.replace(/\D/g, ''); // e.g. "+52..." vs "52..."
-
-                        if (needsPromotion) {
-                            console.log(`[CRMService] Promoting Identity: "${result.user_name}" for ${conv.contact_handle}`);
-                            await supabase
-                                .from('crm_contact_snapshots')
-                                .update({ name: result.user_name })
-                                .eq('handle', conv.contact_handle);
-                        }
-                    } catch (promoErr) {
-                        console.error('[CRMService] Identity promotion failed:', promoErr);
-                    }
-                }
+                // Duplicate Identity Promotion block removed (Phase 66 audit fix)
 
                 console.log(`[CRMService] facts updated for ${conversationId} (Predicted Friction: ${result.friction_score})`);
 
@@ -1485,6 +1481,13 @@ export class CRMService {
             .single();
 
         if (!conv) throw new Error('Conversation not found');
+
+        // 1.1 Validate Inquiry matches valid state
+        const activeInquiry = conv.facts?.system_inquiry;
+        if (!activeInquiry || activeInquiry.id !== inquiryId) {
+            console.warn(`[CRMService] Warning: Inquiry ${inquiryId} mismatch or already resolved.`);
+            throw new Error(`Inquiry ${inquiryId} is not active on this conversation.`);
+        }
 
         // 2. Handle Action Logic
         if (action === 'update_contact_name' || action === 'custom_response') {

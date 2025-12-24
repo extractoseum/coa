@@ -14,7 +14,9 @@ const transporter = nodemailer.createTransport({
     },
 });
 
-const LOGO_URL = 'https://coa.extractoseum.com/logo_full.svg'; // Public root asset
+const COMPANY_WEBSITE = process.env.COMPANY_WEBSITE || 'https://extractoseum.com';
+const APP_BASE_URL = process.env.APP_BASE_URL || 'https://coa.extractoseum.com';
+const LOGO_URL = `${APP_BASE_URL}/logo_full.svg`; // Public root asset
 const BRAND_COLOR = '#4F46E5';
 const ACCENT_COLOR = '#D4AF37';
 
@@ -52,8 +54,8 @@ const getBaseTemplate = (content: string, title: string) => `
         <div class="footer">
             <p>&copy; ${new Date().getFullYear()} EXTRACTOS EUM&trade; . Todos los derechos reservados.</p>
             <div class="footer-links">
-                <a href="https://extractoseum.com">Sitio Web</a>
-                <a href="https://coa.extractoseum.com/dashboard">Mi Dashboard</a>
+                <a href="${COMPANY_WEBSITE}">Sitio Web</a>
+                <a href="${APP_BASE_URL}/dashboard">Mi Dashboard</a>
             </div>
         </div>
     </div>
@@ -84,7 +86,7 @@ export const sendDataEmail = async (to: string, subject: string, html: string, o
  */
 export const sendNewCoaEmail = async (to: string, coaName: string, coaToken: string) => {
     const title = 'Nuevo Certificado Disponible';
-    const coaUrl = `https://coa.extractoseum.com/coa/${coaToken}`;
+    const coaUrl = `${APP_BASE_URL}/coa/${coaToken}`;
     const content = `
         Se ha asignado un nuevo Certificado de Análisis (COA) a tu cuenta:<br>
         <strong style="font-size: 18px; color: ${BRAND_COLOR};">${coaName}</strong><br><br>
@@ -125,7 +127,7 @@ export const sendLoyaltyUpdateEmail = async (to: string, tierName: string, type:
     const content = `
         ${message}
         <br><br>
-        <a href="https://coa.extractoseum.com/dashboard" class="button">Ir a mi Dashboard</a>
+        <a href="${APP_BASE_URL}/dashboard" class="button">Ir a mi Dashboard</a>
     `;
 
     return sendDataEmail(to, subject, getBaseTemplate(content, title));
@@ -141,7 +143,7 @@ export const sendOrderCreatedEmail = async (to: string, orderNumber: string) => 
         Hemos recibido tu pedido <strong>${orderNumber}</strong> correctamente.<br><br>
         Nuestro equipo ya está trabajando en su preparación. Te notificaremos por este mismo medio en cuanto el paquete sea entregado a la paquetería.
         <br><br>
-        <a href="https://coa.extractoseum.com/dashboard" class="button">Ver estado del pedido</a>
+        <a href="${APP_BASE_URL}/dashboard" class="button">Ver estado del pedido</a>
     `;
 
     return sendDataEmail(to, subject, getBaseTemplate(content, title));
@@ -167,7 +169,7 @@ export const sendOrderShippedEmail = async (to: string, orderNumber: string, car
         ${trackingHtml}<br><br>
         Puedes rastrear tu paquete desde nuestro portal o desde el sitio oficial de la paquetería.
         <br><br>
-        <a href="https://coa.extractoseum.com/my-orders" class="button">Rastrear mi pedido</a>
+        <a href="${APP_BASE_URL}/my-orders" class="button">Rastrear mi pedido</a>
     `;
 
     return sendDataEmail(to, subject, getBaseTemplate(content, title));
@@ -184,7 +186,7 @@ export const sendTrackingUpdateEmail = async (to: string, orderNumber: string, s
         ${statusMessage}<br><br>
         Puedes seguir rastreando tu paquete desde nuestro portal.
         <br><br>
-        <a href="https://coa.extractoseum.com/my-orders" class="button">Ver seguimiento</a>
+        <a href="${APP_BASE_URL}/my-orders" class="button">Ver seguimiento</a>
     `;
 
     return sendDataEmail(to, subject, getBaseTemplate(content, title));

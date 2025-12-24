@@ -139,7 +139,9 @@ export class VapiService {
                         break;
                     case 'get_coa_status':
                         // start placeholder
-                        result = { status: 'found', batch: args.batch_number, url: 'https://example.com/coa.pdf' };
+                        // TODO: Implement actual COA PDF generation
+                        const mockPdfUrl = process.env.MOCK_COA_PDF_URL || 'https://extractoseum.com/assets/sample-coa.pdf';
+                        result = { status: 'found', batch: args.batch_number, url: mockPdfUrl };
                         break;
                     case 'escalate_to_human':
                         result = { escalated: true, message: 'Agent notified' };

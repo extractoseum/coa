@@ -368,8 +368,14 @@ export const getContactInfo = async (phone: string): Promise<{
         console.log(`[Whapi] Profile Response for ${phone}:`, JSON.stringify(data));
 
         // Whapi returns icon_full, icon, chat_pic, avatar, or image depending on version/context
-        const profilePic = data?.icon_full || data?.icon || data?.chat_pic || data?.avatar || data?.image || null;
+        // IMPORTANT: Filter empty strings - Whapi sometimes returns "" instead of null
+        const candidates = [data?.icon_full, data?.icon, data?.chat_pic, data?.avatar, data?.image];
+        const profilePic = candidates.find(url => url && url.length > 10 && url.startsWith('http')) || null;
         const name = data?.name || data?.pushname || null;
+
+        if (!profilePic) {
+            console.log(`[Whapi] Profile for ${phone} has no valid avatar. Raw values: icon_full="${data?.icon_full}", icon="${data?.icon}"`);
+        }
 
         return {
             exists: true,
