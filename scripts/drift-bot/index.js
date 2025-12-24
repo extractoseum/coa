@@ -51,10 +51,25 @@ function main() {
             console.log(JSON.stringify(report, null, 2));
         }
 
+        let agentMapStats = null;
+
         // 6. Generate Agent Map (Phase 46)
-        // Auto-generate if requested OR if verified clean (optional, stick to flag for now)
         if (args.gen) {
-            agentGen.generate(process.cwd());
+            const map = agentGen.generate(process.cwd());
+            agentMapStats = {
+                generated: true,
+                count: map.capabilities.length,
+                path: '/agentMap.json'
+            };
+        }
+
+        // Augment Report for JSON output
+        if (agentMapStats) {
+            report.agentMap = agentMapStats;
+        }
+
+        if (args.json) {
+            console.log(JSON.stringify(report, null, 2));
         }
 
         const success = report.summary.ghostCount === 0 &&

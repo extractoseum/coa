@@ -22,7 +22,7 @@ export const getDriftReport = async (req: Request, res: Response) => {
         // However, in Prod, the 'project root' might not contain 'frontend/src'.
         // We will catch that error.
 
-        const { stdout } = await execPromise(`node "${scriptPath}" --json`);
+        const { stdout } = await execPromise(`node "${scriptPath}" --json --gen`);
 
         try {
             const report = JSON.parse(stdout);

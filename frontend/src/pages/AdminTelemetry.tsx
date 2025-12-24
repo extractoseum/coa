@@ -303,12 +303,18 @@ export default function AdminTelemetry() {
                                 </div>
                             </div>
 
-                            <div className="text-right">
+                            <div className="flex flex-col gap-2 items-end">
                                 <div className={`inline-flex items-center gap-2 px-2 py-1 rounded-full text-[10px] font-bold uppercase ${drift.ghosts?.length > 0 ? 'bg-red-500/10 text-red-500' : 'bg-green-500/10 text-green-500'
                                     }`}>
                                     <div className={`w-1.5 h-1.5 rounded-full ${drift.ghosts?.length > 0 ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`} />
                                     {drift.ghosts?.length > 0 ? 'Critical Drift' : 'Healthy'}
                                 </div>
+                                {drift.agentMap?.generated && (
+                                    <a href={drift.agentMap.path} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 px-2 py-1 rounded-full text-[10px] font-bold uppercase bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 transition-colors">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                                        Agent Contract: {drift.agentMap.count} Cap
+                                    </a>
+                                )}
                             </div>
                         </div>
                     )}
