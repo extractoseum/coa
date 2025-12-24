@@ -315,7 +315,7 @@ export const checkPhoneExists = async (phone: string): Promise<boolean> => {
     if (!isWhapiConfigured()) return false;
 
     try {
-        const normalizedPhone = normalizePhone(phone);
+        const normalizedPhone = normalizePhone(phone, 'whapi');
         const response = await whapiApi.head(`/contacts/${normalizedPhone}`);
         return response.status === 200;
     } catch {
@@ -340,7 +340,7 @@ export const getContactInfo = async (phone: string): Promise<{
     }
 
     try {
-        const normalizedPhone = normalizePhone(phone);
+        const normalizedPhone = normalizePhone(phone, 'whapi');
         console.log(`[Whapi] Fetching profile for ${normalizedPhone}...`);
 
         const response = await whapiApi.get(`/contacts/${normalizedPhone}/profile`);
