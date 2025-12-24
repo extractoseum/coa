@@ -52,7 +52,8 @@ const CHECKS = {
     {
       name: 'Telemetry Guardrails',
       command: 'node scripts/validate-uimap.js',
-      timeout: 30000
+      timeout: 30000,
+      skipInProduction: true
     }
   ],
   warning: [
