@@ -1,5 +1,5 @@
 -- =============================================
--- MIGRATION: ENABLE ROW LEVEL SECURITY (RLS) - v2
+-- MIGRATION: ENABLE ROW LEVEL SECURITY (RLS) - v3
 -- Description: Fixes Security Advisor warnings.
 -- Strategy:
 -- 1. Enable RLS on all tables.
@@ -22,20 +22,19 @@ CREATE POLICY "Service Role Full Access" ON crm_messages FOR ALL TO service_role
 DROP POLICY IF EXISTS "Anon Read Access" ON crm_messages;
 CREATE POLICY "Anon Read Access" ON crm_messages FOR SELECT TO anon USING (true);
 
--- 3. CRM_COLUMNS (Needed for Board Layout)
+-- 3. CRM_COLUMNS
 ALTER TABLE crm_columns ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Service Role Full Access" ON crm_columns;
 CREATE POLICY "Service Role Full Access" ON crm_columns FOR ALL TO service_role USING (true) WITH CHECK (true);
 DROP POLICY IF EXISTS "Anon Read Access" ON crm_columns;
 CREATE POLICY "Anon Read Access" ON crm_columns FOR SELECT TO anon USING (true);
 
--- 4. CLIENTS (Sensitive - Service Role Only)
+-- 4. CLIENTS
 ALTER TABLE clients ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Service Role Full Access" ON clients;
 CREATE POLICY "Service Role Full Access" ON clients FOR ALL TO service_role USING (true) WITH CHECK (true);
--- Anon cannot read clients
 
--- 5. ORDERS (Sensitive - Service Role Only)
+-- 5. ORDERS
 ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Service Role Full Access" ON orders;
 CREATE POLICY "Service Role Full Access" ON orders FOR ALL TO service_role USING (true) WITH CHECK (true);
@@ -55,22 +54,22 @@ ALTER TABLE voice_interactions ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Service Role Full Access" ON voice_interactions;
 CREATE POLICY "Service Role Full Access" ON voice_interactions FOR ALL TO service_role USING (true) WITH CHECK (true);
 
--- 9. KNOWLEDGE_BASE
+-- 9. KNOWLEDGE_BASE (Vector Store)
 ALTER TABLE knowledge_base ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Service Role Full Access" ON knowledge_base;
 CREATE POLICY "Service Role Full Access" ON knowledge_base FOR ALL TO service_role USING (true) WITH CHECK (true);
 
--- 10. AGENTS
-ALTER TABLE agents ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Service Role Full Access" ON agents;
-CREATE POLICY "Service Role Full Access" ON agents FOR ALL TO service_role USING (true) WITH CHECK (true);
+-- 10. CHANNEL_CHIPS (Omnichannel)
+ALTER TABLE channel_chips ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Service Role Full Access" ON channel_chips;
+CREATE POLICY "Service Role Full Access" ON channel_chips FOR ALL TO service_role USING (true) WITH CHECK (true);
 
--- 11. AI_MOUNTED_AGENTS (Drift Monitor)
-ALTER TABLE ai_mounted_agents ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Service Role Full Access" ON ai_mounted_agents;
-CREATE POLICY "Service Role Full Access" ON ai_mounted_agents FOR ALL TO service_role USING (true) WITH CHECK (true);
+-- 11. MINI_CHIPS
+ALTER TABLE mini_chips ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Service Role Full Access" ON mini_chips;
+CREATE POLICY "Service Role Full Access" ON mini_chips FOR ALL TO service_role USING (true) WITH CHECK (true);
 
--- 12. AI_KNOWLEDGE_FILES
-ALTER TABLE ai_knowledge_files ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Service Role Full Access" ON ai_knowledge_files;
-CREATE POLICY "Service Role Full Access" ON ai_knowledge_files FOR ALL TO service_role USING (true) WITH CHECK (true);
+-- 12. CONVERSATION_CHIPS
+ALTER TABLE conversation_chips ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Service Role Full Access" ON conversation_chips;
+CREATE POLICY "Service Role Full Access" ON conversation_chips FOR ALL TO service_role USING (true) WITH CHECK (true);
