@@ -29,7 +29,7 @@ export const IdentityResolutionCard: React.FC<IdentityResolutionCardProps> = ({ 
                 method: 'PUT', // Assuming PUT for update, or we might need a specific endpoint
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('token')}` // Simple token retrieval
+                    'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
                 },
                 body: JSON.stringify({ name: selectedName })
             });
