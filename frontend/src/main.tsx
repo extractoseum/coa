@@ -6,8 +6,12 @@ import './index.css'
 import './telemetry/trace'
 import App from './App.tsx'
 
+import { ErrorBoundary } from './telemetry/ErrorBoundary'
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 )

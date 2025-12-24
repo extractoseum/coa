@@ -575,6 +575,7 @@ export default function COADetails() {
     // Helper function to check if a cannabinoid is a THC variant
     // All Delta cannabinoids (Δ8, Δ9, Δ10, etc.) and THC variants are considered THC
     const isTHCVariant = (analyte: string): boolean => {
+        if (!analyte) return false;
         const upperAnalyte = analyte.toUpperCase();
         // Match: Delta/Δ followed by any number, THC variants, and exclude totals
         return (
@@ -587,6 +588,7 @@ export default function COADetails() {
 
     // Get factor for THC acids (THCA needs 0.877 conversion factor)
     const getTHCFactor = (analyte: string): number => {
+        if (!analyte) return 1.0;
         const upperAnalyte = analyte.toUpperCase();
         // THCA, Δ9-THCA, Δ8-THCA, etc. need the decarboxylation factor
         if (upperAnalyte.includes('THCA')) {
@@ -637,7 +639,7 @@ export default function COADetails() {
         : null;
 
     // Chart Data (Top 5 + Others) - Filter out "Total" rows to avoid skewing chart
-    let filteredCannabinoids = coa.cannabinoids.filter(c => !c.analyte.toUpperCase().startsWith('TOTAL'));
+    let filteredCannabinoids = coa.cannabinoids.filter(c => c.analyte && !c.analyte.toUpperCase().startsWith('TOTAL'));
 
     // Fallback: If filtering removed everything (e.g. only "Total" exists), use original data
     if (filteredCannabinoids.length === 0) {
@@ -1582,7 +1584,7 @@ export default function COADetails() {
                                             </p>
                                         )}
                                     </div>
-                                    {coa.metadata.client_info.licenses && coa.metadata.client_info.licenses.length > 0 && (
+                                    {coa.metadata.client_info?.licenses && coa.metadata.client_info.licenses.length > 0 && (
                                         <div className="flex flex-col justify-center">
                                             {coa.metadata.client_info.licenses.map((lic: string, idx: number) => (
                                                 <span key={idx} className="inline-flex items-center text-sm font-mono px-2 py-1 rounded bg-opacity-20 mb-1 w-fit print:border print:border-gray-300"
