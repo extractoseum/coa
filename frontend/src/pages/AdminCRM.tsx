@@ -97,23 +97,33 @@ const AdminCRM: React.FC = () => {
     const [isResizingResourceDock, setIsResizingResourceDock] = useState(false);
 
     const filteredConversations = useMemo(() => {
-        if (!searchTerm) return conversations;
-        const s = searchTerm.toLowerCase();
-        const rawSearch = searchTerm.replace(/\D/g, ''); // Extract only digits for phone matching
+        let base = conversations;
+        if (searchTerm) {
+            const s = searchTerm.toLowerCase();
+            const rawSearch = searchTerm.replace(/\D/g, ''); // Extract only digits for phone matching
 
-        return conversations.filter(c => {
-            const handle = c.contact_handle?.toLowerCase() || '';
-            const rawHandle = handle.replace(/\D/g, '');
-            const name = (c.contact_name || c.facts?.user_name || '').toLowerCase();
-            const email = (c.facts?.user_email || '').toLowerCase();
-            const summary = (c.summary || '').toLowerCase();
+            base = conversations.filter(c => {
+                const handle = c.contact_handle?.toLowerCase() || '';
+                const rawHandle = handle.replace(/\D/g, '');
+                const name = (c.contact_name || c.facts?.user_name || '').toLowerCase();
+                const email = (c.facts?.user_email || '').toLowerCase();
+                const summary = (c.summary || '').toLowerCase();
 
-            return handle.includes(s) ||
-                (rawSearch && rawHandle.includes(rawSearch)) ||
-                name.includes(s) ||
-                email.includes(s) ||
-                summary.includes(s) ||
-                c.tags?.some(t => t.toLowerCase().includes(s));
+                return handle.includes(s) ||
+                    (rawSearch && rawHandle.includes(rawSearch)) ||
+                    name.includes(s) ||
+                    email.includes(s) ||
+                    summary.includes(s) ||
+                    c.tags?.some(t => t.toLowerCase().includes(s));
+            });
+        }
+
+        // --- PHASE 60: AUTO-SORTING ---
+        // Ensure the latest interactions are always visible at the top of their columns
+        return [...base].sort((a, b) => {
+            const timeA = new Date(a.last_message_at || 0).getTime();
+            const timeB = new Date(b.last_message_at || 0).getTime();
+            return timeB - timeA;
         });
     }, [conversations, searchTerm]);
 
@@ -406,15 +416,23 @@ const AdminCRM: React.FC = () => {
             .on(
                 'postgres_changes',
                 {
-                    event: 'UPDATE',
+                    event: '*', // Listen for INSERT and UPDATE (PHASE 60)
                     schema: 'public',
                     table: 'conversations'
                 },
                 (payload: any) => {
-                    console.log('[CRM] Realtime Conversation Update:', payload.new.id);
-                    setConversations((prev) =>
-                        prev.map(c => c.id === payload.new.id ? { ...c, ...payload.new } : c)
-                    );
+                    console.log('[CRM] Realtime Conversation Sync:', payload.eventType, payload.new.id);
+                    if (payload.eventType === 'INSERT') {
+                        setConversations((prev) => {
+                            const exists = prev.some(c => c.id === payload.new.id);
+                            if (exists) return prev;
+                            return [payload.new, ...prev];
+                        });
+                    } else if (payload.eventType === 'UPDATE') {
+                        setConversations((prev) =>
+                            prev.map(c => c.id === payload.new.id ? { ...c, ...payload.new } : c)
+                        );
+                    }
                 }
             )
             .subscribe();

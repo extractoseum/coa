@@ -144,16 +144,19 @@ export class CRMService {
         console.log(`[CRMService] [TRACE_CONV] Routing: Column=${targetColumnId}, Agent=${routing.agent_id}, Source=${routing.traffic_source}`);
 
         // 5. Create new
+        const finalHandle = (channel === 'WA') ? cleanupPhone(handle) : handle;
+
         const { data: created, error: createError } = await supabase
             .from('conversations')
             .insert({
                 channel,
-                contact_handle: handle,
+                contact_handle: finalHandle,
                 column_id: targetColumnId,
-                status: 'active',
                 agent_override_id: routing.agent_id,
-                channel_chip_id: routing.channel_chip_id,
-                facts: routing.traffic_source ? { traffic_source: routing.traffic_source } : {}
+                status: 'active',
+                traffic_source: routing.traffic_source || 'organic',
+                last_message_at: new Date().toISOString(),
+                summary: 'Nueva conversación'
             })
             .select('*')
             .single();
