@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { supabase } from '../config/supabase';
 import { updateOrderTracking } from '../services/trackingService';
+import { logger } from '../utils/Logger';
 
 /**
  * Get orders for the authenticated client
@@ -22,7 +23,7 @@ export const getMyOrders = async (req: Request, res: Response) => {
 
         res.json({ success: true, orders });
     } catch (error: any) {
-        console.error('[Orders] Error fetching my orders:', error);
+        logger.error('[Orders] Error fetching my orders:', error, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: 'Error fetching orders' });
     }
 };
@@ -43,7 +44,7 @@ export const getOrderTrackingDetail = async (req: Request, res: Response) => {
 
         res.json({ success: true, tracking: tracking?.[0], all_tracking: tracking });
     } catch (error: any) {
-        console.error('[Tracking] Error fetching tracking detail:', error);
+        logger.error('[Tracking] Error fetching tracking detail:', error, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: 'Error fetching tracking info' });
     }
 };
@@ -68,7 +69,7 @@ export const refreshOrderTracking = async (req: Request, res: Response) => {
 
         res.json({ success: true, tracking: tracking?.[0], all_tracking: tracking });
     } catch (error: any) {
-        console.error('[Tracking] Error refreshing tracking:', error);
+        logger.error('[Tracking] Error refreshing tracking:', error, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: 'Error refreshing tracking' });
     }
 };

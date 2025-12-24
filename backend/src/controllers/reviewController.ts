@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { supabase } from '../config/supabase';
 import { notifyNewReviewForApproval, notifyReviewApproved } from '../services/onesignalService';
+import { logger } from '../utils/Logger';
 
 // Get reviews for a COA (public)
 export const getReviews = async (req: Request, res: Response) => {
@@ -73,7 +74,7 @@ export const getReviews = async (req: Request, res: Response) => {
             reviewsEnabled: true
         });
     } catch (err) {
-        console.error('Error fetching reviews:', err);
+        logger.error('Error fetching reviews:', err, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: 'Error del servidor' });
     }
 };
@@ -151,7 +152,7 @@ export const createReview = async (req: Request, res: Response) => {
 
             // Send push notification (non-blocking)
             notifyNewReviewForApproval(coa.client_id, coaName, reviewerName).catch(err => {
-                console.error('Error sending review notification:', err);
+                logger.error('Error sending review notification:', err, { correlation_id: req.correlationId });
             });
         }
 
@@ -163,7 +164,7 @@ export const createReview = async (req: Request, res: Response) => {
                 : 'Resena publicada'
         });
     } catch (err) {
-        console.error('Error creating review:', err);
+        logger.error('Error creating review:', err, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: 'Error del servidor' });
     }
 };
@@ -207,7 +208,7 @@ export const updateReview = async (req: Request, res: Response) => {
 
         res.json({ success: true });
     } catch (err) {
-        console.error('Error updating review:', err);
+        logger.error('Error updating review:', err, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: 'Error del servidor' });
     }
 };
@@ -246,7 +247,7 @@ export const deleteReview = async (req: Request, res: Response) => {
 
         res.json({ success: true });
     } catch (err) {
-        console.error('Error deleting review:', err);
+        logger.error('Error deleting review:', err, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: 'Error del servidor' });
     }
 };
@@ -285,7 +286,7 @@ export const checkUserReview = async (req: Request, res: Response) => {
             review
         });
     } catch (err) {
-        console.error('Error checking user review:', err);
+        logger.error('Error checking user review:', err, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: 'Error del servidor' });
     }
 };
@@ -335,7 +336,7 @@ export const getPendingReviews = async (req: Request, res: Response) => {
 
         res.json({ success: true, reviews: reviews || [] });
     } catch (err) {
-        console.error('Error fetching pending reviews:', err);
+        logger.error('Error fetching pending reviews:', err, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: 'Error del servidor' });
     }
 };
@@ -378,13 +379,13 @@ export const approveReview = async (req: Request, res: Response) => {
         if (review.client_id) {
             const coaName = coa?.strain_name || 'el producto';
             notifyReviewApproved(review.client_id, coaName).catch(err => {
-                console.error('Error sending review approved notification:', err);
+                logger.error('Error sending review approved notification:', err, { correlation_id: req.correlationId });
             });
         }
 
         res.json({ success: true });
     } catch (err) {
-        console.error('Error approving review:', err);
+        logger.error('Error approving review:', err, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: 'Error del servidor' });
     }
 };
@@ -425,7 +426,7 @@ export const rejectReview = async (req: Request, res: Response) => {
 
         res.json({ success: true });
     } catch (err) {
-        console.error('Error rejecting review:', err);
+        logger.error('Error rejecting review:', err, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: 'Error del servidor' });
     }
 };
@@ -475,7 +476,7 @@ export const updateReviewSettings = async (req: Request, res: Response) => {
 
         res.json({ success: true });
     } catch (err) {
-        console.error('Error updating review settings:', err);
+        logger.error('Error updating review settings:', err, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: 'Error del servidor' });
     }
 };

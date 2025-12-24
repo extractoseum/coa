@@ -6,6 +6,7 @@ import { AIConversationService } from '../services/aiConversationService';
 import { ARA_SYSTEM_PROMPT } from '../config/ara_persona';
 import fs from 'fs';
 import path from 'path';
+import { logger } from '../utils/Logger';
 
 export const classifyMessage = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -34,7 +35,7 @@ export const classifyMessage = async (req: Request, res: Response): Promise<void
         });
 
     } catch (error: any) {
-        console.error('[AIController] Classification error:', error.message);
+        logger.error('[AIController] Classification error:', error, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: 'AI processing failed' });
     }
 };
@@ -112,7 +113,7 @@ export const chatWithAra = async (req: Request, res: Response): Promise<void> =>
             if (fs.existsSync(identityPath)) {
                 systemInstruction = fs.readFileSync(identityPath, 'utf-8') + '\n\n';
             } else {
-                console.warn(`[AIController] Agent ${safeFolder} has no identity.md. Action blocked.`);
+                logger.warn(`[AIController] Agent ${safeFolder} has no identity.md. Action blocked.`, null, { correlation_id: req.correlationId });
                 res.status(403).json({
                     success: false,
                     error: `Agente no configurado: Falta instructivo principal (identity.md) en ${safeFolder}.`
@@ -129,12 +130,12 @@ export const chatWithAra = async (req: Request, res: Response): Promise<void> =>
                 }).join('\n');
 
                 systemInstruction += combinedContent;
-                console.log(`[AIController] Loaded AGENT: ${safeFolder} from ${foundCategory || 'legacy'} (${files.length + 1} files)`);
+                logger.info(`[AIController] Loaded AGENT: ${safeFolder} from ${foundCategory || 'legacy'} (${files.length + 1} files)`, { correlation_id: req.correlationId });
             } catch (err) {
-                console.error(`[AIController] Failed to load extra files for ${safeFolder}:`, err);
+                logger.error(`[AIController] Failed to load extra files for ${safeFolder}:`, err, { correlation_id: req.correlationId });
             }
         } else {
-            console.warn(`[AIController] Agent folder not found: ${safeFolder}. Using default.`);
+            logger.warn(`[AIController] Agent folder not found: ${safeFolder}. Using default.`, null, { correlation_id: req.correlationId });
             // Fallback to legacy or default
         }
 
@@ -174,7 +175,7 @@ export const chatWithAra = async (req: Request, res: Response): Promise<void> =>
         });
 
     } catch (error: any) {
-        console.error('[AIController] Chat error:', error.message);
+        logger.error('[AIController] Chat error:', error, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: error.message || 'AI chat failed' });
     }
 };
@@ -188,7 +189,7 @@ export const getUsageStats = async (req: Request, res: Response): Promise<void> 
             data: stats
         });
     } catch (error: any) {
-        console.error('[AIController] Usage stats error:', error.message);
+        logger.error('[AIController] Usage stats error:', error, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: 'Failed to fetch usage stats' });
     }
 };
@@ -212,7 +213,7 @@ export const checkModelsStatus = async (req: Request, res: Response): Promise<vo
             data: results
         });
     } catch (error: any) {
-        console.error('[AIController] Status check error:', error.message);
+        logger.error('[AIController] Status check error:', error, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: 'Status check failed' });
     }
 };

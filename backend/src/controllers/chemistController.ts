@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { supabase } from '../config/supabase';
+import { logger } from '../utils/Logger';
 
 // Get all chemists
 export const getAllChemists = async (req: Request, res: Response) => {
@@ -10,13 +11,13 @@ export const getAllChemists = async (req: Request, res: Response) => {
             .order('sort_order', { ascending: true });
 
         if (error) {
-            console.error('Get chemists error:', error);
+            logger.error('Get chemists error:', error, { correlation_id: req.correlationId });
             return res.status(500).json({ success: false, error: 'Failed to fetch chemists' });
         }
 
         res.json({ success: true, chemists: data || [] });
     } catch (err) {
-        console.error('Get chemists error:', err);
+        logger.error('Get chemists error:', err, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: 'Server error' });
     }
 };
@@ -31,13 +32,13 @@ export const getActiveChemists = async (req: Request, res: Response) => {
             .order('sort_order', { ascending: true });
 
         if (error) {
-            console.error('Get active chemists error:', error);
+            logger.error('Get active chemists error:', error, { correlation_id: req.correlationId });
             return res.status(500).json({ success: false, error: 'Failed to fetch active chemists' });
         }
 
         res.json({ success: true, chemists: data || [] });
     } catch (err) {
-        console.error('Get active chemists error:', err);
+        logger.error('Get active chemists error:', err, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: 'Server error' });
     }
 };
@@ -53,13 +54,13 @@ export const getDefaultChemist = async (req: Request, res: Response) => {
             .single();
 
         if (error && error.code !== 'PGRST116') {
-            console.error('Get default chemist error:', error);
+            logger.error('Get default chemist error:', error, { correlation_id: req.correlationId });
             return res.status(500).json({ success: false, error: 'Failed to fetch default chemist' });
         }
 
         res.json({ success: true, chemist: data || null });
     } catch (err) {
-        console.error('Get default chemist error:', err);
+        logger.error('Get default chemist error:', err, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: 'Server error' });
     }
 };
@@ -81,7 +82,7 @@ export const getChemistById = async (req: Request, res: Response) => {
 
         res.json({ success: true, chemist: data });
     } catch (err) {
-        console.error('Get chemist error:', err);
+        logger.error('Get chemist error:', err, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: 'Server error' });
     }
 };
@@ -118,7 +119,7 @@ export const createChemist = async (req: Request, res: Response) => {
                 });
 
             if (uploadError) {
-                console.error('Signature upload error:', uploadError);
+                logger.error('Signature upload error:', uploadError, { correlation_id: req.correlationId });
                 return res.status(500).json({
                     success: false,
                     error: `Error uploading signature: ${uploadError.message}. Make sure the 'chemists' bucket exists in Supabase Storage.`
@@ -158,13 +159,13 @@ export const createChemist = async (req: Request, res: Response) => {
             .single();
 
         if (error) {
-            console.error('Create chemist error:', error);
+            logger.error('Create chemist error:', error, { correlation_id: req.correlationId });
             return res.status(500).json({ success: false, error: 'Failed to create chemist' });
         }
 
         res.json({ success: true, chemist: data });
     } catch (err) {
-        console.error('Create chemist error:', err);
+        logger.error('Create chemist error:', err, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: 'Server error' });
     }
 };
@@ -241,13 +242,13 @@ export const updateChemist = async (req: Request, res: Response) => {
             .single();
 
         if (error) {
-            console.error('Update chemist error:', error);
+            logger.error('Update chemist error:', error, { correlation_id: req.correlationId });
             return res.status(500).json({ success: false, error: 'Failed to update chemist' });
         }
 
         res.json({ success: true, chemist: data });
     } catch (err) {
-        console.error('Update chemist error:', err);
+        logger.error('Update chemist error:', err, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: 'Server error' });
     }
 };
@@ -272,13 +273,13 @@ export const setDefaultChemist = async (req: Request, res: Response) => {
             .single();
 
         if (error) {
-            console.error('Set default chemist error:', error);
+            logger.error('Set default chemist error:', error, { correlation_id: req.correlationId });
             return res.status(500).json({ success: false, error: 'Failed to set default chemist' });
         }
 
         res.json({ success: true, chemist: data });
     } catch (err) {
-        console.error('Set default chemist error:', err);
+        logger.error('Set default chemist error:', err, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: 'Server error' });
     }
 };
@@ -311,13 +312,13 @@ export const deleteChemist = async (req: Request, res: Response) => {
             .single();
 
         if (error) {
-            console.error('Delete chemist error:', error);
+            logger.error('Delete chemist error:', error, { correlation_id: req.correlationId });
             return res.status(500).json({ success: false, error: 'Failed to delete chemist' });
         }
 
         res.json({ success: true, message: 'Chemist deactivated', chemist: data });
     } catch (err) {
-        console.error('Delete chemist error:', err);
+        logger.error('Delete chemist error:', err, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: 'Server error' });
     }
 };
@@ -361,13 +362,13 @@ export const permanentlyDeleteChemist = async (req: Request, res: Response) => {
             .eq('id', id);
 
         if (error) {
-            console.error('Permanently delete chemist error:', error);
+            logger.error('Permanently delete chemist error:', error, { correlation_id: req.correlationId });
             return res.status(500).json({ success: false, error: 'Failed to permanently delete chemist' });
         }
 
         res.json({ success: true, message: 'Chemist permanently deleted' });
     } catch (err) {
-        console.error('Permanently delete chemist error:', err);
+        logger.error('Permanently delete chemist error:', err, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: 'Server error' });
     }
 };
@@ -385,11 +386,13 @@ export const removeChemistSignature = async (req: Request, res: Response) => {
             .single();
 
         if (error) {
+            logger.error('Failed to remove signature:', error, { correlation_id: req.correlationId });
             return res.status(500).json({ success: false, error: 'Failed to remove signature' });
         }
 
         res.json({ success: true, chemist: data });
     } catch (err) {
+        logger.error('Remove signature error:', err, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: 'Server error' });
     }
 };

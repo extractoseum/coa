@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { ledgerService } from '../services/ledgerService';
 import { AuditorService } from '../services/AuditorService';
 import { requireAuth, requireSuperAdmin } from '../middleware/authMiddleware';
+import { logger } from '../utils/Logger';
 
 const router = Router();
 
@@ -28,6 +29,7 @@ router.get('/verify', requireAuth, requireSuperAdmin, async (req: Request, res: 
             });
         }
     } catch (error: any) {
+        logger.error('Ledger verification error:', error, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -46,6 +48,7 @@ router.get('/logs', requireAuth, requireSuperAdmin, async (req: Request, res: Re
         if (error) throw error;
         res.json({ success: true, count: data.length, logs: data });
     } catch (error: any) {
+        logger.error('Fetch ledger logs error:', error, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -59,6 +62,7 @@ router.get('/robot/stats', requireAuth, requireSuperAdmin, async (req: Request, 
         const stats = AuditorService.getInstance().getStats();
         res.json({ success: true, stats });
     } catch (error: any) {
+        logger.error('Fetch robot stats error:', error, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: error.message });
     }
 });

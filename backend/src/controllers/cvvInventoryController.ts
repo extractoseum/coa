@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { supabase } from '../config/supabase';
 import crypto from 'crypto';
+import { logger } from '../utils/Logger';
 
 // Generate CVV code (8 chars, uppercase hex)
 const generateCVV = () => crypto.randomBytes(4).toString('hex').toUpperCase();
@@ -110,7 +111,7 @@ export const generateUnassignedCVVs = async (req: Request, res: Response) => {
         res.json(responseData);
 
     } catch (error) {
-        console.error('Generate Unassigned CVVs Error:', error);
+        logger.error('Generate Unassigned CVVs Error:', error, { correlation_id: req.correlationId });
         res.status(500).json({ error: 'Internal Server Error' });
     }
 };
@@ -136,7 +137,7 @@ export const getUnassignedCVVs = async (req: Request, res: Response) => {
         });
 
     } catch (error) {
-        console.error('Get Unassigned CVVs Error:', error);
+        logger.error('Get Unassigned CVVs Error:', error, { correlation_id: req.correlationId });
         res.status(500).json({ error: 'Internal Server Error' });
     }
 };
@@ -210,7 +211,7 @@ export const assignCVVsToCOA = async (req: Request, res: Response) => {
         });
 
     } catch (error) {
-        console.error('Assign CVVs Error:', error);
+        logger.error('Assign CVVs Error:', error, { correlation_id: req.correlationId });
         res.status(500).json({ error: 'Internal Server Error' });
     }
 };
