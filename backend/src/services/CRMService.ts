@@ -1412,10 +1412,11 @@ export class CRMService {
         console.log(`[CRMService] Updating snapshot for ${handle}: ${JSON.stringify(updates)}`);
 
         // 1. Get existing or create if missing
+        const cleanHandle = cleanupPhone(handle);
         const { data: existing } = await supabase
             .from('crm_contact_snapshots')
             .select('*')
-            .eq('handle', handle)
+            .eq('handle', cleanHandle)
             .eq('channel', channel)
             .maybeSingle();
 
@@ -1434,7 +1435,7 @@ export class CRMService {
             const { data, error } = await supabase
                 .from('crm_contact_snapshots')
                 .insert({
-                    handle: handle,
+                    handle: cleanHandle,
                     channel,
                     ...updates,
                     last_updated_at: new Date().toISOString()
