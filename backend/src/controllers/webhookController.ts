@@ -4,7 +4,7 @@ import { supabase } from '../config/supabase';
 import { notifyLoyaltyUpdate, notifyOrderCreated, notifyOrderShipped, updateOneSignalTags } from '../services/onesignalService';
 import { getShopifyCustomerById, getShopifyOrderById } from '../services/shopifyService';
 import { logWebhook, logClient } from '../services/loggerService';
-import { crmService } from '../index';
+import { CRMService } from '../services/CRMService';
 
 // Shopify webhook secret (optional, for HMAC verification)
 const SHOPIFY_WEBHOOK_SECRET = process.env.SHOPIFY_WEBHOOK_SECRET || '';
@@ -772,7 +772,8 @@ export const handleCheckoutUpdate = async (req: Request, res: Response) => {
         console.log(`[Webhook] Checkout updated: ${checkoutId} (${email})`);
         await logWebhook('shopify_checkout_update_raw', checkout);
 
-        if (email && customer) {
+        // Relaxed Condition: email OR customer (Phase 53 Fix)
+        if (email || (customer && customer.id)) {
             const client = await getOrCreateClientInternal(customer, email);
             if (client) {
                 // Save to abandoned_checkouts table
@@ -799,7 +800,7 @@ export const handleCheckoutUpdate = async (req: Request, res: Response) => {
                 if (phone) {
                     console.log(`[Webhook] Proactively syncing snapshot for ${phone}...`);
                     // We assume WA channel for now as primary, or we could check if they have a conversation
-                    crmService.syncContactSnapshot(phone, 'WA').catch(err =>
+                    CRMService.getInstance().syncContactSnapshot(phone, 'WA').catch(err =>
                         console.error('[Webhook] Failed to sync snapshot:', err)
                     );
                 }

@@ -416,6 +416,12 @@ export class CRMService {
 
         const conversation = await this.getOrCreateConversation(channel, handle, channelRef);
 
+        // --- NEW: AUTO-ENRICHMENT (Phase 53) ---
+        // Ensure we always have the latest Avatar/Name when they write to us.
+        this.syncContactSnapshot(handle, channel).catch(e =>
+            console.error(`[CRMService] Background enrichment failed for ${handle}:`, e)
+        );
+
         // --- NEW: DEDUPLICATION CHECK ---
         // If external_id (raw.id) already exists, skip insertion!
         if (raw.id) {
