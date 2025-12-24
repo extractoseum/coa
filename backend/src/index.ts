@@ -35,6 +35,7 @@ import behaviorRoutes from './routes/behaviorRoutes'; // NEW: Behavioral Intelli
 import logsRoutes from './routes/logsRoutes'; // NEW: Telemetry Logs
 import sitemapRoutes from './routes/sitemapRoutes'; // NEW: Dynamic Sitemap
 import vapiRoutes from './routes/vapiRoutes'; // NEW: Vapi Real-Time Voice
+import driftRoutes from './routes/driftRoutes'; // NEW: Drift Bot Mission Control
 
 import { initCronJobs } from './services/cronService';
 
@@ -165,6 +166,7 @@ app.use('/api/v1/health', healthRoutes); // NEW: Vitality Health Check
 app.use('/api/v1/tools', toolsRoutes); // NEW: IDE Tools Editor
 app.use('/api/v1/behavior', behaviorRoutes); // NEW: Behavioral Intelligence Tracking
 app.use('/api/v1/vapi', vapiRoutes); // NEW: Vapi Voice Integration
+app.use('/api/v1/drift', driftRoutes); // NEW: Drift Bot
 
 // Telemetry Logs Endpoint (Surgical Injection)
 app.use('/api/v1/logs', logsRoutes); // Telemetry Logs

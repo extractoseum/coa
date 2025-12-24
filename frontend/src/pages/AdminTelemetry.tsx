@@ -3,7 +3,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useAuthHeaders } from '../contexts/AuthContext';
 import Layout from '../components/Layout';
 import { Screen } from '../telemetry/Screen';
-import { AlertCircle, AlertTriangle, Info, Terminal, RefreshCw, XCircle, ShieldCheck, Activity, CheckCircle, Play } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Info, Terminal, RefreshCw, XCircle, ShieldCheck, Activity, CheckCircle, Play, Ghost, Skull } from 'lucide-react';
 
 import { InsightsSummary } from '../components/InsightsSummary';
 import type { InsightSignal } from '../components/InsightsSummary';
@@ -24,6 +24,7 @@ export default function AdminTelemetry() {
     const [signals, setSignals] = useState<InsightSignal[]>([]);
     const [auditorStats, setAuditorStats] = useState<any>(null);
     const [diagnostics, setDiagnostics] = useState<any>(null);
+    const [drift, setDrift] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState<'all' | 'error' | 'warn' | 'info'>('all');
 
@@ -71,6 +72,17 @@ export default function AdminTelemetry() {
                 }
             } catch (err) {
                 console.error('Diagnostics fetch error:', err);
+            }
+
+            // Fetch Drift Report
+            try {
+                const driftRes = await fetch('/api/v1/drift/status', { headers: authHeaders });
+                const driftData = await driftRes.json();
+                if (driftData.success) {
+                    setDrift(driftData.report);
+                }
+            } catch (err) {
+                console.error('Drift fetch error:', err);
             }
 
             // Fetch Auditor Stats
@@ -147,8 +159,8 @@ export default function AdminTelemetry() {
                         <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
                             {/* Verdict Card */}
                             <div className={`p-4 rounded-xl border flex flex-col justify-between ${diagnostics.exitCode === 0 ? 'bg-green-500/10 border-green-500/30' :
-                                    diagnostics.exitCode === 1 ? 'bg-red-500/10 border-red-500/30' :
-                                        'bg-yellow-500/10 border-yellow-500/30'
+                                diagnostics.exitCode === 1 ? 'bg-red-500/10 border-red-500/30' :
+                                    'bg-yellow-500/10 border-yellow-500/30'
                                 }`}>
                                 <div className="flex items-center gap-2">
                                     <Activity className={diagnostics.exitCode === 0 ? 'text-green-400' : 'text-red-400'} size={20} />
@@ -156,7 +168,7 @@ export default function AdminTelemetry() {
                                 </div>
                                 <div>
                                     <p className={`text-2xl font-bold ${diagnostics.exitCode === 0 ? 'text-green-400' :
-                                            diagnostics.exitCode === 1 ? 'text-red-400' : 'text-yellow-400'
+                                        diagnostics.exitCode === 1 ? 'text-red-400' : 'text-yellow-400'
                                         }`}>
                                         {diagnostics.verdict || 'UNKNOWN'}
                                     </p>
@@ -252,88 +264,138 @@ export default function AdminTelemetry() {
                         )}
                     </div>
 
-                    {/* Filters */}
-                    <div className="flex gap-2 mb-6">
-                        {(['all', 'error', 'warn', 'info'] as const).map(f => (
-                            <button
-                                key={f}
-                                onClick={() => setFilter(f)}
-                                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all capitalize border ${filter === f
-                                    ? 'bg-blue-500/20 border-blue-500 text-blue-400'
-                                    : 'bg-transparent border-white/10 text-gray-400 hover:bg-white/5'
-                                    }`}
-                            >
-                                {f}
-                            </button>
-                        ))}
+                </div>
+            </div>
+                    )}
+
+            {/* Drift Monitor */}
+            {drift && (
+                <div className="mb-6 rounded-xl border p-4 flex items-center justify-between"
+                    style={{
+                        background: `linear-gradient(to right, ${theme.cardBg}, rgba(234, 179, 8, 0.05))`,
+                        borderColor: 'rgba(234, 179, 8, 0.2)'
+                    }}>
+                    <div className="flex items-center gap-4">
+                        <div className="p-3 rounded-full bg-yellow-500/10 text-yellow-400">
+                            <Ghost size={24} />
+                        </div>
+                        <div>
+                            <h3 className="font-bold text-white text-sm">Drift Monitor</h3>
+                            <p className="text-xs opacity-50">Interface & Registry Consistency</p>
+                        </div>
                     </div>
 
-                    {/* Logs Table */}
-                    <div
-                        className="rounded-xl overflow-hidden border backdrop-blur-sm"
-                        style={{
-                            backgroundColor: theme.cardBg,
-                            borderColor: theme.border
-                        }}
-                    >
-                        <table className="w-full text-left border-collapse">
-                            <thead>
-                                <tr className="border-b" style={{ borderColor: theme.border, backgroundColor: theme.cardBg2 }}>
-                                    <th className="p-4 text-xs uppercase tracking-wider font-semibold" style={{ color: theme.textMuted }}>Level</th>
-                                    <th className="p-4 text-xs uppercase tracking-wider font-semibold" style={{ color: theme.textMuted }}>Time</th>
-                                    <th className="p-4 text-xs uppercase tracking-wider font-semibold" style={{ color: theme.textMuted }}>Event</th>
-                                    <th className="p-4 text-xs uppercase tracking-wider font-semibold" style={{ color: theme.textMuted }}>Trace ID</th>
-                                    <th className="p-4 text-xs uppercase tracking-wider font-semibold" style={{ color: theme.textMuted }}>Details</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y" style={{ borderColor: theme.border }}>
-                                {errorMsg ? (
-                                    <tr>
-                                        <td colSpan={5} className="p-8 text-center text-red-400 bg-red-500/10">
-                                            <div className="flex flex-col items-center gap-2">
-                                                <AlertCircle size={24} />
-                                                <span className="font-bold">Error loading logs</span>
-                                                <span className="text-sm opacity-80">{errorMsg}</span>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ) : logs.length === 0 ? (
-                                    <tr>
-                                        <td colSpan={5} className="p-8 text-center opacity-50">
-                                            No logs found properly ingestion pipeline.
-                                        </td>
-                                    </tr>
-                                ) : (
-                                    logs.map(log => (
-                                        <tr key={log.id} style={{ backgroundColor: getRowColor(log.level) }} className="hover:bg-white/5 transition-colors">
-                                            <td className="p-4">
-                                                <div className="flex items-center gap-2">
-                                                    {getIcon(log.level)}
-                                                    <span className="uppercase text-xs font-bold opacity-80" style={{ color: theme.text }}>
-                                                        {log.level}
-                                                    </span>
-                                                </div>
-                                            </td>
-                                            <td className="p-4 text-xs font-mono opacity-70" style={{ color: theme.text }}>
-                                                {new Date(log.created_at).toLocaleTimeString()}
-                                            </td>
-                                            <td className="p-4 font-medium" style={{ color: theme.text }}>
-                                                {log.event}
-                                            </td>
-                                            <td className="p-4 text-xs font-mono opacity-50" style={{ color: theme.text }}>
-                                                {log.trace_id?.slice(0, 8)}...
-                                            </td>
-                                            <td className="p-4 text-xs font-mono opacity-60 truncate max-w-xs" style={{ color: theme.text }}>
-                                                {JSON.stringify(log.metadata)}
-                                            </td>
-                                        </tr>
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
+                    <div className="flex gap-8">
+                        <div className="text-center">
+                            <p className={`text-xl font-bold font-mono ${drift.ghosts?.length > 0 ? 'text-red-400' : 'text-green-400'}`}>
+                                {drift.ghosts?.length || 0}
+                            </p>
+                            <p className="text-[10px] uppercase opacity-50 tracking-wider">Ghosts</p>
+                        </div>
+                        <div className="text-center">
+                            <p className={`text-xl font-bold font-mono ${drift.zombies?.length > 0 ? 'text-yellow-400' : 'text-green-400'}`}>
+                                {drift.zombies?.length || 0}
+                            </p>
+                            <p className="text-[10px] uppercase opacity-50 tracking-wider">Zombies</p>
+                        </div>
+                        <div className="text-center">
+                            <p className="text-xl font-bold font-mono opacity-70">
+                                {drift.summary?.totalDefined || 0}
+                            </p>
+                            <p className="text-[10px] uppercase opacity-50 tracking-wider">Defined</p>
+                        </div>
+                    </div>
+
+                    <div className="text-right">
+                        <div className={`inline-flex items-center gap-2 px-2 py-1 rounded-full text-[10px] font-bold uppercase ${drift.ghosts?.length > 0 ? 'bg-red-500/10 text-red-500' : 'bg-green-500/10 text-green-500'
+                            }`}>
+                            <div className={`w-1.5 h-1.5 rounded-full ${drift.ghosts?.length > 0 ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`} />
+                            {drift.ghosts?.length > 0 ? 'Critical Drift' : 'Healthy'}
+                        </div>
                     </div>
                 </div>
-            </Layout>
-        </Screen>
+            )}
+            <div className="flex gap-2 mb-6">
+                {(['all', 'error', 'warn', 'info'] as const).map(f => (
+                    <button
+                        key={f}
+                        onClick={() => setFilter(f)}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-all capitalize border ${filter === f
+                            ? 'bg-blue-500/20 border-blue-500 text-blue-400'
+                            : 'bg-transparent border-white/10 text-gray-400 hover:bg-white/5'
+                            }`}
+                    >
+                        {f}
+                    </button>
+                ))}
+            </div>
+
+            {/* Logs Table */}
+            <div
+                className="rounded-xl overflow-hidden border backdrop-blur-sm"
+                style={{
+                    backgroundColor: theme.cardBg,
+                    borderColor: theme.border
+                }}
+            >
+                <table className="w-full text-left border-collapse">
+                    <thead>
+                        <tr className="border-b" style={{ borderColor: theme.border, backgroundColor: theme.cardBg2 }}>
+                            <th className="p-4 text-xs uppercase tracking-wider font-semibold" style={{ color: theme.textMuted }}>Level</th>
+                            <th className="p-4 text-xs uppercase tracking-wider font-semibold" style={{ color: theme.textMuted }}>Time</th>
+                            <th className="p-4 text-xs uppercase tracking-wider font-semibold" style={{ color: theme.textMuted }}>Event</th>
+                            <th className="p-4 text-xs uppercase tracking-wider font-semibold" style={{ color: theme.textMuted }}>Trace ID</th>
+                            <th className="p-4 text-xs uppercase tracking-wider font-semibold" style={{ color: theme.textMuted }}>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y" style={{ borderColor: theme.border }}>
+                        {errorMsg ? (
+                            <tr>
+                                <td colSpan={5} className="p-8 text-center text-red-400 bg-red-500/10">
+                                    <div className="flex flex-col items-center gap-2">
+                                        <AlertCircle size={24} />
+                                        <span className="font-bold">Error loading logs</span>
+                                        <span className="text-sm opacity-80">{errorMsg}</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        ) : logs.length === 0 ? (
+                            <tr>
+                                <td colSpan={5} className="p-8 text-center opacity-50">
+                                    No logs found properly ingestion pipeline.
+                                </td>
+                            </tr>
+                        ) : (
+                            logs.map(log => (
+                                <tr key={log.id} style={{ backgroundColor: getRowColor(log.level) }} className="hover:bg-white/5 transition-colors">
+                                    <td className="p-4">
+                                        <div className="flex items-center gap-2">
+                                            {getIcon(log.level)}
+                                            <span className="uppercase text-xs font-bold opacity-80" style={{ color: theme.text }}>
+                                                {log.level}
+                                            </span>
+                                        </div>
+                                    </td>
+                                    <td className="p-4 text-xs font-mono opacity-70" style={{ color: theme.text }}>
+                                        {new Date(log.created_at).toLocaleTimeString()}
+                                    </td>
+                                    <td className="p-4 font-medium" style={{ color: theme.text }}>
+                                        {log.event}
+                                    </td>
+                                    <td className="p-4 text-xs font-mono opacity-50" style={{ color: theme.text }}>
+                                        {log.trace_id?.slice(0, 8)}...
+                                    </td>
+                                    <td className="p-4 text-xs font-mono opacity-60 truncate max-w-xs" style={{ color: theme.text }}>
+                                        {JSON.stringify(log.metadata)}
+                                    </td>
+                                </tr>
+                            ))
+                        )}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+            </Layout >
+        </Screen >
     );
 }

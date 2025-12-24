@@ -21,7 +21,7 @@ export const UI = {
     "nav.admin.banners": { testid: "nav.admin.banners", route: ROUTES.banners, authRequired: true, open: { testid: "nav.admin.menu_button", action: "click" }, mockOnly: true, dynamic: true },
     "nav.admin.templates": { testid: "nav.admin.templates", route: ROUTES.templates, authRequired: true, open: { testid: "nav.admin.menu_button", action: "click" }, mockOnly: true, dynamic: true },
     "nav.admin.chemists": { testid: "nav.admin.quimicos", route: ROUTES.chemists, authRequired: true, open: { testid: "nav.admin.menu_button", action: "click" }, mockOnly: true, dynamic: true },
-    "nav.admin.push": { testid: "nav.admin.push_notif.", route: ROUTES.adminPush, authRequired: true, open: { testid: "nav.admin.menu_button", action: "click" }, dynamic: true },
+    "nav.admin.push": { testid: "nav.admin.push_notif", route: ROUTES.adminPush, authRequired: true, open: { testid: "nav.admin.menu_button", action: "click" }, dynamic: true },
     "nav.admin.navigation": { testid: "nav.admin.navegación", route: ROUTES.adminNavigation, authRequired: true, open: { testid: "nav.admin.menu_button", action: "click" }, dynamic: true },
     "nav.admin.knowledge": { testid: "nav.admin.cerebro_ai", route: ROUTES.adminKnowledge, authRequired: true, open: { testid: "nav.admin.menu_button", action: "click" }, dynamic: true },
     "nav.admin.crm": { testid: "nav.admin.omni_crm", route: ROUTES.adminCrm, authRequired: true, open: { testid: "nav.admin.menu_button", action: "click" }, dynamic: true },
