@@ -114,14 +114,14 @@ export class VoiceService {
     async analyzeTranscript(
         transcript: string,
         clientContext?: any,
-        role: 'user' | 'assistant' = 'user'
+        role: 'user' | 'assistant' | 'system' = 'user'
     ): Promise<Omit<VoiceAnalysisResult, 'transcript' | 'transcriptConfidence' | 'language'>> {
 
         const deterministicFlags = this.detectRiskDeterministic(transcript);
 
         let prompt = '';
 
-        if (role === 'assistant') {
+        if (role === 'assistant' || role === 'system') {
             // PROMPT PARA EL AGENTE (Auto-Reflexión / Auditoría)
             prompt = `
 Analiza el siguiente mensaje de voz enviado por el AGENTE (Nosotros) al cliente.
