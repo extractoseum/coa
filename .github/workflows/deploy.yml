@@ -82,7 +82,7 @@ jobs:
   # DEPLOY BACKEND
   # ============================================
   deploy-backend:
-    needs: health-gate
+    needs: [health-gate, deploy-frontend]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
