@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "949134795774",
+    "project_id": "extractoseumcom---ga4",
+    "storage_bucket": "extractoseumcom---ga4.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:949134795774:android:c742b0fe1aee22ee2456af",
+        "android_client_info": {
+          "package_name": "coa.extractoseum.com"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA1nafyC7U5mkvIWq8285cYCU2IQPa5sqc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:949134795774:android:ae1b2f2d300cfcc42456af",
+        "android_client_info": {
+          "package_name": "com.extractoseum.coaviewer"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA1nafyC7U5mkvIWq8285cYCU2IQPa5sqc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

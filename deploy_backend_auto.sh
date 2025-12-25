@@ -6,6 +6,14 @@ KEY="../ops/keys/deploy_key"
 REMOTE="root@148.230.88.203"
 REMOTE_DIR="/var/www/coa-viewer/backend"
 
+# Run Diagnostics first (Health Gate)
+echo "🔍 Running System Diagnostics..."
+node "$(dirname "$0")/scripts/system-diagnostics.js"
+if [ $? -ne 0 ]; then
+    echo "❌ Deployment Aborted: checks failed."
+    exit 1
+fi
+
 cd "$(dirname "$0")/backend"
 
 echo "🔨 [1/6] Building backend..."

@@ -162,7 +162,7 @@ app.use('/api/v1/ai', aiRoutes); // AI Classification
 app.use('/api/v1/admin/knowledge', knowledgeRoutes); // AI Knowledge Base API
 app.use('/api/v1/crm', crmRoutes); // NEW: Omnichannel CRM Core
 app.use('/api/v1/health', healthRoutes); // NEW: Vitality Health Check
-app.use('/api/v1/tools', toolsRoutes); // NEW: IDE Tools Editor
+app.use('/api/v1/admin/tools', toolsRoutes); // NEW: IDE Tools Editor
 app.use('/api/v1/behavior', behaviorRoutes); // NEW: Behavioral Intelligence Tracking
 app.use('/api/v1/vapi', vapiRoutes); // NEW: Vapi Voice Integration
 app.use('/api/v1/drift', driftRoutes); // NEW: Drift Bot

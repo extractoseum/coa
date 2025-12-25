@@ -1,4 +1,13 @@
 #!/bin/bash
+cd "/Users/bdelatorre8/COA Viewer 2.0"
+
+echo "🔍 Running System Diagnostics (Health Gate)..."
+node scripts/system-diagnostics.js
+if [ $? -ne 0 ]; then
+    echo "❌ Deployment Aborted: specific checks failed."
+    exit 1
+fi
+
 cd "/Users/bdelatorre8/COA Viewer 2.0/frontend"
 
 echo "1. Building frontend..."

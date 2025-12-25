@@ -60,7 +60,7 @@ const ToolEditor = ({ onClose }: { onClose: () => void }) => {
 
             console.log('Fetching tools with token length:', token.length);
 
-            const res = await fetch('/api/v1/tools', {
+            const res = await fetch('/api/v1/admin/tools', {
                 headers: { Authorization: `Bearer ${token}` }
             });
 
@@ -108,7 +108,7 @@ const ToolEditor = ({ onClose }: { onClose: () => void }) => {
             }
 
             // 2. Send to backend
-            const res = await fetch('/api/v1/tools', {
+            const res = await fetch('/api/v1/admin/tools', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

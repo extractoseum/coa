@@ -21,7 +21,13 @@ import { SmartAppBanner } from '../components/SmartAppBanner';
 // Analytics tracking helper
 const trackCOAAccess = async (token: string, accessType: string, linkSource?: string, cvvCode?: string) => {
     try {
-        const API_URL = import.meta.env.VITE_API_URL || '';
+        // Helper to ensure valid URL
+        const getApiUrl = () => {
+            const envUrl = import.meta.env.VITE_API_URL;
+            if (envUrl && !envUrl.startsWith('http')) return `https://${envUrl}`;
+            return envUrl || 'https://coa.extractoseum.com';
+        };
+        const API_URL = getApiUrl();
 
         // Get UTM params from URL
         const urlParams = new URLSearchParams(window.location.search);

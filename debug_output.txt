@@ -1,0 +1,189 @@
+[dotenv@17.2.3] injecting env (30) from backend/.env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+
+--- Inspeccionando Contacto: 4941301513 ---
+Contact Record: [
+  {
+    "id": "c52ce21f-ddca-4e22-a804-c4713f5a2e0b",
+    "handle": "524941301513",
+    "channel": "WA",
+    "name": "524941301513",
+    "ltv": 0,
+    "orders_count": 0,
+    "last_order_at": null,
+    "average_ticket": 0,
+    "risk_level": "low",
+    "personality_traits": null,
+    "tags": [],
+    "summary_bullets": null,
+    "last_shipping_status": null,
+    "last_shipping_carrier": null,
+    "last_shipping_tracking": null,
+    "last_updated_at": "2025-12-24T18:16:22.375+00:00",
+    "created_at": "2025-12-24T15:04:24.672631+00:00",
+    "avatar_url": null
+  }
+]
+
+--- Inspeccionando Mensajes Recientes ---
+Conversation ID: a286886e-4683-4eb2-b7c7-96a21af9b387
+Last 5 Messages: [
+  {
+    "id": "8b8c70ab-6ae4-4cf6-9d64-83a20630d6bf",
+    "conversation_id": "a286886e-4683-4eb2-b7c7-96a21af9b387",
+    "direction": "outbound",
+    "role": "assistant",
+    "message_type": "text",
+    "status": "delivered",
+    "external_id": "PrCt6_025srNwjo-wIoEvjK5Swk",
+    "channel_thread_id": null,
+    "content": "Hola 👋 Soy Eva de EXTRACTOS EUM™. Para tu consulta de uso lúdico, ¿qué producto o servicio quieres mover y a qué mercado apuntas? 😉",
+    "raw_payload": {
+      "id": "PrCt6_025srNwjo-wIoEvjK5Swk",
+      "from": "5215519253043",
+      "role": "assistant",
+      "text": {
+        "body": "Hola 👋 Soy Eva de EXTRACTOS EUM™. Para tu consulta de uso lúdico, ¿qué producto o servicio quieres mover y a qué mercado apuntas? 😉"
+      },
+      "type": "text",
+      "source": "web",
+      "status": "sent",
+      "chat_id": "5214941301513@s.whatsapp.net",
+      "from_me": true,
+      "device_id": 24,
+      "direction": "outbound",
+      "from_name": "E.U.M.",
+      "timestamp": 1766600179,
+      "channel_id": "SPRWMN-7HXD9",
+      "_generated_from_me": true
+    },
+    "created_at": "2025-12-24T18:16:23.284573+00:00"
+  },
+  {
+    "id": "f7dc9860-b4c3-4106-912c-9f16aadc9ccb",
+    "conversation_id": "a286886e-4683-4eb2-b7c7-96a21af9b387",
+    "direction": "outbound",
+    "role": "assistant",
+    "message_type": "text",
+    "status": "delivered",
+    "external_id": "PrAbzqtWJYYXbn0-wI0EvjK5Swk",
+    "channel_thread_id": null,
+    "content": "Uso lúdico: procede amparo individual de autoconsumo; COFEPRIS no da permisos generales. ¿Deseas agendar con nuestro partner legal?",
+    "raw_payload": {
+      "id": "PrAbzqtWJYYXbn0-wI0EvjK5Swk",
+      "from": "5215519253043",
+      "role": "assistant",
+      "text": {
+        "body": "Uso lúdico: procede amparo individual de autoconsumo; COFEPRIS no da permisos generales. ¿Deseas agendar con nuestro partner legal?"
+      },
+      "type": "text",
+      "source": "web",
+      "status": "sent",
+      "chat_id": "5214941301513@s.whatsapp.net",
+      "from_me": true,
+      "device_id": 24,
+      "direction": "outbound",
+      "from_name": "E.U.M.",
+      "timestamp": 1766600179,
+      "channel_id": "SPRWMN-7HXD9",
+      "_generated_from_me": true
+    },
+    "created_at": "2025-12-24T18:16:22.756617+00:00"
+  },
+  {
+    "id": "02f2f446-e6d6-4b2f-8e0c-82b6d4cb5fe7",
+    "conversation_id": "a286886e-4683-4eb2-b7c7-96a21af9b387",
+    "direction": "inbound",
+    "role": "user",
+    "message_type": "audio",
+    "status": "read",
+    "external_id": "rF0hEOcL_t.OiSIoSsKI.w-hYA6IScAgKM",
+    "channel_thread_id": null,
+    "content": "[Audio]",
+    "raw_payload": {
+      "id": "rF0hEOcL_t.OiSIoSsKI.w-hYA6IScAgKM",
+      "from": "5214941301513",
+      "role": "user",
+      "type": "audio",
+      "voice": {
+        "id": "oga-ac5d2110e70bfedf8e8922284ac288fb-85803a21270080a3",
+        "sha256": "9T/Ncsen4ZO34io1actLkNpuJdgv6ubYguk6o8w+fe8=",
+        "seconds": 11,
+        "file_size": 27126,
+        "mime_type": "audio/ogg; codecs=opus"
+      },
+      "source": "mobile",
+      "chat_id": "5214941301513@s.whatsapp.net",
+      "from_me": false,
+      "direction": "inbound",
+      "from_name": "😎",
+      "timestamp": 1766600146,
+      "channel_id": "SPRWMN-7HXD9",
+      "_generated_from_me": false
+    },
+    "created_at": "2025-12-24T18:15:49.457839+00:00"
+  },
+  {
+    "id": "3059df53-d55c-4c70-bbd3-e52f0fa33045",
+    "conversation_id": "a286886e-4683-4eb2-b7c7-96a21af9b387",
+    "direction": "outbound",
+    "role": "assistant",
+    "message_type": "text",
+    "status": "read",
+    "external_id": "PrAGVNxkYmjtPko-wIQEvjK5Swk",
+    "channel_thread_id": null,
+    "content": "¡Hola! Entiendo que tienes una consulta legal. Para poder ayudarte de la mejor manera, ¿podrías aclararme a qué te refieres con \"permiso de deportación para uso personal\"? 🤔\n\nNuestro equipo legal se especializa en la _regulación de la industria del cannabis_, incluyendo temas de _comercialización de materias primas_, _fabricación_ y _amparos_. Si tu consulta está relacionada con estos temas, con gusto te canalizo con ellos. ✨",
+    "raw_payload": {
+      "id": "PrAGVNxkYmjtPko-wIQEvjK5Swk",
+      "from": "5215519253043",
+      "role": "assistant",
+      "text": {
+        "body": "¡Hola! Entiendo que tienes una consulta legal. Para poder ayudarte de la mejor manera, ¿podrías aclararme a qué te refieres con \"permiso de deportación para uso personal\"? 🤔\n\nNuestro equipo legal se especializa en la _regulación de la industria del cannabis_, incluyendo temas de _comercialización de materias primas_, _fabricación_ y _amparos_. Si tu consulta está relacionada con estos temas, con gusto te canalizo con ellos. ✨"
+      },
+      "type": "text",
+      "source": "web",
+      "status": "sent",
+      "chat_id": "5214941301513@s.whatsapp.net",
+      "from_me": true,
+      "device_id": 24,
+      "direction": "outbound",
+      "from_name": "E.U.M.",
+      "timestamp": 1766599663,
+      "channel_id": "SPRWMN-7HXD9",
+      "_generated_from_me": true
+    },
+    "created_at": "2025-12-24T18:07:46.44917+00:00"
+  },
+  {
+    "id": "37689519-367f-4a0f-b946-50441a76667c",
+    "conversation_id": "a286886e-4683-4eb2-b7c7-96a21af9b387",
+    "direction": "inbound",
+    "role": "user",
+    "message_type": "audio",
+    "status": "read",
+    "external_id": "rD7SFIKlTWOs_nv7hflI6w-has6IScAgKM",
+    "channel_thread_id": null,
+    "content": "[Audio]",
+    "raw_payload": {
+      "id": "rD7SFIKlTWOs_nv7hflI6w-has6IScAgKM",
+      "from": "5214941301513",
+      "role": "user",
+      "type": "audio",
+      "voice": {
+        "id": "oga-ac3ed21482a54d63acfe7bfb85f948eb-85ab3a21270080a3",
+        "sha256": "OuX2qIqJR3i0tDLnFuRN6IYfytDki1D4kKBylmPzlOE=",
+        "seconds": 11,
+        "file_size": 28296,
+        "mime_type": "audio/ogg; codecs=opus"
+      },
+      "source": "mobile",
+      "chat_id": "5214941301513@s.whatsapp.net",
+      "from_me": false,
+      "direction": "inbound",
+      "from_name": "😎",
+      "timestamp": 1766599643,
+      "channel_id": "SPRWMN-7HXD9",
+      "_generated_from_me": false
+    },
+    "created_at": "2025-12-24T18:07:26.423656+00:00"
+  }
+]
