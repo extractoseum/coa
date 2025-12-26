@@ -49,6 +49,30 @@ const trackCOAAccess = async (token: string, accessType: string, linkSource?: st
                 ...utmParams
             })
         });
+
+        // --- Client Side Tracking (GA4 / Clarity / Trakpilot) ---
+        if (typeof window !== 'undefined') {
+            // GA4: view_item
+            if (window.gtag) {
+                window.gtag('event', 'view_item', {
+                    item_list_id: 'coa_viewer',
+                    item_list_name: 'COA Viewer',
+                    items: [{
+                        item_id: token,
+                        item_name: 'COA View',
+                        item_category: 'Certificate of Analysis'
+                    }]
+                });
+            }
+
+            // Trakpilot / Generic Custom Event
+            // @ts-ignore
+            if (window.Trakpilot) {
+                // @ts-ignore
+                window.Trakpilot.track('view_coa', { token });
+            }
+        }
+
     } catch (error) {
         console.error('[Analytics] Tracking error:', error);
     }
@@ -77,6 +101,19 @@ const trackLinkClick = async (token: string, linkType: string, linkUrl: string, 
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ link_type: linkType, link_url: linkUrl, link_label: linkLabel })
         });
+
+        // --- Client Side Tracking (GA4 / Clarity / Retargeting) ---
+        if (typeof window !== 'undefined') {
+            // GA4 Event
+            if (window.gtag) {
+                const eventName = linkType === 'purchase' || linkType === 'shop' ? 'add_to_cart_intent' : 'select_content';
+                window.gtag('event', eventName, {
+                    content_type: linkType,
+                    item_id: token,
+                    destination: linkUrl
+                });
+            }
+        }
     } catch (error) {
         console.error('[Analytics] Link tracking error:', error);
     }

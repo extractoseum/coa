@@ -10,9 +10,18 @@ interface GeoData {
     longitude: number | null;
 }
 
-// Cache to reduce API calls
-const geoCache = new Map<string, { data: GeoData; timestamp: number }>();
-const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+// Geo-location service using local geoip-lite database
+// Rate limit: UNLIMITED (Local lookup)
+import geoip from 'geoip-lite';
+
+interface GeoData {
+    country_code: string | null;
+    country_name: string | null;
+    region: string | null;
+    city: string | null;
+    latitude: number | null;
+    longitude: number | null;
+}
 
 export const getGeoFromIP = async (ip: string): Promise<GeoData> => {
     // Default response for invalid IPs
@@ -25,46 +34,28 @@ export const getGeoFromIP = async (ip: string): Promise<GeoData> => {
         longitude: null
     };
 
-    // Skip local IPs
+    // Skip local IPs or invalid strings
     if (!ip || ip === 'unknown' || ip === '127.0.0.1' || ip === '::1' || ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.')) {
         return defaultGeo;
     }
 
-    // Check cache first
-    const cached = geoCache.get(ip);
-    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
-        return cached.data;
-    }
-
     try {
-        // Use ip-api.com (free, no API key needed, 45 req/min)
-        const response = await fetch(`http://ip-api.com/json/${ip}?fields=status,countryCode,country,regionName,city,lat,lon`);
+        // Local lookup (instantly fast, no rate limits)
+        const geo = geoip.lookup(ip);
 
-        if (!response.ok) {
-            console.error(`[GeoService] HTTP error: ${response.status}`);
+        if (!geo) {
+            console.log(`[GeoService] No data found for ${ip}`);
             return defaultGeo;
         }
 
-        const data = await response.json();
-
-        if (data.status !== 'success') {
-            console.log(`[GeoService] IP lookup failed for ${ip}:`, data.message);
-            return defaultGeo;
-        }
-
-        const geoData: GeoData = {
-            country_code: data.countryCode || null,
-            country_name: data.country || null,
-            region: data.regionName || null,
-            city: data.city || null,
-            latitude: data.lat || null,
-            longitude: data.lon || null
+        return {
+            country_code: geo.country || null,
+            country_name: geo.country || null, // geoip-lite often returns code in country field, used as proxy
+            region: geo.region || null,
+            city: geo.city || null,
+            latitude: geo.ll ? geo.ll[0] : null,
+            longitude: geo.ll ? geo.ll[1] : null
         };
-
-        // Cache the result
-        geoCache.set(ip, { data: geoData, timestamp: Date.now() });
-
-        return geoData;
 
     } catch (error) {
         console.error('[GeoService] Error fetching geo data:', error);
@@ -72,12 +63,7 @@ export const getGeoFromIP = async (ip: string): Promise<GeoData> => {
     }
 };
 
-// Clean up old cache entries periodically
-setInterval(() => {
-    const now = Date.now();
-    for (const [ip, entry] of geoCache.entries()) {
-        if (now - entry.timestamp > CACHE_TTL) {
-            geoCache.delete(ip);
-        }
-    }
-}, 60 * 60 * 1000); // Run every hour
+// No cache needed for local lookup
+
+
+
