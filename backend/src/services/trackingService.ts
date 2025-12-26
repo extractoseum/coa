@@ -236,6 +236,12 @@ export const pollEstafeta = async (waybill: string) => {
             status = 'exception';
         }
 
+        // Return to Sender / Replacement Guide Detection
+        // This is critical to catch before fallback
+        if (html.includes('DEVOLUCION A REMITENTE') || html.includes('GUIA DE REEMPLAZO') || html.includes('RETORNO')) {
+            status = 'return_to_sender';
+        }
+
         // Fallback for Delivered
         if (status !== 'delivered' && (html.includes('Estatus: Entregado') || (html.includes('Entregado') && html.includes('Firma de recibido')))) {
             status = 'delivered';

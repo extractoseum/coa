@@ -16,7 +16,9 @@ const getStatusText = (status: string) => {
         'out_for_delivery': 'En proceso de entrega',
         'delivered': 'Entregado',
         'pending': 'Pendiente',
-        'cancelled': 'Cancelado'
+        'cancelled': 'Cancelado',
+        'exception': 'Excepción de envío',
+        'return_to_sender': 'Devuelto al remitente'
     };
     return statuses[status] || status;
 };
@@ -49,6 +51,16 @@ const getTrackingCopy = (status: string, orderNumber: string, details?: string) 
             return {
                 title: '✅ ¡Tu pedido fue entregado!',
                 message: `Confirmamos que el pedido ${orderNumber} ya fue entregado. ¡Esperamos que lo disfrutes!${customDetails}`
+            };
+        case 'return_to_sender':
+            return {
+                title: '⚠️ Alerta de Envío',
+                message: `El paquete del pedido ${orderNumber} está siendo devuelto al remitente. Por favor contáctanos para reprogramar.${customDetails}`
+            };
+        case 'exception':
+            return {
+                title: '⚠️ Aviso de Envío',
+                message: `Hay una actualización importante en el envío de tu pedido ${orderNumber}.${customDetails}`
             };
         default:
             return {
