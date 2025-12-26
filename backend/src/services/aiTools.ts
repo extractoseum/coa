@@ -447,6 +447,21 @@ export const ADMIN_TOOLS: AIToolDefinition[] = [
                 required: ['coa_id']
             }
         }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'browser_action',
+            description: 'Control the Cortex Browser (Grounder) to navigate, click, or extract data from live websites. Use this to verify prices, check tracking, or read external pages.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    action: { type: 'string', enum: ['navigate', 'extract', 'screenshot'], description: 'The action to perform.' },
+                    target: { type: 'string', description: 'URL (for navigate) or empty for others.' }
+                },
+                required: ['action', 'target']
+            }
+        }
     }
 ];
 
@@ -812,6 +827,16 @@ export const TOOL_HANDLERS: Record<string, (args: any) => Promise<any>> = {
             recording_url: c.recording_url,
             created_at: c.created_at
         }));
+    },
+    browser_action: async ({ action, target }) => {
+        try {
+            const { BrowserService } = require('./BrowserService');
+            const browser = BrowserService.getInstance();
+            return await browser.performAction(action, target);
+        } catch (e: any) {
+            console.error('[AITools] Browser action failed:', e);
+            return { error: e.message };
+        }
     },
     get_conversation_summary: async ({ conversation_id }) => {
         const { data, error } = await supabase

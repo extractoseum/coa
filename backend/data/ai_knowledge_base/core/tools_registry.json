@@ -656,5 +656,32 @@
                 "code"
             ]
         }
+    },
+    {
+        "category": "browser",
+        "name": "browser_action",
+        "description": "Control the Cortex Browser (Grounder) to navigate, click, or extract data from live websites.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": [
+                        "navigate",
+                        "extract",
+                        "screenshot"
+                    ],
+                    "description": "The action to perform."
+                },
+                "target": {
+                    "type": "string",
+                    "description": "URL (for navigate) or empty for others."
+                }
+            },
+            "required": [
+                "action",
+                "target"
+            ]
+        }
     }
 ]

@@ -38,3 +38,4 @@ backend/certs/
 # Editor
 .vscode/
 .idea/
+backend/.puppeteer_cache/
