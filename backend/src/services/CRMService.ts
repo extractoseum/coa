@@ -55,6 +55,12 @@ export interface CRMConversation {
             action_type: 'coupon' | 'link' | 'text';
             payload: any;
         }>;
+        system_inquiry?: {
+            id: string;
+            type: 'identity_ambiguity' | 'ghost_data' | 'error_resolution';
+            question: string;
+            options: Array<{ label: string; action: string; payload?: any }>;
+        };
     };
     facts_version?: number;
     agent_override_id?: string;
@@ -1251,6 +1257,11 @@ export class CRMService {
             - action_plan: Array of items { label, meta, action_type, payload }.
               - COMPULSORY: You MUST provide at least 1-3 actionable steps. If no urgent issue, suggest proactive outreach (e.g., "Saludar proactivamente", "Confirmar recepción de pedido", "Enviar recomendación de producto").
               - action_type: 'coupon' (payload: {discount, code}), 'link' (payload: {url}), or 'text' (payload: {newMessageText}).
+            - system_inquiry: Optional object. Generate THIS instead of ambiguity_candidates if you need human help.
+              - id: "inq_" + random string
+              - type: "identity_ambiguity" | "ghost_data" | "error_resolution"
+              - question: Short question for the admin (e.g. "Duplicate names found. Who is this?")
+              - options: Array of { label, action, payload }. Action usually 'update_contact_name' or 'custom_response'.
             
             IMPORTANT: Return ONLY the raw JSON object. Do not include markdown or text.`;
 
@@ -1295,7 +1306,8 @@ export class CRMService {
                     emotional_vibe: result.emotional_vibe || (conv as any).facts?.emotional_vibe,
                     user_email: result.user_email || (conv as any).facts?.user_email,
                     user_name: result.user_name || (conv as any).facts?.user_name,
-                    action_plan: result.action_plan || (conv as any).facts?.action_plan || []
+                    action_plan: result.action_plan || (conv as any).facts?.action_plan || [],
+                    system_inquiry: result.system_inquiry || (conv as any).facts?.system_inquiry
                 };
 
                 // --- IDENTITY BRIDGE: IF EMAIL FOUND, UPDATE CLIENT RECORD ---

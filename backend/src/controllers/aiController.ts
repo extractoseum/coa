@@ -122,15 +122,35 @@ export const chatWithAra = async (req: Request, res: Response): Promise<void> =>
             }
 
             try {
-                // Read other .md files
+                // OPTIMIZED LOADING Pattern (Mirrors AIService):
+                // Read other files and build a Knowledge Catalog (summaries only)
+                // This prevents the Admin chat from hitting context limits with large KBs
                 const files = fs.readdirSync(agentFolderPath).filter(f => f.endsWith('.md') && f !== 'identity.md');
-                const combinedContent = files.map(f => {
-                    const content = fs.readFileSync(path.join(agentFolderPath, f), 'utf-8');
-                    return `--- KNOWLEDGE: ${f} ---\n${content}\n`;
-                }).join('\n');
 
-                systemInstruction += combinedContent;
-                logger.info(`[AIController] Loaded AGENT: ${safeFolder} from ${foundCategory || 'legacy'} (${files.length + 1} files)`, { correlation_id: req.correlationId });
+                // Read metadata to get intelligence-powered summaries
+                const metaPath = path.join(agentFolderPath, 'metadata.json');
+                let metadata: any = { files: {} };
+                if (fs.existsSync(metaPath)) {
+                    try {
+                        metadata = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+                    } catch (e: any) {
+                        logger.warn(`[AIController] Failed to parse metadata at ${metaPath}:`, e.message, { correlation_id: req.correlationId });
+                    }
+                }
+
+                if (files.length > 0) {
+                    systemInstruction += `\n### CATÁLOGO DE CONOCIMIENTO DISPONIBLE:\n`;
+                    systemInstruction += `Actualmente tienes acceso a los siguientes archivos. NO los has leído completos (excepto el instructivo principal arriba), pero conoces su propósito. Si necesitas información específica de alguno, usa la herramienta 'read_file_content' o 'search_knowledge_base':\n\n`;
+
+                    for (const f of files) {
+                        const summary = metadata.files?.[f]?.summary || "Sin resumen disponible (pendiente de análisis).";
+                        systemInstruction += `- [${f}]: ${summary}\n`;
+                    }
+                    systemInstruction += `\n`;
+                }
+
+                logger.info(`[AIController] Loaded AGENT: ${safeFolder} from ${foundCategory || 'legacy'} (Summaries for ${files.length} files)`, { correlation_id: req.correlationId });
+
             } catch (err) {
                 logger.error(`[AIController] Failed to load extra files for ${safeFolder}:`, err, { correlation_id: req.correlationId });
             }
