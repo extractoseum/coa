@@ -8,6 +8,13 @@ interface BehavioralContext {
     user_identifier?: string; // Email, Phone, or Session ID
 }
 
+// Minimal Interface for Product Context
+interface ProductContext {
+    title: string;
+    product_type: string;
+    tags: string[];
+}
+
 export class BehaviorService {
     private static instance: BehaviorService;
 
@@ -35,6 +42,45 @@ export class BehaviorService {
                 return;
             }
 
+            // 1.5 PRODUCT ENRICHMENT (Contexto Amplio)
+            let productContext: ProductContext[] = [];
+
+            // Try to find product details in DB if items names are present
+            const items = context.metadata?.items || []; // Array of strings (names)
+            const singleItem = context.metadata?.item_name || context.metadata?.destination; // Fallback
+
+            const searchTerms = items.length > 0 ? items : (singleItem ? [singleItem] : []);
+
+            if (searchTerms.length > 0) {
+                // Approximate search for the first few items
+                for (const term of searchTerms.slice(0, 3)) {
+                    // Clean term for search (remove sizing etc if possible, but keep simple for now)
+                    const cleanTerm = term.split(' - ')[0].trim();
+
+                    const { data: product } = await supabase
+                        .from('products')
+                        .select('title, product_type, tags')
+                        .ilike('title', `%${cleanTerm}%`)
+                        .limit(1)
+                        .maybeSingle();
+
+                    if (product) {
+                        productContext.push({
+                            title: product.title,
+                            product_type: product.product_type,
+                            tags: product.tags || []
+                        });
+                    }
+                }
+            }
+
+            // Fallback if no specific products found but we have generic metabolic info
+            const contextString = productContext.length > 0
+                ? JSON.stringify(productContext)
+                : "Product details not found in DB, infer from metadata.";
+
+            console.log(`[BehaviorService] Context Loaded: ${productContext.length} products found.`);
+
             // 2. AI Generation - "The Perfect Clickbait & Empathy Engine"
             const uniqueId = context.user_identifier || 'anonymous';
             let systemPrompt = '';
@@ -53,10 +99,15 @@ export class BehaviorService {
                 `;
                 userPrompt = `
                     User '${uniqueId}' just completed a purchase of: ${JSON.stringify(context.metadata)}.
+                    
+                    PRODUCT CONTEXT (Use this to personalize the tip):
+                    ${contextString}
+
                     Generate a post-purchase message. 
-                    - If it's gummies/edibles -> Tip about bioavailability (eat with fats).
-                    - If it's vapes -> Tip about voltage/temperature.
-                    - If unsure -> Insight about the "Entourage Effect".
+                    - Map the product_type/tags to a specific meaningful tip.
+                    - If "Gummies" or "Edibles" -> Tip about digestion/fats.
+                    - If "Vapes" -> Tip about heat/storage.
+                    - If "Tinctures" -> Tip about sublingual absorption time.
                     Make them feel they made the best decision.
                 `;
             } else {
@@ -71,9 +122,15 @@ export class BehaviorService {
                 `;
 
                 userPrompt = `
-                    User '${uniqueId}' just showed high intent by clicking '${context.event_type}' on product: ${JSON.stringify(context.metadata)}.
-                    Generate a notification message to bring them back to complete the purchase.
-                    Don't say "Buy now". Focus on benefit or fear of missing out (FOMO).
+                    User '${uniqueId}' just showed high intent by clicking '${context.event_type}'.
+                    
+                    PRODUCT CONTEXT (What they almost bought):
+                    ${contextString}
+
+                    Generate a notification message to bring them back.
+                    - Mention a specific characteristic of the product found in the context (Effect, Flavor, Type).
+                    - Use FOMO.
+                    Don't say "Buy now".
                 `;
             }
 
