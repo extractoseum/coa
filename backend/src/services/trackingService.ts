@@ -49,11 +49,31 @@ export const updateOrderTracking = async (orderId: string) => {
 
                     // BUG FIX: Only notify on relevant status changes, NOT on simple history advances
                     // Relevance: out_for_delivery, delivered, or the initial switch to in_transit
-                    const notifiableStatuses = ['out_for_delivery', 'delivered'];
-                    const isInitialTransit = (tracking.current_status === 'pending' || !tracking.current_status) && result.status === 'in_transit';
-                    const isRelevantChange = statusChanged && (notifiableStatuses.includes(result.status) || isInitialTransit);
+                    const notifiableStatuses = ['out_for_delivery', 'delivered', 'exception'];
 
-                    if (isRelevantChange) {
+                    // Logic to prevent "downgrade" notifications (e.g., Out for Delivery -> In Transit)
+                    // We allow In Transit -> Out for Delivery
+                    // We start with isInitialTransit
+                    const isInitialTransit = (tracking.current_status === 'pending' || !tracking.current_status) && result.status === 'in_transit';
+                    let shouldNotify = false;
+
+                    if (isInitialTransit) {
+                        shouldNotify = true;
+                    } else if (statusChanged) {
+                        // If upgrading (Transit -> Out for Delivery -> Delivered)
+                        if (notifiableStatuses.includes(result.status)) {
+                            shouldNotify = true;
+                        }
+
+                        // Prevent Downgrade Spam: 
+                        // If we were 'out_for_delivery' and now 'in_transit', DO NOT notify "On the way" again.
+                        if (tracking.current_status === 'out_for_delivery' && result.status === 'in_transit') {
+                            shouldNotify = false;
+                            console.log(`[Tracking] Suppressing downgrade notification (Out -> Transit) for ${trackingNum}`);
+                        }
+                    }
+
+                    if (shouldNotify) {
                         // Extract latest details for personalization
                         const latestEvent = result.history && result.history.length > 0 ? result.history[0].details : undefined;
                         const currentLocation = result.history && result.history.length > 0 ? result.history[0].location : undefined;
@@ -206,6 +226,14 @@ export const pollEstafeta = async (waybill: string) => {
             status = 'in_transit';
         } else if (html.includes('no encontrado') || html.includes('movimiento no encontrado')) {
             status = 'pending';
+        }
+
+        // Exception Handling (Vacations, Closed, etc.)
+        if (html.includes('VACACIONES') || html.includes('NO LABORAL') || html.includes('CERRADO')) {
+            // Check if we were already out for delivery -> likely an attempt failed due to closed location
+            // We map this to 'exception' to handle it specifically via `notifyDeliveryAttemptFailed` logic later
+            // But for status, let's keep it actionable.
+            status = 'exception';
         }
 
         // Fallback for Delivered
