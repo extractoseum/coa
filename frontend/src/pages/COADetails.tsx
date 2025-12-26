@@ -66,9 +66,7 @@ const trackCOAAccess = async (token: string, accessType: string, linkSource?: st
             }
 
             // Trakpilot / Generic Custom Event
-            // @ts-ignore
             if (window.Trakpilot) {
-                // @ts-ignore
                 window.Trakpilot.track('view_coa', { token });
             }
         }
