@@ -37,7 +37,7 @@ export class BehaviorService {
 
             // 1. Configurable Triggers
             // Only react to high-intent events for now
-            const highIntentEvents = ['purchase', 'shop', 'add_to_cart_intent', 'purchase_success'];
+            const highIntentEvents = ['purchase', 'shop', 'add_to_cart_intent', 'add_to_cart', 'purchase_success'];
             if (!highIntentEvents.includes(context.event_type)) {
                 return;
             }
