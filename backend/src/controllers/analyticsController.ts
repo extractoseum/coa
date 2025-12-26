@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { supabase } from '../config/supabase';
 import crypto from 'crypto';
 import { getGeoFromIP } from '../services/geoService';
+import { BehaviorService } from '../services/behaviorService';
 
 // ============================================
 // Helper Functions
@@ -124,9 +125,9 @@ export const trackAccess = async (req: Request, res: Response) => {
 
         // Extract visitor info - prioritize X-Real-IP from nginx, then X-Forwarded-For
         const ip = req.headers['x-real-ip']?.toString() ||
-                   req.headers['x-forwarded-for']?.toString().split(',')[0].trim() ||
-                   req.ip?.replace('::ffff:', '') ||
-                   'unknown';
+            req.headers['x-forwarded-for']?.toString().split(',')[0].trim() ||
+            req.ip?.replace('::ffff:', '') ||
+            'unknown';
         const ipHash = hashIP(ip);
         const userAgent = req.headers['user-agent'] || '';
         const referrer = req.headers['referer'] || req.headers['referrer'] || '';
@@ -299,6 +300,19 @@ export const trackLinkClick = async (req: Request, res: Response) => {
         }
 
         res.json({ success: true });
+
+        // --- Behavioral Activation (Fire & Forget) ---
+        // Async call to AI brain to decide if we should react
+        BehaviorService.getInstance().analyzeAndReact({
+            event_type: link_type,
+            user_identifier: ipHash, // Using IP Hash as anonymous ID for now
+            metadata: {
+                coa_token: token,
+                destination: link_url,
+                device: deviceType,
+                geo: await getGeoFromIP(ip) // Enrich with Geo
+            }
+        });
 
     } catch (error) {
         console.error('[Analytics] Track link click error:', error);
