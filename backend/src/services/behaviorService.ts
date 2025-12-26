@@ -30,27 +30,52 @@ export class BehaviorService {
 
             // 1. Configurable Triggers
             // Only react to high-intent events for now
-            const highIntentEvents = ['purchase', 'shop', 'add_to_cart_intent'];
+            const highIntentEvents = ['purchase', 'shop', 'add_to_cart_intent', 'purchase_success'];
             if (!highIntentEvents.includes(context.event_type)) {
                 return;
             }
 
             // 2. AI Generation - "The Perfect Clickbait & Empathy Engine"
             const uniqueId = context.user_identifier || 'anonymous';
+            let systemPrompt = '';
+            let userPrompt = '';
 
-            const systemPrompt = `
-                You are the "Empathetic Sales Cortex" for Extractos EUM.
-                Your goal is to generate a SHORT, HIGH-CONVERSION notification message (Push/SMS/Email).
-                Tone: Empathetic, exclusive, slightly mysterious ("Clickbait" via curiosity).
-                Max Length: 15 words.
-                Language: Spanish (Mexico).
-            `;
+            if (context.event_type === 'purchase_success') {
+                // STRATEGY: RETENTION & LOYALTY (Post-Purchase)
+                // Goal: Envelop the client with value (Tips, Reviews, Usage Guide)
+                systemPrompt = `
+                    You are the "Master Herbalist" and "Community Manager" for Extractos EUM.
+                    Your goal is to reassure the user after a purchase and make them feel part of an exclusive club.
+                    Tone: Warm, knowledgeable, slightly esoteric/scientific but accessible.
+                    Content: Provide a specific "Pro Tip" about the product OR share a short snippet of a stellar review.
+                    Max Length: 20 words.
+                    Language: Spanish (Mexico).
+                `;
+                userPrompt = `
+                    User '${uniqueId}' just completed a purchase of: ${JSON.stringify(context.metadata)}.
+                    Generate a post-purchase message. 
+                    - If it's gummies/edibles -> Tip about bioavailability (eat with fats).
+                    - If it's vapes -> Tip about voltage/temperature.
+                    - If unsure -> Insight about the "Entourage Effect".
+                    Make them feel they made the best decision.
+                `;
+            } else {
+                // STRATEGY: ACQUISITION (Pre-Purchase / Recovery)
+                // Goal: FOMO, Curiosity
+                systemPrompt = `
+                    You are the "Empathetic Sales Cortex" for Extractos EUM.
+                    Your goal is to generate a SHORT, HIGH-CONVERSION notification message (Push/SMS/Email).
+                    Tone: Empathetic, exclusive, slightly mysterious ("Clickbait" via curiosity).
+                    Max Length: 15 words.
+                    Language: Spanish (Mexico).
+                `;
 
-            const userPrompt = `
-                User '${uniqueId}' just showed high intent by clicking '${context.event_type}' on product: ${JSON.stringify(context.metadata)}.
-                Generate a notification message to bring them back to complete the purchase.
-                Don't say "Buy now". Focus on benefit or fear of missing out (FOMO).
-            `;
+                userPrompt = `
+                    User '${uniqueId}' just showed high intent by clicking '${context.event_type}' on product: ${JSON.stringify(context.metadata)}.
+                    Generate a notification message to bring them back to complete the purchase.
+                    Don't say "Buy now". Focus on benefit or fear of missing out (FOMO).
+                `;
+            }
 
             const aiResponse = await AIService.getInstance().generateText(
                 systemPrompt,

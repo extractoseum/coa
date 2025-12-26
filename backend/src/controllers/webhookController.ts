@@ -5,6 +5,7 @@ import { notifyLoyaltyUpdate, notifyOrderCreated, notifyOrderShipped, updateOneS
 import { getShopifyCustomerById, getShopifyOrderById } from '../services/shopifyService';
 import { logWebhook, logClient } from '../services/loggerService';
 import { CRMService } from '../services/CRMService';
+import { BehaviorService } from '../services/behaviorService';
 
 // Shopify webhook secret (optional, for HMAC verification)
 const SHOPIFY_WEBHOOK_SECRET = process.env.SHOPIFY_WEBHOOK_SECRET || '';
@@ -572,10 +573,20 @@ const processOrderInternal = async (order: any, eventType: 'create' | 'update') 
                 }
             }
 
-            if (shouldNotify) {
-                console.log(`[Webhook] Triggering notification for order ${orderNumber} (Client: ${client.id})`);
-                await notifyOrderCreated(client.id, orderNumber, client);
-            }
+            console.log(`[Webhook] Triggering notification for order ${orderNumber} (Client: ${client.id})`);
+            await notifyOrderCreated(client.id, orderNumber, client);
+
+            // --- Behavioral Engagement (Post-Purchase) ---
+            BehaviorService.getInstance().analyzeAndReact({
+                event_type: 'purchase_success',
+                user_identifier: client.email,
+                metadata: {
+                    order_id: savedOrder.id,
+                    amount: order.total_price,
+                    items: order.line_items?.map((i: any) => i.name) || [],
+                    customer_name: client.name
+                }
+            });
         }
         else {
             console.error('[Webhook] Error saving order:', orderError);
