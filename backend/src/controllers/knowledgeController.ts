@@ -7,7 +7,24 @@ import { IntelligenceService } from '../services/intelligenceService';
 // Base directory for AI Knowledge Base
 // CHANGED: Use persistent 'data' directory outside of 'dist' to survive deployments
 // FORCE 'data' usage even in dev to unify source of truth
-const KNOWLEDGE_BASE_DIR = path.join(__dirname, '../../data/ai_knowledge_base');
+// RESOLVE KNOWLEDGE BASE DIRECTORY
+// Priority 1: '../data/ai_knowledge_base' (Production: Bundled inside dist/data)
+// Priority 2: '../../data/ai_knowledge_base' (Development: Source root data)
+const resolveKnowledgeBaseDir = () => {
+    const bundledPath = path.join(__dirname, '../data/ai_knowledge_base');
+    const devPath = path.join(__dirname, '../../data/ai_knowledge_base');
+
+    // In production, we bundle data into dist/data, so it is a sibling of the controllers dir (../data)
+    if (fs.existsSync(bundledPath)) {
+        console.log('[KnowledgeController] Using bundled data path:', bundledPath);
+        return bundledPath;
+    }
+
+    console.log('[KnowledgeController] Using dev data path:', devPath);
+    return devPath;
+};
+
+const KNOWLEDGE_BASE_DIR = resolveKnowledgeBaseDir();
 
 // Subdirectories allowed
 const AGENT_CATEGORIES = ['agents_god_mode', 'agents_public', 'agents_internal'];
