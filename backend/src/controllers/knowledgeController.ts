@@ -101,13 +101,29 @@ export const listKnowledgeFiles = async (req: Request, res: Response) => {
                 structure[folder] = agents;
                 structure[`${folder}_config`] = { activeAgent };
             } else {
-                // Standard folders (flat files)
-                const files = fs.readdirSync(folderPath)
-                    .filter(file => file.endsWith('.md') || file.endsWith('.json') || file.endsWith('.yaml'))
-                    .map(file => ({
-                        name: file,
-                        path: `${folder}/${file}`
-                    }));
+                // Standard folders (flat files) OR recursive for 'core'
+                const getAllFiles = (dir: string, baseDir: string): any[] => {
+                    let results: any[] = [];
+                    const list = fs.readdirSync(dir);
+                    list.forEach(file => {
+                        const filePath = path.join(dir, file);
+                        const stat = fs.statSync(filePath);
+                        if (stat && stat.isDirectory()) {
+                            results = results.concat(getAllFiles(filePath, baseDir));
+                        } else if (file.endsWith('.md') || file.endsWith('.json') || file.endsWith('.yaml')) {
+                            // Relative path from base folder (e.g. core/brand_framework/legal.md)
+                            const relativePath = path.relative(baseDir, filePath);
+                            results.push({
+                                name: relativePath, // Display full path
+                                path: `${folder}/${relativePath}`,
+                                displayPath: relativePath
+                            });
+                        }
+                    });
+                    return results;
+                };
+
+                const files = getAllFiles(folderPath, folderPath);
                 structure[folder] = files;
             }
         }
@@ -135,29 +151,27 @@ export const readKnowledgeFile = async (req: Request, res: Response) => {
             const subPath = (req.query.path as string) || req.params.filename;
             if (!subPath) return res.status(400).json({ error: 'Subpath is required for agents' });
 
-            // Remove folder prefix if present (e.g. agents_god_mode/admin_sidekick/identity.md)
-            // Remove folder prefix if present (e.g. agents_god_mode/admin_sidekick/identity.md)
+            // Remove folder prefix if present
             let cleanSubPath = subPath.startsWith(folder + '/') ? subPath.replace(folder + '/', '') : subPath;
-
-            // Normalize and resolve the full path
             const resolvedPath = path.resolve(KNOWLEDGE_BASE_DIR, folder, cleanSubPath);
 
-            // SECURITY: Ensure the resolved path remains within the forbidden directory
             const allowedRoot = path.resolve(KNOWLEDGE_BASE_DIR, folder);
             if (!resolvedPath.startsWith(allowedRoot)) {
                 return res.status(403).json({ error: 'Access denied: Path traversal detected' });
             }
-
             safePath = resolvedPath;
         } else {
             if (!ALLOWED_FOLDERS.includes(folder)) return res.status(400).json({ error: 'Invalid folder' });
             const subPath = req.params[0] || req.params.filename || (req.query.path as string);
             if (!subPath) return res.status(400).json({ error: 'Filename is required' });
 
-            // Standard folders: Only allow filenames, no slashes strictly? 
-            // Existing logic allowed path.basename(subPath) which forces it to be a flat file.
-            // But let's be consistent.
-            safePath = path.join(KNOWLEDGE_BASE_DIR, folder, path.basename(subPath));
+            // Support nested paths (no path.basename calls)
+            const resolvedPath = path.resolve(KNOWLEDGE_BASE_DIR, folder, subPath);
+            const allowedRoot = path.resolve(KNOWLEDGE_BASE_DIR, folder);
+            if (!resolvedPath.startsWith(allowedRoot)) {
+                return res.status(403).json({ error: 'Access denied: Path traversal detected' });
+            }
+            safePath = resolvedPath;
         }
 
         // Final Global Security Check
@@ -211,7 +225,14 @@ export const saveKnowledgeFile = async (req: Request, res: Response) => {
             if (!ALLOWED_FOLDERS.includes(folder)) return res.status(400).json({ error: 'Invalid folder' });
             const subPath = (req.query.path as string) || req.body.path || req.params.filename;
             if (!subPath) return res.status(400).json({ error: 'Filename is required' });
-            safePath = path.join(KNOWLEDGE_BASE_DIR, folder, path.basename(subPath));
+
+            // Support nested paths
+            const resolvedPath = path.resolve(KNOWLEDGE_BASE_DIR, folder, subPath);
+            const allowedRoot = path.resolve(KNOWLEDGE_BASE_DIR, folder);
+            if (!resolvedPath.startsWith(allowedRoot)) {
+                return res.status(403).json({ error: 'Access denied: Path traversal detected' });
+            }
+            safePath = resolvedPath;
         }
 
         if (!safePath.startsWith(KNOWLEDGE_BASE_DIR)) {

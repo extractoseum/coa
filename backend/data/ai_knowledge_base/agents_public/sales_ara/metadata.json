@@ -3,7 +3,8 @@
     "default_tools": [
         "search_products_db",
         "create_checkout_link",
-        "search_knowledge_base"
+        "search_knowledge_base",
+        "browser_action"
     ],
     "description": "Expert in product search and sales conversion."
 }

@@ -237,13 +237,17 @@ export const pollEstafeta = async (waybill: string) => {
         }
 
         // Return to Sender / Replacement Guide Detection
-        // This is critical to catch before fallback
-        if (html.includes('DEVOLUCION A REMITENTE') || html.includes('GUIA DE REEMPLAZO') || html.includes('RETORNO')) {
+        // Check for 'Guía Retorno' (even empty implies existence) or explicit event text
+        if (html.includes('DEVOLUCION A REMITENTE') || html.includes('GUIA DE REEMPLAZO') || html.includes('Guía Retorno')) {
             status = 'return_to_sender';
         }
 
         // Fallback for Delivered
-        if (status !== 'delivered' && (html.includes('Estatus: Entregado') || (html.includes('Entregado') && html.includes('Firma de recibido')))) {
+        // STRENGTHENED: Avoid matching footer text "no ha sido entregado" by checking for Estatus label
+        const isExplicitDelivered = html.includes('Estatus: Entregado') ||
+            (html.includes('Entregado') && html.includes('Firma de recibido'));
+
+        if (status !== 'delivered' && status !== 'return_to_sender' && isExplicitDelivered) {
             status = 'delivered';
         }
 
