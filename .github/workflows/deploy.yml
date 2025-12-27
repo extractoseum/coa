@@ -77,6 +77,7 @@ jobs:
           source: "frontend/dist/*"
           target: "/var/www/coa-viewer"
           strip_components: 2
+          timeout: 120s
 
   # ============================================
   # DEPLOY BACKEND
@@ -113,6 +114,7 @@ jobs:
           key: ${{ secrets.DEPLOY_KEY }}
           source: "scripts"
           target: "/var/www/coa-viewer"
+          timeout: 120s
 
       - name: Deploy Backend Files
         uses: appleboy/scp-action@v0.1.7
@@ -123,6 +125,7 @@ jobs:
           source: "backend/dist,backend/package.json"
           target: "/var/www/coa-viewer/backend"
           strip_components: 1
+          timeout: 120s
 
       - name: Install Prod Deps & Restart
         uses: appleboy/ssh-action@v1.0.3
@@ -134,3 +137,4 @@ jobs:
             cd /var/www/coa-viewer/backend
             npm install --omit=dev
             pm2 restart coa-backend
+          timeout: 120s
