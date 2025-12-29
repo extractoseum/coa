@@ -1,5 +1,10 @@
 -- Migration: 051_products_enrichment.sql
 -- Description: Add enrichment fields to products table for AI knowledge
+-- Run this in Supabase SQL Editor
+
+-- =============================================
+-- PART 1: Basic columns (run first, always safe)
+-- =============================================
 
 -- Add description field (HTML from Shopify body_html)
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS description TEXT;
@@ -14,14 +19,12 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS metafields JSONB DEFAULT '{
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS enrichment JSONB DEFAULT '{}'::JSONB;
 -- Structure: { cannabinoids: [], effects: [], usage: "", dosage: "", ingredients: [] }
 
--- Add embedding for semantic search
-ALTER TABLE public.products ADD COLUMN IF NOT EXISTS embedding vector(1536);
+-- =============================================
+-- PART 2: Full-text search (Spanish)
+-- =============================================
 
 -- Add full-text search vector
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS search_vector tsvector;
-
--- Create index for semantic search
-CREATE INDEX IF NOT EXISTS idx_products_embedding ON public.products USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
 
 -- Create index for full-text search
 CREATE INDEX IF NOT EXISTS idx_products_search_vector ON public.products USING GIN (search_vector);
@@ -45,9 +48,19 @@ CREATE TRIGGER products_search_vector_trigger
     FOR EACH ROW
     EXECUTE FUNCTION products_search_vector_update();
 
--- Comment for documentation
+-- =============================================
+-- PART 3: Vector embeddings (optional, requires pgvector)
+-- Only run if you have pgvector extension enabled
+-- =============================================
+
+-- Uncomment the following lines if pgvector is enabled:
+-- ALTER TABLE public.products ADD COLUMN IF NOT EXISTS embedding vector(1536);
+-- CREATE INDEX IF NOT EXISTS idx_products_embedding ON public.products USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+
+-- =============================================
+-- Documentation
+-- =============================================
 COMMENT ON COLUMN public.products.description IS 'HTML description from Shopify body_html';
 COMMENT ON COLUMN public.products.description_plain IS 'Plain text for AI (HTML stripped)';
 COMMENT ON COLUMN public.products.metafields IS 'Custom metafields from Shopify';
 COMMENT ON COLUMN public.products.enrichment IS 'AI-enhanced product info: cannabinoids, effects, usage';
-COMMENT ON COLUMN public.products.embedding IS 'Vector embedding for semantic search';
