@@ -1,5 +1,5 @@
 import { supabase } from '../config/supabase';
-import { AIService } from './aiService';
+import { AIService, CustomerContext } from './aiService';
 import { logger } from '../utils/Logger'; // Phase 31: Structured Logging
 import { sendWhatsAppMessage, sendWhatsAppVoice, getContactInfo } from './whapiService';
 import { sendDataEmail } from './emailService';
@@ -621,14 +621,17 @@ export class CRMService {
 
                     console.log(`[CRMService] Dispatching to Agent: ${agentId} [${model}] in Column: ${column.name}`);
 
-                    // 5. Dispatch to AI with Context Inheritance
+                    // 5. Dispatch to AI with Context Inheritance + Customer Context
                     try {
+                        // Get customer context (pending orders, LTV, etc.) for personalization
+                        const customerContext = await this.getCustomerContextForAI(cleanHandle);
+
                         const response = await this.aiService.chatWithPersona(
                             agentId,
                             content,
                             [],
                             model,
-                            { toolsWhitelist, objectives }
+                            { toolsWhitelist, objectives, customerContext }
                         );
 
                         if (response && response.content) {
@@ -1080,9 +1083,108 @@ export class CRMService {
             return this.syncContactSnapshot(handle, channel);
         }
 
-        // Check staleness (e.g., 24 hours) - simplified for now, always return DB version, 
+        // Check staleness (e.g., 24 hours) - simplified for now, always return DB version,
         // frontend can trigger forced sync.
         return data;
+    }
+
+    /**
+     * Gets customer context for AI personalization (pending orders, recent orders, LTV, etc.)
+     */
+    public async getCustomerContextForAI(handle: string): Promise<CustomerContext> {
+        const cleanPhone = cleanupPhone(handle);
+        const context: CustomerContext = { phone: cleanPhone };
+
+        try {
+            // 1. Get Client Profile
+            const { data: client } = await supabase
+                .from('clients')
+                .select('id, name, email, phone, tags, total_spent')
+                .or(`phone.ilike.%${cleanPhone}%,phone.ilike.%${cleanPhone.slice(-10)}%`)
+                .maybeSingle();
+
+            if (client) {
+                context.name = client.name || undefined;
+                context.email = client.email || undefined;
+                context.ltv = parseFloat(client.total_spent) || 0;
+                context.tags = client.tags || [];
+
+                // 2. Get Orders for this client
+                const { data: orders } = await supabase
+                    .from('orders')
+                    .select('id, order_number, total_price, financial_status, fulfillment_status, line_items, tracking_number, tracking_url, shopify_created_at')
+                    .eq('client_id', client.id)
+                    .order('shopify_created_at', { ascending: false })
+                    .limit(10);
+
+                if (orders && orders.length > 0) {
+                    // Separate pending vs completed orders
+                    const pendingOrders: CustomerContext['pendingOrders'] = [];
+                    const recentOrders: CustomerContext['recentOrders'] = [];
+
+                    for (const order of orders) {
+                        const items = (order.line_items || []).map((li: any) =>
+                            `${li.quantity || 1}x ${li.title || li.name || 'Producto'}`
+                        );
+
+                        const orderData = {
+                            order_number: order.order_number || `#${order.id}`,
+                            total: order.total_price || '0',
+                            status: order.financial_status || 'pending',
+                            fulfillment_status: order.fulfillment_status,
+                            tracking_number: order.tracking_number || undefined,
+                            tracking_url: order.tracking_url || undefined,
+                            created_at: order.shopify_created_at || new Date().toISOString(),
+                            items
+                        };
+
+                        // Pending = not fulfilled or partially fulfilled
+                        if (!order.fulfillment_status || order.fulfillment_status === 'partial' || order.fulfillment_status === 'unfulfilled') {
+                            pendingOrders.push(orderData);
+                        } else {
+                            recentOrders.push({
+                                order_number: orderData.order_number,
+                                total: orderData.total,
+                                created_at: orderData.created_at
+                            });
+                        }
+                    }
+
+                    context.pendingOrders = pendingOrders;
+                    context.recentOrders = recentOrders.slice(0, 3);
+                }
+            } else {
+                // Try to find orders by phone directly in orders table
+                const { data: ordersOnly } = await supabase
+                    .from('orders')
+                    .select('id, order_number, total_price, financial_status, fulfillment_status, line_items, tracking_number, tracking_url, shopify_created_at, customer_phone')
+                    .or(`customer_phone.ilike.%${cleanPhone}%,customer_phone.ilike.%${cleanPhone.slice(-10)}%`)
+                    .order('shopify_created_at', { ascending: false })
+                    .limit(5);
+
+                if (ordersOnly && ordersOnly.length > 0) {
+                    context.pendingOrders = ordersOnly
+                        .filter(o => !o.fulfillment_status || o.fulfillment_status === 'partial' || o.fulfillment_status === 'unfulfilled')
+                        .map(order => ({
+                            order_number: order.order_number || `#${order.id}`,
+                            total: order.total_price || '0',
+                            status: order.financial_status || 'pending',
+                            fulfillment_status: order.fulfillment_status,
+                            tracking_number: order.tracking_number || undefined,
+                            tracking_url: order.tracking_url || undefined,
+                            created_at: order.shopify_created_at || new Date().toISOString(),
+                            items: (order.line_items || []).map((li: any) => `${li.quantity || 1}x ${li.title || 'Producto'}`)
+                        }));
+                }
+            }
+
+            console.log(`[CRMService] CustomerContext for ${cleanPhone}: ${context.pendingOrders?.length || 0} pending, ${context.recentOrders?.length || 0} recent orders`);
+
+        } catch (e: any) {
+            console.error(`[CRMService] getCustomerContextForAI failed for ${handle}:`, e.message);
+        }
+
+        return context;
     }
 
     /**

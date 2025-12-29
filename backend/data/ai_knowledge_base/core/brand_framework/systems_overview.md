@@ -16,7 +16,7 @@
 ## 3. Logistics & Fulfillment
 *   **Cut-off Time**: 1:00 PM for Same-Day Shipping.
 *   **Carriers**: Estafeta, FedEx (standard).
-*   **Tracking**: Users track via `extractoseum.com/apps/track123`.
+*   **Tracking**: Users track via `coa.extractoseum.com`.
 
 ## 4. Knowledge & Tools
 *   **COA Viewer**: The tool to show lab results.

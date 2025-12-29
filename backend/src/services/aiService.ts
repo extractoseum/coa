@@ -27,6 +27,32 @@ interface AIResponse {
     usage: OpenAI.Completions.CompletionUsage | undefined;
 }
 
+/**
+ * Customer context injected into AI conversations for personalization
+ */
+export interface CustomerContext {
+    name?: string;
+    phone?: string;
+    email?: string;
+    ltv?: number;
+    pendingOrders?: Array<{
+        order_number: string;
+        total: string;
+        status: string;
+        fulfillment_status: string | null;
+        tracking_number?: string;
+        tracking_url?: string;
+        created_at: string;
+        items: string[];
+    }>;
+    recentOrders?: Array<{
+        order_number: string;
+        total: string;
+        created_at: string;
+    }>;
+    tags?: string[];
+}
+
 export class AIService {
     private static instance: AIService;
 
@@ -203,7 +229,7 @@ export class AIService {
         message: string,
         history: any[] = [],
         modelOverride?: string,
-        options: { toolsWhitelist?: string[], objectives?: string | null } = {}
+        options: { toolsWhitelist?: string[], objectives?: string | null, customerContext?: CustomerContext } = {}
     ): Promise<AIResponse> {
         // 1. Resolve Persona Context
         const KNOWLEDGE_BASE_DIR = path.join(__dirname, '../../data/ai_knowledge_base');
@@ -280,7 +306,49 @@ export class AIService {
             systemPrompt += `\n\n### CURRENT OPERATIONAL OBJECTIVES (COLUMN OVERRIDE):\n${options.objectives}\n`;
         }
 
-        // 3. Prepare Messages for chat
+        // 3. Inject Customer Context (Personalization Layer)
+        if (options.customerContext) {
+            const ctx = options.customerContext;
+            systemPrompt += `\n\n### 👤 CONTEXTO DEL CLIENTE ACTUAL:\n`;
+
+            if (ctx.name) systemPrompt += `- **Nombre:** ${ctx.name}\n`;
+            if (ctx.phone) systemPrompt += `- **Teléfono:** ${ctx.phone}\n`;
+            if (ctx.email) systemPrompt += `- **Email:** ${ctx.email}\n`;
+            if (ctx.ltv !== undefined) systemPrompt += `- **LTV (Valor Total):** $${ctx.ltv} MXN\n`;
+            if (ctx.tags && ctx.tags.length > 0) systemPrompt += `- **Tags:** ${ctx.tags.join(', ')}\n`;
+
+            // Pending Orders - CRITICAL for "¿Cómo va mi pedido?"
+            if (ctx.pendingOrders && ctx.pendingOrders.length > 0) {
+                systemPrompt += `\n#### 📦 PEDIDOS PENDIENTES (En Tránsito):\n`;
+                systemPrompt += `**IMPORTANTE:** Si el cliente pregunta por su pedido, usa esta información directamente SIN pedir el número de orden.\n\n`;
+
+                for (const order of ctx.pendingOrders) {
+                    systemPrompt += `- **${order.order_number}** - $${order.total} MXN\n`;
+                    systemPrompt += `  - Estado: ${order.fulfillment_status || 'Procesando'}\n`;
+                    systemPrompt += `  - Fecha: ${new Date(order.created_at).toLocaleDateString('es-MX')}\n`;
+                    systemPrompt += `  - Productos: ${order.items.join(', ')}\n`;
+                    if (order.tracking_number) {
+                        systemPrompt += `  - Guía: ${order.tracking_number}\n`;
+                        if (order.tracking_url) systemPrompt += `  - Rastreo: ${order.tracking_url}\n`;
+                    }
+                    systemPrompt += `\n`;
+                }
+            } else {
+                systemPrompt += `\n#### 📦 PEDIDOS PENDIENTES: Ninguno en tránsito.\n`;
+            }
+
+            // Recent completed orders
+            if (ctx.recentOrders && ctx.recentOrders.length > 0) {
+                systemPrompt += `\n#### 🛍️ ÚLTIMOS PEDIDOS COMPLETADOS:\n`;
+                for (const order of ctx.recentOrders.slice(0, 3)) {
+                    systemPrompt += `- ${order.order_number} - $${order.total} MXN (${new Date(order.created_at).toLocaleDateString('es-MX')})\n`;
+                }
+            }
+
+            systemPrompt += `\n`;
+        }
+
+        // 4. Prepare Messages for chat
         const messages = [...history, { role: 'user', content: message }];
 
         // 4. Call Chat with tools and whitelist

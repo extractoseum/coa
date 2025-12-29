@@ -151,7 +151,7 @@ Si no encuentras información específica:
 |---------|-----|
 | Tienda oficial | https://extractoseum.com |
 | Trustpilot | https://www.trustpilot.com/review/extractoseum.com |
-| Rastreo de órdenes | https://extractoseum.com/apps/track123 |
+| Rastreo de órdenes | https://coa.extractoseum.com |
 | B2B / Mayoreo | https://extractoseum.com/pages/b2b-login |
 | Colaboraciones | https://extractoseum.com/pages/collab |
 | Teléfono México | +52 (55) 9661 6455 |

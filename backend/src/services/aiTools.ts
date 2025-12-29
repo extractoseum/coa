@@ -384,6 +384,20 @@ export const ADMIN_TOOLS: AIToolDefinition[] = [
     {
         type: 'function',
         function: {
+            name: 'search_order_by_number',
+            description: 'Search for an order by its visible order number (e.g., #EUM_1441_SHOP, EUM1441, 1441). Use this when a customer provides a specific order number. Returns order details, status, tracking, and items.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    order_number: { type: 'string', description: 'The order number provided by the customer (e.g., EUM_1441_SHOP, #1441, or just 1441)' }
+                },
+                required: ['order_number']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
             name: 'create_shopify_coupon',
             description: 'Create a unique discount coupon in Shopify.',
             parameters: {
@@ -955,6 +969,75 @@ export const TOOL_HANDLERS: Record<string, (args: any) => Promise<any>> = {
         } catch (e: any) {
             return { error: 'Order not found or shopify error' };
         }
+    },
+    search_order_by_number: async ({ order_number }) => {
+        // Normalize order number - extract digits and search flexibly
+        const cleanNumber = order_number.replace(/[^0-9]/g, '');
+        console.log(`[AITools] Searching order by number: "${order_number}" (cleaned: ${cleanNumber})`);
+
+        // Search in local orders table with flexible matching
+        const { data: orders, error } = await supabase
+            .from('orders')
+            .select('id, order_number, total_price, financial_status, fulfillment_status, line_items, tracking_number, tracking_url, shopify_created_at, customer_email, customer_phone')
+            .or(`order_number.ilike.%${order_number}%,order_number.ilike.%${cleanNumber}%`)
+            .order('shopify_created_at', { ascending: false })
+            .limit(5);
+
+        if (error) {
+            console.error('[AITools] search_order_by_number failed:', error.message);
+            return { error: 'Error searching orders' };
+        }
+
+        if (!orders || orders.length === 0) {
+            // Try Shopify API directly as fallback
+            try {
+                const { searchShopifyOrders } = require('./shopifyService');
+                if (typeof searchShopifyOrders === 'function') {
+                    const shopifyOrders = await searchShopifyOrders(order_number);
+                    if (shopifyOrders && shopifyOrders.length > 0) {
+                        return {
+                            source: 'shopify_live',
+                            orders: shopifyOrders.map((o: any) => ({
+                                order_number: o.name,
+                                total: o.total_price,
+                                status: o.financial_status,
+                                fulfillment_status: o.fulfillment_status || 'Procesando',
+                                items: (o.line_items || []).map((li: any) => `${li.quantity}x ${li.title}`),
+                                tracking: (o.fulfillments || []).map((f: any) => ({
+                                    number: f.tracking_number,
+                                    url: f.tracking_url,
+                                    company: f.tracking_company
+                                })),
+                                created_at: o.created_at
+                            }))
+                        };
+                    }
+                }
+            } catch (e) {
+                console.warn('[AITools] Shopify fallback search failed:', e);
+            }
+
+            return {
+                found: false,
+                message: `No se encontró ningún pedido con el número "${order_number}". Verifica que el número sea correcto.`
+            };
+        }
+
+        return {
+            found: true,
+            count: orders.length,
+            orders: orders.map(o => ({
+                order_number: o.order_number,
+                total: o.total_price,
+                status: o.financial_status,
+                fulfillment_status: o.fulfillment_status || 'Procesando',
+                items: (o.line_items || []).map((li: any) => `${li.quantity || 1}x ${li.title || li.name || 'Producto'}`),
+                tracking_number: o.tracking_number || null,
+                tracking_url: o.tracking_url || null,
+                created_at: o.shopify_created_at,
+                customer_email: o.customer_email
+            }))
+        };
     },
     create_shopify_coupon: async ({ code, amount_off, type }) => {
         const { createShopifyPriceRule, createShopifyDiscountCode } = require('./shopifyService');
