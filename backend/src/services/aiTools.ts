@@ -976,9 +976,10 @@ export const TOOL_HANDLERS: Record<string, (args: any) => Promise<any>> = {
         console.log(`[AITools] Searching order by number: "${order_number}" (cleaned: ${cleanNumber})`);
 
         // Search in local orders table with flexible matching
+        // Note: Using correct column names (total_amount not total_price, no line_items/tracking columns in orders table)
         const { data: orders, error } = await supabase
             .from('orders')
-            .select('id, order_number, total_price, financial_status, fulfillment_status, line_items, tracking_number, tracking_url, shopify_created_at, customer_email, customer_phone')
+            .select('id, order_number, total_amount, financial_status, fulfillment_status, status, shopify_created_at, customer_email, customer_phone')
             .or(`order_number.ilike.%${order_number}%,order_number.ilike.%${cleanNumber}%`)
             .order('shopify_created_at', { ascending: false })
             .limit(5);
@@ -1028,12 +1029,12 @@ export const TOOL_HANDLERS: Record<string, (args: any) => Promise<any>> = {
             count: orders.length,
             orders: orders.map(o => ({
                 order_number: o.order_number,
-                total: o.total_price,
-                status: o.financial_status,
+                total: String(o.total_amount || '0'),
+                status: o.financial_status || o.status || 'pending',
                 fulfillment_status: o.fulfillment_status || 'Procesando',
-                items: (o.line_items || []).map((li: any) => `${li.quantity || 1}x ${li.title || li.name || 'Producto'}`),
-                tracking_number: o.tracking_number || null,
-                tracking_url: o.tracking_url || null,
+                items: [] as string[], // Line items not stored in orders table
+                tracking_number: null, // Not available in orders table
+                tracking_url: null,    // Not available in orders table
                 created_at: o.shopify_created_at,
                 customer_email: o.customer_email
             }))
