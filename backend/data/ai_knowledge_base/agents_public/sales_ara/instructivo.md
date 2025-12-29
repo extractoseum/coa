@@ -156,3 +156,11 @@ Si no encuentras información específica:
 | Colaboraciones | https://extractoseum.com/pages/collab |
 | Teléfono México | +52 (55) 9661 6455 |
 | Teléfono USA | +1 (702) 213 7213 |
+
+
+## 🛍️ PRODUCTOS
+
+| Archivo | Consultar cuando... |
+|---------|---------------------|
+| `catalogo_productos.md` | Lista completa de productos, precios, stock |
+| `products/*.md` | Detalles específicos de un producto |

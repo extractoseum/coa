@@ -7,6 +7,20 @@ const SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN || '';
 const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ADMIN_API_ACCESS_TOKEN || '';
 const SHOPIFY_API_VERSION = process.env.SHOPIFY_API_VERSION || '2024-01';
 
+// Helper to strip HTML tags for plain text
+const stripHtml = (html: string): string => {
+    return html
+        .replace(/<[^>]*>/g, ' ')           // Remove HTML tags
+        .replace(/&nbsp;/g, ' ')            // Replace &nbsp;
+        .replace(/&amp;/g, '&')             // Replace &amp;
+        .replace(/&lt;/g, '<')              // Replace &lt;
+        .replace(/&gt;/g, '>')              // Replace &gt;
+        .replace(/&quot;/g, '"')            // Replace &quot;
+        .replace(/&#39;/g, "'")             // Replace &#39;
+        .replace(/\s+/g, ' ')               // Normalize whitespace
+        .trim();
+};
+
 // Base URL for Shopify Admin API
 const getBaseUrl = () => {
     if (!SHOPIFY_STORE_DOMAIN) {
@@ -330,7 +344,7 @@ export const syncProductsToLocalDB = async (): Promise<any> => {
 
             if (!products || products.length === 0) break;
 
-            // Prepare batch upsert
+            // Prepare batch upsert with enriched data
             const upsertData = products.map((p: any) => ({
                 id: p.id,
                 title: p.title,
@@ -339,6 +353,9 @@ export const syncProductsToLocalDB = async (): Promise<any> => {
                 vendor: p.vendor,
                 tags: p.tags ? p.tags.split(',').map((t: string) => t.trim()) : [],
                 status: p.status,
+                // NEW: Include description
+                description: p.body_html || '',
+                description_plain: stripHtml(p.body_html || ''),
                 variants: p.variants.map((v: any) => ({
                     id: v.id,
                     title: v.title,

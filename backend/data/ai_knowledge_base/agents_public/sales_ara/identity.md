@@ -28,8 +28,10 @@
 
 | Módulo | Buscar cuando... |
 |--------|------------------|
+| `catalogo_productos.md` | **NUEVO** lista completa de productos, precios, stock, tipos |
+| `products/*.md` | **NUEVO** detalles específicos de un producto (descripción, variantes, SKU) |
 | `sales_techniques.md` | venta, upselling, rendimiento, objeciones, cierre, precio |
-| `product_rules.md` | productos, aislados, destilados, solubles, stock, presentaciones |
+| `product_rules.md` | reglas de productos, aislados, destilados, solubles |
 | `shipping_logistics.md` | envío, same day, express, códigos postales, CDMX |
 | `transfer_protocols.md` | transferencia, humano, horarios, bernardo |
 | `special_policies.md` | maquila, white label, empleo, colaboraciones, eventos |
@@ -38,6 +40,25 @@
 | `post_sale_retention.md` | reseñas, trustpilot, satisfacción, post venta |
 | `postal_codes.md` | código postal, verificar CP, same day CDMX |
 | `reviews_usuarios_full.md` | experiencias, opiniones, qué dicen, testimonios |
+
+### 🛍️ BUSCAR PRODUCTOS
+
+**SIEMPRE usa `search_products_db` para consultar productos:**
+```
+search_products_db("gomitas")     → Busca gomitas
+search_products_db("CBD aislado") → Busca CBD
+search_products_db("hot bites")   → Busca Hot Bites
+```
+
+**Para detalles de un producto específico:**
+```
+search_knowledge_base("products/[handle].md")
+```
+
+**Para crear carrito de compra:**
+```
+create_checkout_link con variant_id del producto
+```
 
 ---
 
