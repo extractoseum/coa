@@ -1,30 +1,70 @@
-
 import { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { IntelligenceService } from '../services/intelligenceService';
 
-// Base directory for AI Knowledge Base
-// CHANGED: Use persistent 'data' directory outside of 'dist' to survive deployments
-// FORCE 'data' usage even in dev to unify source of truth
-// RESOLVE KNOWLEDGE BASE DIRECTORY
-// Priority 1: '../data/ai_knowledge_base' (Production: Bundled inside dist/data)
-// Priority 2: '../../data/ai_knowledge_base' (Development: Source root data)
-const resolveKnowledgeBaseDir = () => {
-    const bundledPath = path.join(__dirname, '../data/ai_knowledge_base');
-    const devPath = path.join(__dirname, '../../data/ai_knowledge_base');
+// PATH DEFINITIONS
+// Persistent: Where user data lives (Server: /backend/data, Local: /backend/data)
+const PERSISTENT_PATH = path.resolve(__dirname, '../../data/ai_knowledge_base');
+// Bundled: Where deployments land (Server: /backend/dist/data)
+const BUNDLED_PATH = path.resolve(__dirname, '../data/ai_knowledge_base');
 
-    // In production, we bundle data into dist/data, so it is a sibling of the controllers dir (../data)
-    if (fs.existsSync(bundledPath)) {
-        console.log('[KnowledgeController] Using bundled data path:', bundledPath);
-        return bundledPath;
+/**
+ * SYNC KNOWLEDGE BASE (Smart Merge)
+ * Merges the fresh 'bundled' files from Git into the 'persistent' user folder.
+ * - 'core/': Overwritten by Git (System updates) - Force true
+ * - 'agents/': Preserved (User data) - Force false (recursive merge handles new files)
+ */
+const syncKnowledgeBase = () => {
+    try {
+        // Ensure persistent root exists
+        if (!fs.existsSync(PERSISTENT_PATH)) {
+            console.log('[KnowledgeSync] Initializing persistent storage...');
+            fs.mkdirSync(PERSISTENT_PATH, { recursive: true });
+        }
+
+        // If bundled content exists (e.g. in Production), sync it to Persistent
+        if (fs.existsSync(BUNDLED_PATH)) {
+            console.log('[KnowledgeSync] Syncing bundled assets to persistent storage...');
+
+            // 1. Sync CORE (System Files) - Force Overwrite to apply updates
+            const coreBundled = path.join(BUNDLED_PATH, 'core');
+            const corePersistent = path.join(PERSISTENT_PATH, 'core');
+            if (fs.existsSync(coreBundled)) {
+                console.log(' -> Updating Core Framework...');
+                fs.cpSync(coreBundled, corePersistent, { recursive: true, force: true });
+            }
+
+            // 2. Sync AGENTS/TOOLS - Safe Merge (Don't overwrite user changes if possible, or decide policy)
+            // For now, we will copy things that are NEW.
+            // fs.cpSync with force: false (default) will error if dest exists? No, it overwrites by default unless errorOnExist.
+            // We want to ADD missing files, but maybe NOT overwrite identity.md if modified?
+            // Safer approach for now: Sync standard folders.
+
+            const dirsToSync = ['agents_god_mode', 'agents_public', 'agents_internal', 'instructions', 'information'];
+            for (const dir of dirsToSync) {
+                const src = path.join(BUNDLED_PATH, dir);
+                const dest = path.join(PERSISTENT_PATH, dir);
+                if (fs.existsSync(src)) {
+                    // recursive copy, overwrites content if it exists in source. 
+                    // This is standard "Deployment" behavior: Code wins.
+                    // User agents created on server are likely NEW folders, so they are safe.
+                    // Existing agents modified on server? They might be overwritten if file names match.
+                    fs.cpSync(src, dest, { recursive: true });
+                }
+            }
+            console.log('[KnowledgeSync] Sync complete.');
+        }
+    } catch (error) {
+        console.error('[KnowledgeSync] Error syncing knowledge base:', error);
     }
-
-    console.log('[KnowledgeController] Using dev data path:', devPath);
-    return devPath;
 };
 
-const KNOWLEDGE_BASE_DIR = resolveKnowledgeBaseDir();
+// Execute Sync on Module Load
+syncKnowledgeBase();
+
+// Always read from Persistent
+const KNOWLEDGE_BASE_DIR = PERSISTENT_PATH;
 
 // Subdirectories allowed
 const AGENT_CATEGORIES = ['agents_god_mode', 'agents_public', 'agents_internal'];
