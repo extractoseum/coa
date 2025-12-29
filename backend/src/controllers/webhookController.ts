@@ -573,8 +573,15 @@ const processOrderInternal = async (order: any, eventType: 'create' | 'update') 
                 }
             }
 
-            console.log(`[Webhook] Triggering notification for order ${orderNumber} (Client: ${client.id})`);
-            await notifyOrderCreated(client.id, orderNumber, client);
+            // Only send "Order Created" notification if NOT already fulfilled
+            // BUG FIX: Prevents confusing sequence where "Order Received" arrives after "Order Shipped"
+            const alreadyFulfilled = order.fulfillments && order.fulfillments.length > 0 && order.fulfillments.some((f: any) => f.tracking_numbers?.length > 0 || f.tracking_number);
+            if (!alreadyFulfilled) {
+                console.log(`[Webhook] Triggering CREATED notification for order ${orderNumber} (Client: ${client.id})`);
+                await notifyOrderCreated(client.id, orderNumber, client);
+            } else {
+                console.log(`[Webhook] Skipping CREATED notification for ${orderNumber} - already fulfilled, SHIPPED notification was sent instead`);
+            }
 
             // --- Behavioral Engagement (Post-Purchase) ---
             BehaviorService.getInstance().analyzeAndReact({
