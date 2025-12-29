@@ -1,9 +1,14 @@
-
+// Script to run database migrations
+require('dotenv').config();
 const { Client } = require('pg');
 
-// Hardcoded connection string from .env I read earlier - Direct Port 5432
-const connectionString = 'postgresql://postgres:ExtractosEUM2025%21@db.vbnpcospodhwuzvxejui.supabase.co:5432/postgres';
+const connectionString = process.env.DATABASE_URL;
 
+if (!connectionString) {
+    console.error('❌ Missing DATABASE_URL in .env');
+    console.error('   Format: postgresql://postgres:PASSWORD@db.xxx.supabase.co:5432/postgres');
+    process.exit(1);
+}
 
 const client = new Client({
     connectionString: connectionString,

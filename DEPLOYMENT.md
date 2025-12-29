@@ -1,10 +1,10 @@
 # COA Viewer 2.0 - Deployment Guide
 
 ## VPS Information
-- **IP**: 148.230.88.203
+- **IP**: See `.env.production` or password manager
 - **Host**: srv937346.hstgr.cloud
 - **SSH User**: root
-- **SSH Password**: Mv+7c#dQ4U9ALV4Lup#p
+- **SSH Password**: See password manager (NEVER commit to repo)
 - **Panel**: https://hpanel.hostinger.com/vps/937346/overview
 
 ## Production URLs
@@ -12,8 +12,8 @@
 - **API**: https://coa.extractoseum.com/api/v1
 
 ## Supabase (Production VPS)
-- **URL**: https://vbnpcospodhwuzvxejui.supabase.co
-- **Service Role Key**: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZibnBjb3Nwb2Rod3V6dnhlanVpIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NTI5Nzc0MCwiZXhwIjoyMDgwODczNzQwfQ.-T3JQu4v_0yJT0k8wP1I9pYecxvk-usVZHN00w5MPZc
+- **URL**: See `SUPABASE_URL` in backend/.env
+- **Service Role Key**: See `SUPABASE_SERVICE_ROLE_KEY` in backend/.env (NEVER commit)
 
 ## Directory Structure (VPS)
 ```

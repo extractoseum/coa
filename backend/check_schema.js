@@ -1,18 +1,14 @@
-
+// Script to check database schema
+require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
 
-// Read env vars from arguments or hardcode for this check (using values from file view previously/env)
-// I will try to read .env or use the ones I saw in AdminCRM.tsx but I need SERVICE_ROLE or ANON?
-// backend uses SERVICE_ROLE usually.
-// I saw process.env.SUPABASE_URL in backend files. 
-// I will rely on dotenv.
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 
-require('dotenv').config({ path: './backend/.env' });
-
-// Hardcoded for verification
-const supabaseUrl = 'https://vbnpcospodhwuzvxejui.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZibnBjb3Nwb2Rod3V6dnhlanVpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUyOTc3NDAsImV4cCI6MjA4MDg3Mzc0MH0.2X--XqOOpjyTDE2hKZeNvBPuQw6pq5XKdB08kQnbEzE';
-
+if (!supabaseUrl || !supabaseKey) {
+    console.error('❌ Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in .env');
+    process.exit(1);
+}
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 

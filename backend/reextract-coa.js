@@ -1,12 +1,18 @@
 // Script to re-extract a COA and update the database
+require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
 const { COAExtractor } = require('./dist/services/coaExtractor');
 const https = require('https');
 
-const SUPABASE_URL = 'https://vbnpcospodhwuzvxejui.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZibnBjb3Nwb2Rod3V6dnhlanVpIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NTI5Nzc0MCwiZXhwIjoyMDgwODczNzQwfQ.-T3JQu4v_0yJT0k8wP1I9pYecxvk-usVZHN00w5MPZc';
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const COA_TOKEN = 'd618b2a0';
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+    console.error('❌ Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in .env');
+    process.exit(1);
+}
+
+const COA_TOKEN = process.argv[2] || 'd618b2a0'; // Pass token as argument
 
 function downloadFile(url) {
     return new Promise((resolve, reject) => {
