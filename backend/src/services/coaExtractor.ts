@@ -277,6 +277,7 @@ export class COAExtractor {
         const lines = text.split(/\r?\n/);
         let inResultsSection = false;
         let totalArea = 0;
+        let currentPeak: any = null;
 
         for (const line of lines) {
             const trimmed = line.trim();
@@ -288,8 +289,12 @@ export class COAExtractor {
                 continue;
             }
 
-            // Skip header lines
-            if (/^No\.\s+Peak Name/i.test(trimmed) || /Retention Time/i.test(trimmed) || /^min\s+mAU/i.test(trimmed)) {
+            // Skip header lines (including squashed versions like "minmAU*minppm")
+            if (/^No\.\s*Peak Name/i.test(trimmed) ||
+                /Retention Time/i.test(trimmed) ||
+                /^min\s*mAU/i.test(trimmed) ||
+                /mAU\*min/i.test(trimmed) ||
+                /^Peak Name/i.test(trimmed)) {
                 continue;
             }
 
@@ -305,18 +310,71 @@ export class COAExtractor {
 
             if (!inResultsSection) continue;
 
+            // --- STATEFUL MULTI-LINE PARSING (Chromeleon) ---
+
+            // 1. Check if it's JUST an ID (e.g. "1")
+            if (/^\d+$/.test(trimmed)) {
+                currentPeak = { peak_no: parseInt(trimmed) };
+                continue;
+            }
+
+            // 2. Check if it's Name + RT + Area (squashed)
+            // Pattern: Name + \d+.\d{3} + \d+.\d{3}
+            const nameRtAreaMatch = trimmed.match(/^([A-Za-z0-9][A-Za-z0-9\s\-]*?)(\d+\.\d{3})(\d+\.\d{3})$/);
+            if (nameRtAreaMatch && currentPeak) {
+                currentPeak.peak_name = nameRtAreaMatch[1].trim();
+                currentPeak.retention_time = parseFloat(nameRtAreaMatch[2]);
+                currentPeak.area = parseFloat(nameRtAreaMatch[3]);
+                continue;
+            }
+
+            // 3. Check if it's Amount (ppm) (e.g. "5817.18" or "158.6340")
+            // This usually follows the Name/RT/Area line
+            const amountMatch = trimmed.match(/^([\d,.]+|n\.a\.)$/i);
+            if (amountMatch && currentPeak && currentPeak.peak_name) {
+                const ppmStr = amountMatch[1].replace(/,/g, '');
+                const isNA = /n\.a\./i.test(ppmStr);
+                const ppm = isNA ? null : parseFloat(ppmStr);
+
+                currentPeak.amount_ppm = ppm;
+
+                // Add to peaks collection
+                peaks.push({
+                    peak_no: currentPeak.peak_no,
+                    peak_name: currentPeak.peak_name,
+                    retention_time: currentPeak.retention_time,
+                    area: currentPeak.area,
+                    amount_ppm: ppm,
+                    amount_pct: ppm ? (ppm / 10000).toFixed(4) : null,
+                    is_quantified: !isNA
+                });
+
+                // Add to results for visualization
+                const pct = ppm ? ppm / 10000 : 0;
+                results.push({
+                    analyte: currentPeak.peak_name,
+                    result_pct: pct.toFixed(4),
+                    result_mg_g: (ppm ? ppm / 1000 : 0).toFixed(4),
+                    detected: true, // If it's in the table, it's detected
+                    retention_time: currentPeak.retention_time,
+                    area: currentPeak.area
+                });
+
+                this.logDebug(`[Chromatogram Multi-line] Extracted: ${currentPeak.peak_name} (RT: ${currentPeak.retention_time}, Area: ${currentPeak.area}, PPM: ${ppm})`);
+                currentPeak = null;
+                continue;
+            }
+
+            // --- SINGLE-LINE FALLBACK (Legacy/Standard) ---
+
             // REGEX 1: Standard row with ppm value
-            // Format: "1 THCBV 5.937 0.359 158.6340"
-            // Or squashed: "1 THCBV5.937 0.359 158.6340"
-            const rowWithPpm = /^(\d+)\s+([A-Za-z0-9\s\-]+?)\s+(\d+\.\d{3})\s+(\d+\.\d{3})\s+(\d+\.\d{4})$/;
+            const rowWithPpm = /^(\d+)\s+([A-Za-z0-9\s\-]+?)\s+(\d+\.\d{3})\s+(\d+\.\d{3})\s+(\d+\.\d{1,4})$/;
 
             // REGEX 2: Row with n.a. for amount
-            // Format: "7 9S-HHC 9.465 3.131 n.a."
             const rowWithNA = /^(\d+)\s+([A-Za-z0-9\s\-]+?)\s+(\d+\.\d{3})\s+(\d+\.\d{3})\s+n\.a\.$/i;
 
-            // REGEX 3: Squashed format (no spaces between numbers)
-            // Format: "1 THCBV5.9370.359158.6340" or "4 Delta 98.7471.896831.4385"
-            const rowSquashed = /^(\d+)\s+([A-Za-z0-9\s\-]+?)(\d+\.\d{3})(\d+\.\d{3})\s*(\d+\.\d{4}|n\.a\.)$/i;
+            // REGEX 3: Squashed format
+            const rowSquashed = /^(\d+)\s+([A-Za-z0-9\s\-]+?)(\d+\.\d{3})(\d+\.\d{3})\s*(\d+\.\d{1,4}|n\.a\.)$/i;
 
             let match = trimmed.match(rowWithPpm);
             let isNA = false;
@@ -332,32 +390,17 @@ export class COAExtractor {
             }
 
             if (match) {
+                // ... (existing logic for single line)
                 let peakNo = parseInt(match[1]);
                 let name = match[2].trim();
                 let retTimeStr = match[3];
                 let areaStr = match[4];
-                let ppmStr = isNA ? null : match[5];
-
-                // Heuristic: Fix "Delta 9" issue where "9" gets absorbed into retention time
-                // If retention time > 30, first digit probably belongs to name
-                const retTime = parseFloat(retTimeStr);
-                if (retTime > 30) {
-                    const firstDigit = retTimeStr.charAt(0);
-                    name = name + " " + firstDigit;
-                    retTimeStr = retTimeStr.substring(1);
-                    this.logDebug(`[Chromatogram] Heuristic fix: ${name} (RT: ${retTimeStr})`);
-                }
-
-                // Skip junk lines
-                if (name.length > 30 || /Reporte|Chromeleon|Injection|Page|Method/i.test(name)) {
-                    continue;
-                }
+                let ppmStr = isNA ? null : (match[5] ? match[5].replace(/,/g, '') : null);
 
                 const retTimeVal = parseFloat(retTimeStr);
                 const areaVal = parseFloat(areaStr);
                 const ppm = ppmStr ? parseFloat(ppmStr) : null;
 
-                // Store peak data for vector table (ALL peaks, even n.a.)
                 peaks.push({
                     peak_no: peakNo,
                     peak_name: name,
@@ -365,36 +408,21 @@ export class COAExtractor {
                     area: areaVal,
                     amount_ppm: ppm,
                     amount_pct: ppm ? (ppm / 10000).toFixed(4) : null,
-                    is_quantified: ppm !== null
+                    is_quantified: !isNA
                 });
 
-                // Only add to cannabinoids if we have a ppm value
-                if (ppm !== null && !isNaN(ppm)) {
-                    const pct = ppm / 10000;
-                    const mg_g = ppm / 1000;
-
-                    results.push({
-                        analyte: name,
-                        result_pct: pct.toFixed(4),
-                        result_mg_g: mg_g.toFixed(4),
-                        detected: pct > 0,
-                        retention_time: retTimeVal,
-                        area: areaVal
-                    });
-                    this.logDebug(`[Chromatogram] Extracted: ${name} -> ${ppm}ppm (RT: ${retTimeVal}min, Area: ${areaVal})`);
-                } else {
-                    // For n.a. peaks, still add to cannabinoids but with 0 values
-                    results.push({
-                        analyte: name,
-                        result_pct: '0.0000',
-                        result_mg_g: '0.0000',
-                        detected: true, // Detected but not quantified
-                        retention_time: retTimeVal,
-                        area: areaVal
-                    });
-                    this.logDebug(`[Chromatogram] Extracted (n.a.): ${name} -> n.a. (RT: ${retTimeVal}min, Area: ${areaVal})`);
-                }
+                const pct = ppm ? ppm / 10000 : 0;
+                results.push({
+                    analyte: name,
+                    result_pct: pct.toFixed(4),
+                    result_mg_g: (ppm ? ppm / 1000 : 0).toFixed(4),
+                    detected: true,
+                    retention_time: retTimeVal,
+                    area: areaVal
+                });
+                this.logDebug(`[Chromatogram Single-line] Extracted: ${name} (RT: ${retTimeVal}, Area: ${areaVal}, PPM: ${ppm})`);
             }
+
         }
 
         // If line-by-line didn't work, try fallback regex strategies
