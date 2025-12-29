@@ -1097,16 +1097,21 @@ export class CRMService {
 
         try {
             // 1. Get Client Profile
-            const { data: client } = await supabase
+            // Note: total_spent column doesn't exist in clients table, removed
+            const { data: client, error: clientError } = await supabase
                 .from('clients')
-                .select('id, name, email, phone, tags, total_spent')
+                .select('id, name, email, phone, tags')
                 .or(`phone.ilike.%${cleanPhone}%,phone.ilike.%${cleanPhone.slice(-10)}%`)
                 .maybeSingle();
 
+            if (clientError) {
+                console.error(`[CRMService] Client query failed:`, clientError.message);
+            }
+
             if (client) {
+                console.log(`[CRMService] Found client: ${client.id} (${client.name}) for phone ${cleanPhone}`);
                 context.name = client.name || undefined;
                 context.email = client.email || undefined;
-                context.ltv = parseFloat(client.total_spent) || 0;
                 context.tags = client.tags || [];
 
                 // 2. Get Orders for this client
@@ -1121,6 +1126,8 @@ export class CRMService {
                 if (ordersError) {
                     console.error(`[CRMService] Orders query failed:`, ordersError.message);
                 }
+
+                console.log(`[CRMService] Found ${orders?.length || 0} orders for client_id ${client.id}`);
 
                 if (orders && orders.length > 0) {
                     // Separate pending vs completed orders
@@ -1155,6 +1162,7 @@ export class CRMService {
                     context.recentOrders = recentOrders.slice(0, 3);
                 }
             } else {
+                console.log(`[CRMService] No client found for phone ${cleanPhone}, trying orders table directly`);
                 // Try to find orders by phone directly in orders table
                 const { data: ordersOnly, error: ordersOnlyError } = await supabase
                     .from('orders')
