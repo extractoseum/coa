@@ -1377,6 +1377,8 @@ export class CRMService {
               - type: "identity_ambiguity" | "ghost_data" | "error_resolution"
               - question: Short question for the admin (e.g. "Duplicate names found. Who is this?")
               - options: Array of { label, action, payload }. Action usually 'update_contact_name' or 'custom_response'.
+              - allow_custom: ALWAYS set to true. Admins should always be able to provide a custom explanation.
+              - context: Brief context about WHY this inquiry is being raised (helps admin understand the situation).
             
             IMPORTANT: Return ONLY the raw JSON object. Do not include markdown or text.`;
 
@@ -1630,7 +1632,38 @@ export class CRMService {
             // For now, we assume the AI just needed confirmation
         }
 
-        // 3. Clear Inquiry from Facts (Resolution)
+        // 3. LOG RESOLUTION FOR LEARNING (Smart System Improvement)
+        // Save inquiry resolutions to system_logs so the system can learn patterns
+        try {
+            await supabase.from('system_logs').insert({
+                event_type: 'inquiry_resolution',
+                message: `Inquiry resolved: ${activeInquiry.type} - ${action}`,
+                metadata: {
+                    inquiry_id: inquiryId,
+                    inquiry_type: activeInquiry.type,
+                    inquiry_question: activeInquiry.question,
+                    inquiry_context: activeInquiry.context,
+                    action_taken: action,
+                    custom_explanation: customValue || null,
+                    payload: payload,
+                    conversation_id: conversationId,
+                    contact_handle: conv.contact_handle,
+                    // This data helps the AI learn from human decisions
+                    learning_context: {
+                        original_options: activeInquiry.options?.map((o: any) => o.label),
+                        selected_action: action,
+                        was_custom_response: action === 'custom_response',
+                        human_explanation: customValue
+                    }
+                }
+            });
+            console.log(`[CRMService] Inquiry resolution logged for learning: ${inquiryId}`);
+        } catch (logError: any) {
+            console.warn(`[CRMService] Failed to log inquiry resolution:`, logError.message);
+            // Don't fail the resolution if logging fails
+        }
+
+        // 4. Clear Inquiry from Facts (Resolution)
         const currentFacts = conv.facts || {};
         const newFacts = { ...currentFacts };
 

@@ -502,6 +502,40 @@
         ]
     },
     {
+        "name": "search_order_by_number",
+        "description": "Search for an order by its visible order number (e.g., #EUM_1441_SHOP, EUM1441, 1441). Use this when a customer provides a specific order number. Returns order details, status, tracking, and items.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "order_number": {
+                    "type": "string",
+                    "description": "The order number provided by the customer (e.g., EUM_1441_SHOP, #1441, or just 1441)"
+                }
+            },
+            "required": [
+                "order_number"
+            ]
+        },
+        "category": "orders",
+        "required_permissions": [
+            "read_orders"
+        ],
+        "examples": [
+            {
+                "name": "search_order_by_number",
+                "args": {
+                    "order_number": "1441"
+                }
+            },
+            {
+                "name": "search_order_by_number",
+                "args": {
+                    "order_number": "EUM_1441_SHOP"
+                }
+            }
+        ]
+    },
+    {
         "name": "create_shopify_coupon",
         "description": "Create a unique discount coupon in Shopify.",
         "parameters": {

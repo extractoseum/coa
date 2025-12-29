@@ -15,7 +15,8 @@ export interface SystemInquiry {
     type: 'identity_ambiguity' | 'ghost_data' | 'error_resolution' | 'general';
     question: string;
     options: InquiryOption[];
-    allow_custom?: boolean;
+    allow_custom?: boolean; // Defaults to true now
+    context?: string; // Brief context about why this inquiry was raised
     meta?: any;
 }
 
@@ -94,17 +95,25 @@ export const SystemInquiryCard: React.FC<SystemInquiryCardProps> = ({ conversati
         }
     };
 
+    // ALWAYS allow custom responses (default to true)
+    const allowCustom = inquiry.allow_custom !== false;
+
     return (
         <div className={`${getBgColor()} border rounded-xl p-4 mb-4 animate-in slide-in-from-top-2 duration-300`}>
             <div className="flex items-start gap-3 mb-3">
                 <div className="p-2 bg-black/20 rounded-full shrink-0">
                     {getIcon()}
                 </div>
-                <div>
+                <div className="flex-1">
                     <h4 className="text-sm font-bold text-white opacity-90">Consulta del Sistema</h4>
-                    <p className="text-[11px] text-white/70 leading-tight mt-1">
+                    <p className="text-[12px] text-white/80 leading-tight mt-1">
                         {inquiry.question}
                     </p>
+                    {inquiry.context && (
+                        <p className="text-[10px] text-white/50 leading-tight mt-2 italic">
+                            Contexto: {inquiry.context}
+                        </p>
+                    )}
                 </div>
             </div>
 
@@ -114,7 +123,7 @@ export const SystemInquiryCard: React.FC<SystemInquiryCardProps> = ({ conversati
                         key={idx}
                         onClick={() => handleAction(opt)}
                         disabled={isResolving}
-                        className={`w-full flex items-center justify-between p-2 pl-3 rounded-lg border transition-all text-xs text-left group
+                        className={`w-full flex items-center justify-between p-2.5 pl-3 rounded-lg border transition-all text-xs text-left group
                             ${opt.variant === 'danger' ? 'bg-red-500/10 hover:bg-red-500/20 border-red-500/30' :
                                 opt.variant === 'primary' ? 'bg-green-500/10 hover:bg-green-500/20 border-green-500/30' :
                                     'bg-black/20 hover:bg-white/10 border-transparent hover:border-white/10'}`}
@@ -124,38 +133,44 @@ export const SystemInquiryCard: React.FC<SystemInquiryCardProps> = ({ conversati
                     </button>
                 ))}
 
-                {inquiry.allow_custom && !showCustomInput && (
+                {/* ALWAYS show custom response option */}
+                {allowCustom && !showCustomInput && (
                     <button
                         onClick={() => setShowCustomInput(true)}
-                        className="w-full py-2 text-[10px] text-center text-white/40 hover:text-white transition-colors flex items-center justify-center gap-1"
+                        className="w-full py-2.5 text-xs text-center text-white/60 hover:text-white hover:bg-white/5 rounded-lg border border-dashed border-white/20 transition-colors flex items-center justify-center gap-2"
                     >
-                        <Edit2 size={10} /> Otra respuesta...
+                        <Edit2 size={12} /> Explicar situación / Otra respuesta
                     </button>
                 )}
 
                 {showCustomInput && (
-                    <div className="flex gap-2 mt-2">
-                        <input
-                            type="text"
+                    <div className="mt-3 space-y-2">
+                        <textarea
                             value={customInput}
                             onChange={(e) => setCustomInput(e.target.value)}
-                            placeholder="Escribe tu respuesta..."
-                            className="flex-1 bg-black/30 border border-white/20 rounded px-2 text-xs outline-none focus:border-blue-500/50 text-white"
+                            placeholder="Explica la situación al sistema para que pueda aprender y mejorar..."
+                            className="w-full bg-black/30 border border-white/20 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500/50 text-white placeholder:text-white/30 resize-none"
+                            rows={3}
                             autoFocus
                         />
-                        <button
-                            onClick={() => handleAction({ label: 'Custom', action: 'custom_response' }, customInput)}
-                            disabled={!customInput.trim() || isResolving}
-                            className="p-1.5 bg-blue-500/20 hover:bg-blue-500/30 rounded text-blue-400 disabled:opacity-50"
-                        >
-                            <Check size={14} />
-                        </button>
-                        <button
-                            onClick={() => setShowCustomInput(false)}
-                            className="p-1.5 text-white/30 hover:text-white"
-                        >
-                            <X size={14} />
-                        </button>
+                        <div className="flex gap-2 justify-end">
+                            <button
+                                onClick={() => {
+                                    setShowCustomInput(false);
+                                    setCustomInput('');
+                                }}
+                                className="px-3 py-1.5 text-xs text-white/50 hover:text-white transition-colors"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={() => handleAction({ label: 'Custom', action: 'custom_response' }, customInput)}
+                                disabled={!customInput.trim() || isResolving}
+                                className="px-4 py-1.5 bg-blue-500/20 hover:bg-blue-500/30 rounded-lg text-blue-400 text-xs font-medium disabled:opacity-50 flex items-center gap-1.5 transition-colors"
+                            >
+                                <Check size={12} /> Enviar respuesta
+                            </button>
+                        </div>
                     </div>
                 )}
             </div>
