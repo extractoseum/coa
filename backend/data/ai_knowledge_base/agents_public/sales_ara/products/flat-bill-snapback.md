@@ -10,6 +10,10 @@
 
 ---
 
+## Descripción
+
+La gorra snapback de visera plana Candykush.mx es el accesorio ideal para cualquier outfit adulto. Fabricada con 80% acrílico y 20% lana (blanca 100% acrílico), ofrece comodidad, durabilidad y estilo moderno. Su diseño estructurado de 6 paneles , perfil alto y visera inferior verde aporta un look urbano, clásico y atemporal.
+
 ## Presentaciones Disponibles
 
 | Variante | Precio | Stock | SKU |

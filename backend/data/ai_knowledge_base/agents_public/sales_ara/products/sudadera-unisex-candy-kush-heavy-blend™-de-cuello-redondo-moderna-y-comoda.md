@@ -10,6 +10,10 @@
 
 ---
 
+## Descripción
+
+S M L XL 2XL 3XL 4XL 5XL Width, cm 50.80 55.90 60.96 66.04 71.12 76.20 81.28 86.36 Length, cm 68.58 71.12 73.66 76.20 78.74 81.28 83.82 86.36 Sleeve length (from center back), cm 85.09 87.63 90.17 92.71 95.25 97.79 100.33 102.87 Size tolerance, cm 3.81 3.81 3.81 3.81 3.81 3.81 3.81 3.81 Descubre la máxima comodidad y estilo con esta sudadera unisex de cuello redondo y tejido grueso. Perfecta para noches tranquilas o salidas informales, esta sudadera ofrece un estilo relajado que complementa cualquier guardarropa. Con su diseño elegante y detalles prácticos, es la opción ideal para quienes aprecian tanto la moda como la funcionalidad. Esta sudadera es perfecta para adultos que buscan una combinación de comodidad y personalidad. Las próximas fiestas son el momento perfecto para regalar esta prenda versátil, ya sea para un cumpleaños, una reunión familiar o simplemente para darte un capricho. ¡Disfruta de la calidez y el estilo que aporta a tu día a día! Características del producto Instrucciones de cuidado - Lavar a máquina con agua fría (máx. 30 °C o 90 °F) - Sin cloro: usar blanqueador según sea necesario - Secar en secadora a baja temperatura - No planchar - No lavar en seco
+
 ## Presentaciones Disponibles
 
 | Variante | Precio | Stock | SKU |

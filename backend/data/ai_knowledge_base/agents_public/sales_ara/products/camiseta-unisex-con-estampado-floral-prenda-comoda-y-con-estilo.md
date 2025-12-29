@@ -10,6 +10,10 @@
 
 ---
 
+## Descripción
+
+S M L XL 2XL 3XL 4XL Width, cm 46.36 51.44 55.88 60.96 66.04 70.48 75.56 Length, cm 67.63 71.12 74.61 78.11 80.33 82.55 85.09 Sleeve length from center back, cm 41.28 45.09 48.26 52.07 55.25 59.05 62.56 Size tolerance, cm 3.81 3.81 3.81 3.81 3.81 3.81 3.81
+
 ## Presentaciones Disponibles
 
 | Variante | Precio | Stock | SKU |

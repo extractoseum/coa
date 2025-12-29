@@ -10,6 +10,10 @@
 
 ---
 
+## Descripción
+
+S M L XL Width, cm 38.74 41.28 43.81 45.72 Length, cm 52.70 53.98 55.25 55.88 Size tolerance, cm 2.54 2.54 2.54 2.54 Ligera, corta y con un toque de seguridad discreta, esta camiseta de corte ajustado está diseñada para la comodidad diaria con un llamativo estampado minimalista. Confeccionada en algodón 100% orgánico de peso medio, es transpirable y se adapta al cuerpo manteniendo una silueta estructurada que estiliza la cintura. El frente luce letras ámbar en negrita que evocan un eslogan personal; un pequeño emblema en la parte superior de la espalda, un sutil distintivo de identidad. Impresa con impresión directa a película para colores nítidos y duraderos, y con etiqueta desprendible para mayor comodidad. Combínala con jeans de talle alto, una falda de lino o debajo de una chaqueta oversize para un look desenfadado y con estilo. Características del producto - 100% algodón orgánico — cultivado sin pesticidas ni fertilizantes químicos - Impresión directa a película (DTF) para gráficos nítidos y duraderos - Corte ajustado y cropped para una silueta favorecedora - Tejido de peso medio (200 g/m²) para mayor estructura y transpirabilidad - Etiqueta desprendible para mayor comodidad Instrucciones de cuidado - Lavar a máquina con agua fría (máx. 30 °C), ciclo delicado - No usar lejía - Secar en secadora a baja temperatura - Planchar a baja temperatura - No lavar en seco
+
 ## Presentaciones Disponibles
 
 | Variante | Precio | Stock | SKU |

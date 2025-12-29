@@ -10,6 +10,10 @@
 
 ---
 
+## Descripción
+
+Eleva tu estilo con la gorra CandyKush de visera plana. Hecha en sarga 100% algodón , ofrece comodidad, transpirabilidad y un look urbano con toque vintage.
+
 ## Presentaciones Disponibles
 
 | Variante | Precio | Stock | SKU |

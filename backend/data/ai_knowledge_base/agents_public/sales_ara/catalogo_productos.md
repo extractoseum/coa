@@ -1,6 +1,6 @@
 # CATÁLOGO DE PRODUCTOS - EXTRACTOS EUM
 
-**Última actualización:** 29/12/2025, 7:35:44 a.m.
+**Última actualización:** 29/12/2025, 7:44:16 a.m.
 **Total productos activos:** 27
 
 ---

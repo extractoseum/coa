@@ -10,6 +10,10 @@
 
 ---
 
+## Descripción
+
+Eleva tu estilo con esta gorra de visera plana, perfecta para quienes buscan una combinación de encanto retro y estilo moderno. Confeccionada en sarga 100% algodón, ofrece un look vintage que complementa diversos atuendos, convirtiéndola en el accesorio ideal para salidas informales, eventos deportivos o looks urbanos a la última moda. Su diseño estructurado de cinco paneles y la visera inferior verde le dan un toque único que realza su atractivo visual. Tanto si eres un apasionado de la moda como si simplemente quieres protegerte del sol con estilo, esta gorra se adapta perfectamente a tu día a día. Dirigida a jóvenes y a cualquiera que aprecie las gorras a la moda, es un regalo estupendo para cumpleaños, graduaciones y otras celebraciones, así como para festivales y reuniones de verano. Product features - 100% cotton twill for a vintage aesthetic - Structured five-panel design for durability - Stylish green undervisor adds flair - Breathable with matching sewn eyelets - Adjustable snap closure for a perfect fit Care instructions
+
 ## Presentaciones Disponibles
 
 | Variante | Precio | Stock | SKU |

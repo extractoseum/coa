@@ -10,6 +10,10 @@
 
 ---
 
+## Descripción
+
+Eleva tu experiencia al degustar whisky con este exquisito vaso. Su elegante diseño añade sofisticación a cualquier ocasión, ya sea una noche tranquila en casa o una reunión con amigos. Hecho de cristal transparente, este vaso de 310 ml es perfecto para saborear tu whisky, bourbon o incluso zumo favorito. Diseñado para quienes aprecian las cosas buenas de la vida, este vaso es un regalo ideal para aficionados al whisky, recién casados ​​o cualquier persona que celebre un momento especial. Perfecto para festividades como el Día del Padre, cumpleaños o fiestas de inauguración, este vaso de whisky sin duda impresionará y se convertirá en una pieza preciada de cualquier colección de cristalería. Características del producto - Complemento perfecto para cualquier decoración - Generosa capacidad de 310 ml - Elaborado con cristal transparente de alta calidad - Apto para lavavajillas para una fácil limpieza - Diseño grabado que añade un toque personal Instrucciones de cuidado - Lavar en el lavavajillas (colocar en la rejilla superior) o a mano con agua tibia y jabón para platos.
+
 ## Presentaciones Disponibles
 
 | Variante | Precio | Stock | SKU |
