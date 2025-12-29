@@ -43,18 +43,25 @@ export const initCronJobs = () => {
     console.log('[Cron] Scheduled: Tracking status updates every 4 hours');
 
     // Sync Products to Local DB (Daily at 4:00 AM)
+    // After DB sync, regenerate knowledge base files for AI agents
     cron.schedule('0 4 * * *', async () => {
         console.log('[Cron] Starting scheduled product sync...');
         try {
             const result = await syncProductsToLocalDB();
             console.log(`[Cron] Product sync success: ${result.count} products.`);
+
+            // Generate Knowledge Base files for Ara
+            console.log('[Cron] Generating product knowledge base...');
+            const { syncProductsToKnowledge } = await import('./productKnowledgeService');
+            const kbResult = await syncProductsToKnowledge();
+            console.log(`[Cron] Knowledge base generated: ${kbResult.count} product files.`);
         } catch (error: any) {
             console.error('[Cron] Product sync failed:', error.message);
         }
     }, {
         timezone: "America/Mexico_City"
     });
-    console.log('[Cron] Scheduled: Product DB sync daily at 4:00 AM (Mexico City)');
+    console.log('[Cron] Scheduled: Product DB sync + Knowledge Base daily at 4:00 AM (Mexico City)');
 
     // Process abandoned recoveries every 30 minutes
     cron.schedule('*/30 * * * *', async () => {
