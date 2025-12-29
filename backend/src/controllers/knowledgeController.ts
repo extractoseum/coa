@@ -124,25 +124,40 @@ export const listKnowledgeFiles = async (req: Request, res: Response) => {
                             } catch (e) { }
                         }
 
-                        const files = fs.readdirSync(agentPath)
-                            .filter(f => f.endsWith('.md'))
-                            .map(f => {
-                                const fullPath = `${folder}/${agentName}/${f}`;
-                                const content = fs.readFileSync(path.join(agentPath, f), 'utf-8');
+                        // Recursively get all .md files including subdirectories
+                        const getAllMdFiles = (dir: string, basePath: string): any[] => {
+                            let results: any[] = [];
+                            const items = fs.readdirSync(dir, { withFileTypes: true });
 
-                                // Get agent-specific metadata (summaries)
-                                const agentMeta = IntelligenceService.getInstance().getMetadata(agentPath);
-                                const fileMeta = agentMeta.files?.[f];
+                            for (const item of items) {
+                                const itemPath = path.join(dir, item.name);
+                                const relativePath = path.relative(agentPath, itemPath);
 
-                                return {
-                                    name: f,
-                                    path: fullPath,
-                                    size: content.length,
-                                    isInstructive: agentInstructive === f || (agentInstructive === '' && f === 'identity.md'),
-                                    summary: fileMeta?.summary || null,
-                                    lastAnalyzed: fileMeta?.lastAnalyzed || null
-                                };
-                            });
+                                if (item.isDirectory()) {
+                                    // Recursively get files from subdirectory
+                                    results = results.concat(getAllMdFiles(itemPath, basePath));
+                                } else if (item.name.endsWith('.md')) {
+                                    const fullPath = `${folder}/${agentName}/${relativePath}`;
+                                    const content = fs.readFileSync(itemPath, 'utf-8');
+
+                                    // Get agent-specific metadata (summaries)
+                                    const agentMeta = IntelligenceService.getInstance().getMetadata(agentPath);
+                                    const fileMeta = agentMeta.files?.[item.name];
+
+                                    results.push({
+                                        name: relativePath, // Show full relative path (e.g., knowledge/sales_techniques.md)
+                                        path: fullPath,
+                                        size: content.length,
+                                        isInstructive: agentInstructive === item.name || (agentInstructive === '' && item.name === 'identity.md'),
+                                        summary: fileMeta?.summary || null,
+                                        lastAnalyzed: fileMeta?.lastAnalyzed || null
+                                    });
+                                }
+                            }
+                            return results;
+                        };
+
+                        const files = getAllMdFiles(agentPath, agentPath);
 
                         const hasIdentity = files.some(f => f.name === 'identity.md' || f.isInstructive);
                         const isActive = activeAgent === agentName;
