@@ -402,13 +402,6 @@ export const reExtractCOA = async (req: Request, res: Response) => {
         // 3. Extract Data
         const extractor = new COAExtractor();
         const extractedData = await extractor.extractFromBuffer(pdfBuffer);
-        // Wait, looking at lines 6 and 375, COAExtractor is imported. I should check coaExtractor.ts to be sure about the method name.
-        // But assuming the error 'Property extract does not exist' means I used the wrong name.
-        // Let's assume standard 'extract' or 'extractData'. 
-        // Checking previous file view, it didn't show coaExtractor.ts.
-        // I will assume extractData() or similar. 
-        // However, looking at line 376 in original: `extractor.extract()`. Error says it doesn't exist.
-        // I'll try `extractData()` as a common alternative.
 
         console.log(`[Re-Extract] Success. Lab: ${extractedData.lab_name}`);
 

@@ -1110,12 +1110,17 @@ export class CRMService {
                 context.tags = client.tags || [];
 
                 // 2. Get Orders for this client
-                const { data: orders } = await supabase
+                // Note: Using correct column names (total_amount not total_price, no line_items/tracking columns)
+                const { data: orders, error: ordersError } = await supabase
                     .from('orders')
-                    .select('id, order_number, total_price, financial_status, fulfillment_status, line_items, tracking_number, tracking_url, shopify_created_at')
+                    .select('id, order_number, total_amount, financial_status, fulfillment_status, status, shopify_created_at')
                     .eq('client_id', client.id)
                     .order('shopify_created_at', { ascending: false })
                     .limit(10);
+
+                if (ordersError) {
+                    console.error(`[CRMService] Orders query failed:`, ordersError.message);
+                }
 
                 if (orders && orders.length > 0) {
                     // Separate pending vs completed orders
@@ -1123,19 +1128,15 @@ export class CRMService {
                     const recentOrders: CustomerContext['recentOrders'] = [];
 
                     for (const order of orders) {
-                        const items = (order.line_items || []).map((li: any) =>
-                            `${li.quantity || 1}x ${li.title || li.name || 'Producto'}`
-                        );
-
                         const orderData = {
                             order_number: order.order_number || `#${order.id}`,
-                            total: order.total_price || '0',
-                            status: order.financial_status || 'pending',
+                            total: String(order.total_amount || '0'),
+                            status: order.financial_status || order.status || 'pending',
                             fulfillment_status: order.fulfillment_status,
-                            tracking_number: order.tracking_number || undefined,
-                            tracking_url: order.tracking_url || undefined,
+                            tracking_number: undefined, // Not available in orders table
+                            tracking_url: undefined,    // Not available in orders table
                             created_at: order.shopify_created_at || new Date().toISOString(),
-                            items
+                            items: [] as string[] // Line items not stored in orders table
                         };
 
                         // Pending = not fulfilled or partially fulfilled
@@ -1155,25 +1156,29 @@ export class CRMService {
                 }
             } else {
                 // Try to find orders by phone directly in orders table
-                const { data: ordersOnly } = await supabase
+                const { data: ordersOnly, error: ordersOnlyError } = await supabase
                     .from('orders')
-                    .select('id, order_number, total_price, financial_status, fulfillment_status, line_items, tracking_number, tracking_url, shopify_created_at, customer_phone')
+                    .select('id, order_number, total_amount, financial_status, fulfillment_status, status, shopify_created_at, customer_phone')
                     .or(`customer_phone.ilike.%${cleanPhone}%,customer_phone.ilike.%${cleanPhone.slice(-10)}%`)
                     .order('shopify_created_at', { ascending: false })
                     .limit(5);
+
+                if (ordersOnlyError) {
+                    console.error(`[CRMService] Orders by phone query failed:`, ordersOnlyError.message);
+                }
 
                 if (ordersOnly && ordersOnly.length > 0) {
                     context.pendingOrders = ordersOnly
                         .filter(o => !o.fulfillment_status || o.fulfillment_status === 'partial' || o.fulfillment_status === 'unfulfilled')
                         .map(order => ({
                             order_number: order.order_number || `#${order.id}`,
-                            total: order.total_price || '0',
-                            status: order.financial_status || 'pending',
+                            total: String(order.total_amount || '0'),
+                            status: order.financial_status || order.status || 'pending',
                             fulfillment_status: order.fulfillment_status,
-                            tracking_number: order.tracking_number || undefined,
-                            tracking_url: order.tracking_url || undefined,
+                            tracking_number: undefined,
+                            tracking_url: undefined,
                             created_at: order.shopify_created_at || new Date().toISOString(),
-                            items: (order.line_items || []).map((li: any) => `${li.quantity || 1}x ${li.title || 'Producto'}`)
+                            items: [] as string[]
                         }));
                 }
             }
