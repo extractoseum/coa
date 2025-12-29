@@ -85,6 +85,11 @@ export const unregisterDevice = async (req: Request, res: Response) => {
     }
 };
 
+// Rate limiting: Track recent sends per admin to prevent spam
+const recentAdminSends: Map<string, number[]> = new Map();
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+const RATE_LIMIT_MAX_SENDS = 5; // Max 5 sends per minute per admin
+
 /**
  * Send a push notification (super_admin only)
  * Supports multiple channels: push (OneSignal) and whatsapp (Whapi.cloud)
@@ -93,7 +98,7 @@ export const unregisterDevice = async (req: Request, res: Response) => {
 export const sendNotification = async (req: Request, res: Response) => {
     try {
         const clientId = (req as any).client?.id;
-        const { title, message, targetType, targetValue, imageUrl, data, scheduledFor, channels, individualCustomer } = req.body;
+        const { title, message, targetType, targetValue, imageUrl, data, scheduledFor, channels, individualCustomer, idempotencyKey } = req.body;
 
         // Default to push only if no channels specified
         const selectedChannels: string[] = channels || ['push'];
@@ -109,6 +114,46 @@ export const sendNotification = async (req: Request, res: Response) => {
         if (selectedChannels.length === 0) {
             return res.status(400).json({ success: false, error: 'Selecciona al menos un canal' });
         }
+
+        // --- RATE LIMITING ---
+        // Prevent admin from spamming notifications (max 5 per minute)
+        const now = Date.now();
+        const adminKey = clientId || 'anonymous';
+        const adminSends = recentAdminSends.get(adminKey) || [];
+
+        // Clean old entries outside the window
+        const recentSends = adminSends.filter(ts => now - ts < RATE_LIMIT_WINDOW_MS);
+
+        if (recentSends.length >= RATE_LIMIT_MAX_SENDS) {
+            console.warn(`[Push] Rate limit exceeded for admin ${adminKey}`);
+            return res.status(429).json({
+                success: false,
+                error: `Demasiadas notificaciones. Espera ${Math.ceil((recentSends[0] + RATE_LIMIT_WINDOW_MS - now) / 1000)} segundos.`
+            });
+        }
+
+        // --- IDEMPOTENCY CHECK ---
+        // Prevent duplicate sends from double-clicks or retries
+        if (idempotencyKey) {
+            const { data: existingNotif } = await supabase
+                .from('push_notifications')
+                .select('id')
+                .eq('idempotency_key', idempotencyKey)
+                .maybeSingle();
+
+            if (existingNotif) {
+                console.log(`[Push] Duplicate request blocked (idempotency key: ${idempotencyKey})`);
+                return res.status(200).json({
+                    success: true,
+                    message: 'Notificación ya fue enviada anteriormente',
+                    duplicate: true
+                });
+            }
+        }
+
+        // Record this send attempt for rate limiting
+        recentSends.push(now);
+        recentAdminSends.set(adminKey, recentSends);
 
         let pushResult: any = null;
         let whatsappQueued = false;
@@ -179,7 +224,8 @@ export const sendNotification = async (req: Request, res: Response) => {
                             target_value: targetValue,
                             sent_by: clientId,
                             status: 'sent',
-                            sent_at: new Date().toISOString()
+                            sent_at: new Date().toISOString(),
+                            idempotency_key: idempotencyKey || null
                         })
                         .select('id')
                         .single();

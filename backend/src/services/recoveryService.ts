@@ -11,15 +11,19 @@ export const processAbandonedRecoveries = async () => {
 
     try {
         // 1. Process Pending Orders (like Mercado Pago waiting for payment)
+        // IMPORTANT: Exclude orders that are already paid, fulfilled, or delivered
         const { data: pendingOrders, error: orderError } = await supabase
             .from('orders')
             .select(`
-                id, 
-                order_number, 
-                total_amount, 
-                currency, 
+                id,
+                order_number,
+                total_amount,
+                currency,
                 abandoned_checkout_url,
                 client_id,
+                status,
+                financial_status,
+                fulfillment_status,
                 clients (
                     id,
                     email,
@@ -29,11 +33,27 @@ export const processAbandonedRecoveries = async () => {
             `)
             .eq('recovery_status', 'pending')
             .lte('recovery_next_check_at', now)
+            .not('status', 'in', '("paid","fulfilled","delivered","cancelled")')
             .limit(10);
 
         if (orderError) throw orderError;
 
         for (const order of pendingOrders) {
+            // Double-check: Skip if order is already paid/fulfilled/delivered
+            // This handles race conditions where status changed after the query
+            const skipStatuses = ['paid', 'fulfilled', 'delivered', 'cancelled'];
+            if (skipStatuses.includes(order.status) ||
+                order.financial_status === 'paid' ||
+                order.fulfillment_status === 'fulfilled') {
+                console.log(`[Recovery] Skipping ${order.order_number} - already ${order.status || order.financial_status}`);
+                // Mark as recovered so we don't check again
+                await supabase
+                    .from('orders')
+                    .update({ recovery_status: 'converted', updated_at: now })
+                    .eq('id', order.id);
+                continue;
+            }
+
             const client: any = Array.isArray(order.clients) ? order.clients[0] : order.clients;
             console.log(`[Recovery] Reminding abandoned order ${order.order_number} for client ${client?.email}`);
 

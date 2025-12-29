@@ -335,6 +335,25 @@ export const sendNotification = async (options: SendNotificationOptions): Promis
  * Sends Push to all, WhatsApp to users WITHOUT PWA
  */
 export const notifyNewReviewForApproval = async (coaOwnerId: string, coaName: string, reviewerName: string) => {
+    // --- DEDUPLICATION (15-min window for review notifications) ---
+    try {
+        const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+        const { data: recentNotif } = await supabase
+            .from('system_logs')
+            .select('id')
+            .eq('event_type', 'review_approval_sent')
+            .eq('client_id', coaOwnerId)
+            .gte('created_at', fifteenMinsAgo)
+            .limit(1);
+
+        if (recentNotif && recentNotif.length > 0) {
+            console.log(`[OneSignal] Skipping duplicate review approval notification for ${coaOwnerId}`);
+            return;
+        }
+    } catch (err) {
+        console.warn('[OneSignal] Deduplication check failed for review notif:', err);
+    }
+
     // Check user preferences
     const { data: prefs } = await supabase
         .from('notification_preferences')
@@ -371,6 +390,9 @@ export const notifyNewReviewForApproval = async (coaOwnerId: string, coaName: st
         }
     }
 
+    // Log for deduplication
+    await logNotification('review_approval_sent', { coaName, reviewerName }, coaOwnerId);
+
     return pushResult;
 };
 
@@ -379,6 +401,25 @@ export const notifyNewReviewForApproval = async (coaOwnerId: string, coaName: st
  * Sends Push to all, WhatsApp to users WITHOUT PWA
  */
 export const notifyReviewApproved = async (reviewerId: string, coaName: string) => {
+    // --- DEDUPLICATION (15-min window) ---
+    try {
+        const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+        const { data: recentNotif } = await supabase
+            .from('system_logs')
+            .select('id')
+            .eq('event_type', 'review_approved_sent')
+            .eq('client_id', reviewerId)
+            .gte('created_at', fifteenMinsAgo)
+            .limit(1);
+
+        if (recentNotif && recentNotif.length > 0) {
+            console.log(`[OneSignal] Skipping duplicate review approved notification for ${reviewerId}`);
+            return;
+        }
+    } catch (err) {
+        console.warn('[OneSignal] Deduplication check failed:', err);
+    }
+
     // Check user preferences
     const { data: prefs } = await supabase
         .from('notification_preferences')
@@ -413,6 +454,9 @@ export const notifyReviewApproved = async (reviewerId: string, coaName: string) 
             await sendWhatsAppMessage({ to: phone, body: waMsg });
         }
     }
+
+    // Log for deduplication
+    await logNotification('review_approved_sent', { coaName }, reviewerId);
 
     return pushResult;
 };
@@ -712,6 +756,29 @@ export const cancelScheduledNotification = async (notificationId: string) => {
  * Notify user of loyalty/membership status change
  */
 export const notifyLoyaltyUpdate = async (clientId: string, tierName: string, type: 'review' | 'active' | 'escalated') => {
+    // --- DEDUPLICATION (60-min window for same tier+type combo) ---
+    try {
+        const sixtyMinsAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+        const { data: recentNotif } = await supabase
+            .from('system_logs')
+            .select('id, payload')
+            .eq('event_type', 'loyalty_update_sent')
+            .eq('client_id', clientId)
+            .gte('created_at', sixtyMinsAgo);
+
+        if (recentNotif && recentNotif.length > 0) {
+            const isDuplicate = recentNotif.some((n: any) =>
+                n.payload?.tier === tierName && n.payload?.type === type
+            );
+            if (isDuplicate) {
+                console.log(`[OneSignal] Skipping duplicate loyalty update for ${clientId} (${tierName}/${type})`);
+                return;
+            }
+        }
+    } catch (err) {
+        console.warn('[OneSignal] Deduplication check failed for loyalty notif:', err);
+    }
+
     let title = '';
     let message = '';
 
