@@ -318,7 +318,144 @@ export class COAExtractor {
                 continue;
             }
 
-            // 2. Check if it's Name + RT + Area (squashed)
+            // 2. Check if it's Name + ALL VALUES SQUASHED (new Chromeleon format)
+            // Format: Name + RT + Area + Height + RelArea + RelHeight + Amount
+            // Example: CBD6.075179.3791437.27390.0689.42203209.7311
+            // Dots:    RT=.XXX, Area=.XXX, Height=.XX-.XXXX, RelA=.XX, RelH=.XX, PPM=.XXXX
+            // Strategy: Use dot positions and known decimal counts to extract values
+            const dotCount = (trimmed.match(/\./g) || []).length;
+            if (dotCount === 6 && currentPeak) {
+                // Find all dot positions
+                const dots: number[] = [];
+                for (let i = 0; i < trimmed.length; i++) {
+                    if (trimmed[i] === '.') dots.push(i);
+                }
+
+                // Known decimal patterns (from end):
+                // dots[5] = PPM dot, 4 decimals after
+                // dots[4] = RelH dot, 2 decimals after, then PPM integer starts
+                // dots[3] = RelA dot, 2 decimals after, then RelH integer starts
+                // dots[2] = Height dot, variable decimals, then RelA integer starts
+                // dots[1] = Area dot, 3 decimals after, then Height integer starts
+                // dots[0] = RT dot, 3 decimals after, then Area integer starts
+
+                // PPM: from (dots[4] + 3) to end (RelH has 2 decimals)
+                const ppmIntStart = dots[4] + 3;
+                const ppmStr = trimmed.slice(ppmIntStart);
+                const ppm = parseFloat(ppmStr);
+
+                // RelH: from (dots[3] + 3) to (ppmIntStart) (RelA has 2 decimals)
+                const relHIntStart = dots[3] + 3;
+                const relHStr = trimmed.slice(relHIntStart, ppmIntStart);
+
+                // RelA: from (dots[2] + X) to (relHIntStart) where X = height decimals + 1
+                // Height decimals = Area end to dots[2], we need to calculate
+                // Area ends at dots[1] + 4 (3 decimals + 1)
+                const areaEnd = dots[1] + 4;
+                // Height integer starts at areaEnd, Height dot is at dots[2]
+                // Height decimals count = (dots[3] - dots[2] - 1) - (relHIntStart - dots[3] - 1)
+                // Actually: digits between dots[2] and dots[3] = height_dec + relA_int
+                // Since relA has 2 decimals: relA_int length = relHIntStart - (dots[3] + 3 - relA_int_len)...
+                // Easier: relA decimal ends at dots[3]+3, so relA value is from X to dots[3]+3
+                // where X starts after height decimals
+
+                // Simpler approach: work forward from RT
+                // RT: integer digits before dots[0], then ".XXX" (3 decimals)
+                // Find where RT integer starts (after name ends)
+                // SPECIAL CASE: Handle "Delta 9", "Delta 8" where the number is part of the name
+                let rtIntStart = dots[0];
+                while (rtIntStart > 0 && /\d/.test(trimmed[rtIntStart - 1])) {
+                    rtIntStart--;
+                }
+
+                // Check for "Delta X" pattern where X is a single digit followed by RT
+                // If the character before rtIntStart is a space, and before that is "Delta",
+                // then the first digit is part of the name
+                let name = trimmed.slice(0, rtIntStart).trim();
+                if (name.toLowerCase() === 'delta' && rtIntStart < dots[0]) {
+                    // The digit right after "Delta " is part of the name (Delta 8, Delta 9)
+                    // RT typically starts with a single digit (1-15 range for retention times)
+                    // So if we have "Delta 98.692..." the "9" is part of name, "8.692" is RT
+                    const rtDigits = trimmed.slice(rtIntStart, dots[0]);
+                    if (rtDigits.length >= 2) {
+                        // First digit is part of name, rest is RT integer
+                        name = `Delta ${rtDigits[0]}`;
+                        rtIntStart = rtIntStart + 1;
+                    }
+                }
+
+                const rtEnd = dots[0] + 4; // 3 decimals + dot
+                const rtStr = trimmed.slice(rtIntStart, rtEnd);
+                const rt = parseFloat(rtStr);
+
+                // Area: from rtEnd to dots[1]+4 (3 decimals)
+                const areaStr = trimmed.slice(rtEnd, areaEnd);
+                const area = parseFloat(areaStr);
+
+                // Height: from areaEnd to somewhere before dots[3]+3
+                // We know RelA ends at relHIntStart, and RelA has 2 decimals (dots[3] + 3)
+                // So RelA integer starts at: relHIntStart - (relA integer length)
+                // Gap between dots[2] and dots[3]: contains height decimals + relA integer
+                // Gap = dots[3] - dots[2] - 1
+                // Since relA has fixed 2 decimals at dots[3], relA ends at dots[3]+3
+                // So relA spans from (relHIntStart - relAIntLen) to relHIntStart
+                // and relAIntLen = relHIntStart - relAStart, where relAStart = dots[2] + heightDec + 1
+                // Let's compute: height ends where relA starts
+                // relA_start = relHIntStart - (some integer digits)
+                // digits in [dots[2]+1 to dots[3]-1] = heightDec + relAInt
+                const gapBetween23 = dots[3] - dots[2] - 1;
+                // We need to find where height ends. Height decimals are 2-4.
+                // Let's try: height has 2-4 decimals. Most common is 2-3.
+                // relA integer is usually 1-2 digits (values like 90.06, 2.70)
+
+                // Brute force: try different height decimal counts (2, 3, 4)
+                let heightStr = '';
+                let relAStr = '';
+                let parsed = false;
+
+                for (const heightDec of [2, 3, 4]) {
+                    const heightEnd = dots[2] + heightDec + 1;
+                    const relAStart = heightEnd;
+                    const testRelA = trimmed.slice(relAStart, relHIntStart);
+
+                    // Valid relA should parse as a reasonable number (0-100 range)
+                    const testRelANum = parseFloat(testRelA);
+                    if (!isNaN(testRelANum) && testRelANum >= 0 && testRelANum <= 100) {
+                        heightStr = trimmed.slice(areaEnd, heightEnd);
+                        relAStr = testRelA;
+                        parsed = true;
+                        break;
+                    }
+                }
+
+                if (parsed && name && !isNaN(rt) && !isNaN(area) && !isNaN(ppm)) {
+                    peaks.push({
+                        peak_no: currentPeak.peak_no,
+                        peak_name: name,
+                        retention_time: rt,
+                        area: area,
+                        amount_ppm: ppm,
+                        amount_pct: (ppm / 10000).toFixed(4),
+                        is_quantified: true
+                    });
+
+                    const pct = ppm / 10000;
+                    results.push({
+                        analyte: name,
+                        result_pct: pct.toFixed(4),
+                        result_mg_g: (ppm / 1000).toFixed(4),
+                        detected: true,
+                        retention_time: rt,
+                        area: area
+                    });
+
+                    this.logDebug(`[Chromatogram Full-Squashed] Extracted: ${name} (RT: ${rt}, Area: ${area}, PPM: ${ppm})`);
+                    currentPeak = null;
+                    continue;
+                }
+            }
+
+            // 2b. Check if it's Name + RT + Area (3 values squashed - older format)
             // Pattern: Name + \d+.\d{3} + \d+.\d{3}
             const nameRtAreaMatch = trimmed.match(/^([A-Za-z0-9][A-Za-z0-9\s\-]*?)(\d+\.\d{3})(\d+\.\d{3})$/);
             if (nameRtAreaMatch && currentPeak) {

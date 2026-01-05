@@ -1,0 +1,33 @@
+const { createClient } = require('@supabase/supabase-js');
+const fs = require('fs');
+const path = require('path');
+require('dotenv').config();
+
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+const migrations = [
+    'migrations/053_smart_card_indicators.sql',
+    'migrations/054_message_types_extended.sql',
+    'migrations/055_crm_audit_logs.sql'
+];
+
+async function run() {
+    for (const migrationFile of migrations) {
+        console.log(`\n=== Applying ${migrationFile} ===`);
+        const sql = fs.readFileSync(path.resolve(migrationFile), 'utf8');
+
+        console.log('Trying rpc("run_sql", { sql: ... })');
+        const { data, error } = await supabase.rpc('run_sql', { sql: sql });
+
+        if (error) {
+            console.error(`❌ FAILED ${migrationFile}:`, error.message);
+        } else {
+            console.log(`✅ SUCCESS ${migrationFile}`);
+        }
+    }
+}
+
+run();

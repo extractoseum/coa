@@ -917,7 +917,7 @@ const AdminCRM: React.FC = () => {
                                 <LucideLayout style={{ color: theme.accent }} size={24} />
                             </div>
                             <div className="min-w-0">
-                                <h1 className="text-sm sm:text-lg font-bold truncate" style={{ color: theme.text }}>Omnichannel CRM <span className="text-[10px] bg-purple-500 text-white px-1 rounded ml-1 align-middle animate-pulse">v2.9</span></h1>
+                                <h1 className="text-sm sm:text-lg font-bold truncate" style={{ color: theme.text }}>Omnichannel CRM <span className="text-[10px] bg-purple-500 text-white px-1 rounded ml-1 align-middle animate-pulse">v2.10</span></h1>
                                 <p className="text-xs opacity-50 truncate hidden sm:block" style={{ color: theme.text }}>Tablero de Conversaciones Inteligentes</p>
                             </div>
                         </div>

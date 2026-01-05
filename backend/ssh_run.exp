@@ -1,0 +1,11 @@
+#!/usr/bin/expect -f
+set timeout 60
+set password "8.x2xHkN58/9&ryLvs.X"
+set cmd [lindex $argv 0]
+
+spawn ssh root@148.230.88.203 "$cmd"
+expect {
+    "password:" { send "$password\r" }
+    "yes/no" { send "yes\r"; exp_continue }
+}
+expect eof

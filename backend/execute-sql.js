@@ -33,7 +33,7 @@ async function executeStatement(sql) {
 
         const options = {
             hostname: `${projectRef}.supabase.co`,
-            path: '/rest/v1/rpc/query',
+            path: '/rest/v1/rpc/exec',
             method: 'POST',
             headers: {
                 'apikey': SUPABASE_KEY,
