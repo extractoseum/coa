@@ -1439,25 +1439,29 @@ export class CRMService {
             const result = await this.aiService.classify(systemPrompt, userPrompt);
 
             if (result) {
-                // --- NEW: IDENTITY BLACKLIST FILTERING (Phase 61.1) ---
-                if (result.user_name && IDENTITY_BLACKLIST.some(b => result.user_name.toUpperCase().includes(b))) {
+                // --- NEW: IDENTITY BLACKLIST FILTERING (Phase 61.1 Hardening) ---
+                const blacklistRegex = new RegExp(`\\b(${IDENTITY_BLACKLIST.join('|')})\\b`, 'i');
+
+                if (result.user_name && blacklistRegex.test(result.user_name)) {
                     console.log(`[CRMService] Blacklisted name detected: ${result.user_name}. Clearing.`);
                     result.user_name = null;
                 }
 
                 if (result.ambiguity_candidates) {
                     result.ambiguity_candidates = result.ambiguity_candidates.filter(
-                        (c: string) => !IDENTITY_BLACKLIST.some(b => c.toUpperCase().includes(b))
+                        (c: string) => !blacklistRegex.test(c)
                     );
-                    if (result.ambiguity_candidates.length === 0) {
+                    if (result.ambiguity_candidates.length <= 1) { // If only 1 or 0 candidates left, no ambiguity
                         delete result.identity_ambiguity;
                         delete result.system_inquiry;
                     }
                 }
 
-                // If system_inquiry matches blacklist, suppress it
-                if (result.system_inquiry && result.system_inquiry.question) {
-                    if (IDENTITY_BLACKLIST.some(b => result.system_inquiry.question.toUpperCase().includes(b))) {
+                // Deep scrub the system_inquiry if it contains blacklisted terms in question or context
+                if (result.system_inquiry) {
+                    const inquiryStr = JSON.stringify(result.system_inquiry);
+                    if (blacklistRegex.test(inquiryStr)) {
+                        console.log(`[CRMService] Blacklisted term found in system_inquiry. Scrubbing.`);
                         delete result.system_inquiry;
                     }
                 }
