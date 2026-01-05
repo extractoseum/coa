@@ -1135,6 +1135,7 @@ export class CRMService {
 
     /**
      * Gets a contact snapshot, syncing if stale (> 24h)
+     * Now also includes client email for identity bridging with browsing events
      */
     public async getContactSnapshot(handle: string, channel: string): Promise<any> {
         const { data } = await supabase
@@ -1147,9 +1148,18 @@ export class CRMService {
             return this.syncContactSnapshot(handle, channel);
         }
 
-        // Check staleness (e.g., 24 hours) - simplified for now, always return DB version,
-        // frontend can trigger forced sync.
-        return data;
+        // Enrich with client email for identity bridge (browsing events use email as handle)
+        const cleanPhone = cleanupPhone(handle);
+        const { data: client } = await supabase
+            .from('clients')
+            .select('email')
+            .or(`phone.ilike.%${cleanPhone}%,phone.ilike.%${cleanPhone.slice(-10)}%`)
+            .maybeSingle();
+
+        return {
+            ...data,
+            email: client?.email || null
+        };
     }
 
     /**

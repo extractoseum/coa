@@ -72,6 +72,7 @@ export interface ContactSnapshot {
     handle: string;
     channel: string;
     name: string;
+    email?: string; // For identity bridge with browsing events
     ltv: number;
     orders_count: number;
     average_ticket: number;

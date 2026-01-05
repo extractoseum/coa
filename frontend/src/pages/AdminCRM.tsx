@@ -481,13 +481,15 @@ const AdminCRM: React.FC = () => {
 
     useEffect(() => {
         if (resourceDockTab === 'insights' && selectedConv && showResourceDock) {
-            const email = selectedConv.facts?.user_email || (selectedConv.contact_handle.includes('@') ? selectedConv.contact_handle : undefined);
+            // Priority: snapshot email > facts email > handle if email
+            const email = contactSnapshot?.email || selectedConv.facts?.user_email || (selectedConv.contact_handle.includes('@') ? selectedConv.contact_handle : undefined);
             fetchBrowsingEvents(selectedConv.contact_handle, email);
         }
-    }, [selectedConv, resourceDockTab, showResourceDock]);
+    }, [selectedConv, resourceDockTab, showResourceDock, contactSnapshot]);
 
     useEffect(() => {
-        if (selectedConv && resourceDockTab === 'client' && showResourceDock) {
+        // Load snapshot for both 'client' and 'insights' tabs (needed for email identity bridge)
+        if (selectedConv && (resourceDockTab === 'client' || resourceDockTab === 'insights') && showResourceDock) {
             fetchSnapshot(selectedConv.contact_handle, selectedConv.channel);
         }
     }, [selectedConv, resourceDockTab, showResourceDock]);
@@ -1820,7 +1822,7 @@ const AdminCRM: React.FC = () => {
                                                         <div className="flex justify-between items-center">
                                                             <h4 className="text-[10px] font-bold uppercase tracking-widest opacity-60" style={{ color: theme.accent }}>Comportamiento en Tienda</h4>
                                                             <button
-                                                                onClick={() => selectedConv && fetchBrowsingEvents(selectedConv.contact_handle)}
+                                                                onClick={() => selectedConv && fetchBrowsingEvents(selectedConv.contact_handle, contactSnapshot?.email)}
                                                                 className="p-1 hover:bg-white/10 rounded transition-colors text-white/30 hover:text-white"
                                                                 title="Actualizar actividad"
                                                             >
