@@ -791,15 +791,28 @@ export class CRMService {
         }, {});
 
         // 4. Fetch computed indicators (Phase 61)
-        const { data: indicators } = await supabase
-            .from('conversation_indicators')
-            .select('*')
-            .in('id', uniqueConvs.map(c => c.id));
+        // FIX: Supabase has a limit on IN() clause size (~500 items)
+        // Batch the indicator fetch to avoid "Bad Request" errors
+        const indicatorMap: Record<string, any> = {};
+        const convIds = uniqueConvs.map(c => c.id);
+        const BATCH_SIZE = 200;
 
-        const indicatorMap = (indicators || []).reduce((acc: any, i) => {
-            acc[i.id] = i;
-            return acc;
-        }, {});
+        for (let i = 0; i < convIds.length; i += BATCH_SIZE) {
+            const batchIds = convIds.slice(i, i + BATCH_SIZE);
+            const { data: indicators, error: indError } = await supabase
+                .from('conversation_indicators')
+                .select('*')
+                .in('id', batchIds);
+
+            if (indError) {
+                console.warn(`[CRMService] Indicator batch ${i / BATCH_SIZE} failed:`, indError.message);
+                continue;
+            }
+
+            (indicators || []).forEach((ind: any) => {
+                indicatorMap[ind.id] = ind;
+            });
+        }
 
         return uniqueConvs.map(conv => ({
             ...conv,
