@@ -25,6 +25,7 @@ export interface CRMMessage {
     channel_thread_id?: string;
     content: string;
     raw_payload?: any;
+    metadata?: any;
     skipDispatch?: boolean;
     created_at?: string;
 }
@@ -72,6 +73,20 @@ export interface CRMConversation {
     ltv?: number;
     risk_level?: string;
     tags?: string[];
+    // Phase 61: Interaction Timestamps & UTMs
+    first_inbound_at?: string;
+    last_inbound_at?: string;
+    utm_source?: string;
+    utm_campaign?: string;
+    ad_platform?: string;
+    // Phase 61: Computed Indicators
+    hours_remaining?: number;
+    window_status?: 'active' | 'expired';
+    is_new_customer?: boolean;
+    is_vip?: boolean;
+    is_stalled?: boolean;
+    awaiting_response?: boolean;
+    health_score?: number;
 }
 
 export interface ContactSnapshot {
@@ -491,12 +506,34 @@ export class CRMService {
         const conversation = await this.getOrCreateConversation(channel, cleanHandle, raw.channel_id || null);
 
         // --- NEW: AUTO-ENRICHMENT (Phase 53/59 - AWAITED) ---
-        // Ensure we always have the latest Avatar/Name when they write to us.
-        // Awaiting this (Phase 59) guarantees UI parity on new message arrival.
         try {
             await this.syncContactSnapshot(cleanHandle, channel);
         } catch (e) {
             console.error(`[CRMService] Enrichment failed for ${cleanHandle}:`, e);
+        }
+
+        // --- NEW: INTERACTION TRACKING (Phase 61) ---
+        if (raw.direction === 'inbound' || !raw.from_me) {
+            const now = new Date().toISOString();
+            const updates: any = {
+                last_inbound_at: now,
+                last_message_at: now
+            };
+
+            // If first_inbound_at is null, this is the start of the 24h window
+            if (!conversation.first_inbound_at) {
+                updates.first_inbound_at = now;
+            }
+
+            // Capture UTMs if present in raw payload
+            if (raw.utm_source) updates.utm_source = raw.utm_source;
+            if (raw.utm_campaign) updates.utm_campaign = raw.utm_campaign;
+            if (raw.ad_platform) updates.ad_platform = raw.ad_platform;
+
+            await supabase
+                .from('conversations')
+                .update(updates)
+                .eq('id', conversation.id);
         }
 
         // --- NEW: DEDUPLICATION CHECK ---
@@ -544,6 +581,7 @@ export class CRMService {
             content,
             external_id: raw.id || null, // Map Whapi ID
             raw_payload: raw,
+            metadata: raw.metadata || {},
             // DO NOT re-dispatch if this is already an outbound message (echo)
             skipDispatch: (raw.direction === 'outbound' || raw.from_me === true || raw._generated_from_me === true)
         });
@@ -745,14 +783,25 @@ export class CRMService {
             .select('handle, name, ltv, risk_level, tags, avatar_url')
             .in('handle', handles);
 
-        // 3. Merge snapshots into conversations for UI enrichment
         const snapshotMap = (snapshots || []).reduce((acc: any, s) => {
             acc[s.handle] = s;
             return acc;
         }, {});
 
+        // 4. Fetch computed indicators (Phase 61)
+        const { data: indicators } = await supabase
+            .from('conversation_indicators')
+            .select('*')
+            .in('id', uniqueConvs.map(c => c.id));
+
+        const indicatorMap = (indicators || []).reduce((acc: any, i) => {
+            acc[i.id] = i;
+            return acc;
+        }, {});
+
         return uniqueConvs.map(conv => ({
             ...conv,
+            ...indicatorMap[conv.id], // Merge computed indicators (hours_remaining, window_status, etc.)
             contact_name: snapshotMap[conv.contact_handle]?.name || null,
             avatar_url: snapshotMap[conv.contact_handle]?.avatar_url || null,
             ltv: snapshotMap[conv.contact_handle]?.ltv || 0,

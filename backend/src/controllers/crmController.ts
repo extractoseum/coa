@@ -144,26 +144,13 @@ export const handleInbound = async (req: Request, res: Response): Promise<void> 
 
                     content = url ? `[Audio](${url})` : '[Audio]';
                     type = 'audio';
-                    // Voice pipeline triggered after DB insert via .then() below
-                } else if (msg.type === 'video') {
-                    const url = msg.video?.link || msg.video?.url || '';
-                    const caption = msg.video?.caption || '';
-                    content = url ? `[Video](${url}) ${caption}` : `[Video] ${caption}`;
-                    type = 'video';
-                } else if (msg.type === 'document' || msg.type === 'file') {
-                    const url = msg.document?.link || msg.document?.url || msg.file?.link || msg.file?.url || '';
-                    const caption = msg.document?.caption || msg.document?.filename || '';
-                    content = url ? `[File](${url}) ${caption}` : `[Archivo] ${caption}`;
-                    type = 'file';
-
-                    // --- NEW RICH TYPES ---
                 } else if (msg.type === 'location') {
                     const loc = msg.location;
                     const lat = loc?.latitude;
                     const long = loc?.longitude;
                     const mapLink = `https://www.google.com/maps?q=${lat},${long}`;
                     content = `[Ubicación](${mapLink}) Lat: ${lat}, Long: ${long}`;
-                    type = 'file'; // Fallback or new type 'location'
+                    type = 'file';
                 } else if (msg.type === 'contact') {
                     const contacts = msg.contact || [];
                     const names = contacts.map((c: any) => c.name?.formatted_name || c.name).join(', ');
@@ -175,7 +162,7 @@ export const handleInbound = async (req: Request, res: Response): Promise<void> 
                     const options = (poll?.options || []).map((o: any) => o.option_name).join(', ');
                     content = `[Encuesta]: ${title} (Opciones: ${options})`;
                     type = 'text';
-                } else if (msg.type === 'order') { // Check exact type from logs
+                } else if (msg.type === 'order') {
                     const order = msg.order;
                     const items = (order?.product_items || []).map((i: any) => `${i.quantity}x ${i.product_retailer_id}`).join(', ');
                     content = `[Pedido WhatsApp]: ${items} (Total: ${order?.total_amount?.value || '?'} ${order?.total_amount?.currency || ''})`;
@@ -188,22 +175,63 @@ export const handleInbound = async (req: Request, res: Response): Promise<void> 
                     content = `[Link Preview] [${title}](${url})${desc}`;
                     type = 'text';
                 } else if (msg.type === 'action') {
-                    // Reactions usually come as type='action'
                     if (msg.action?.type === 'reaction') {
-                        console.log(`[CRM] Reaction detected: ${msg.action.emoji} on msg ${msg.action.target_message_id}`);
-                        // For now, logging. Enhancing this would require updating the original message in DB.
-                        // We can append a system note or ignored it for thread clarity.
                         content = `(Reacción: ${msg.action.emoji})`;
-                        type = 'event'; // Treat as event so AI might not reply to it directly or we skip logic
+                        type = 'reaction';
                     } else if (msg.action?.type === 'delete') {
                         content = `🚫 This message was deleted.`;
                         type = 'event';
                     } else {
                         content = `[Action: ${msg.action?.type}]`;
+                        type = 'event';
                     }
+                    // Voice pipeline triggered after DB insert via .then() below
+                } else if (msg.type === 'video') {
+                    const url = msg.video?.link || msg.video?.url || '';
+                    const caption = msg.video?.caption || '';
+                    content = url ? `[Video](${url}) ${caption}` : `[Video] ${caption}`;
+                    type = 'video';
+                } else if (msg.type === 'document' || msg.type === 'file') {
+                    const url = msg.document?.link || msg.document?.url || msg.file?.link || msg.file?.url || '';
+                    const caption = msg.document?.caption || msg.document?.filename || '';
+                    content = url ? `[File](${url}) ${caption}` : `[Archivo] ${caption}`;
+                    type = 'file';
+
+                } else if (msg.type === 'button') {
+                    content = msg.button?.text || '[Botón]';
+                    type = 'button';
+                } else if (msg.type === 'interactive') {
+                    const interactive = msg.interactive;
+                    if (interactive?.type === 'button_reply') {
+                        content = interactive.button_reply?.title || '[Respuesta Botón]';
+                    } else if (interactive?.type === 'list_reply') {
+                        content = interactive.list_reply?.title || '[Respuesta Lista]';
+                        if (interactive.list_reply?.description) {
+                            content += ` (${interactive.list_reply.description})`;
+                        }
+                    } else {
+                        content = `[Interactivo: ${interactive?.type}]`;
+                    }
+                    type = 'interactive';
+                } else if (msg.type === 'reply') {
+                    // This is for quoted replies or button replies processed as 'reply'
+                    content = msg.reply?.text || msg.reply?.title || '[Respuesta]';
+                    type = 'text'; // Usually contains text
+                } else if (msg.type === 'album') {
+                    const items = msg.album || [];
+                    const count = items.length;
+                    const urls = items.map((i: any) => i.image?.link || i.video?.link || i.image?.url || i.video?.url).filter(Boolean);
+                    content = `[Álbum: ${count} archivos]\n${urls.map((u: string) => `- ${u}`).join('\n')}`;
+                    type = 'file';
+                } else if (msg.type === 'sticker') {
+                    const url = msg.sticker?.link || msg.sticker?.url || '';
+                    content = url ? `[Sticker](${url})` : '[Sticker]';
+                    type = 'sticker';
                 } else {
-                    console.log(`[CRM] Unknown type detected: ${msg.type}`);
-                    content = `[Archivo: ${msg.type}]`;
+                    console.log(`[CRM] Unknown type detected: ${msg.type}. Preserving in content.`);
+                    // Preserve as much info as possible for unknown types
+                    const rawStr = JSON.stringify(msg[msg.type] || msg).substring(0, 100);
+                    content = `[Archivo: ${msg.type}] ${rawStr}`;
                     type = 'file';
                 }
 
@@ -228,7 +256,12 @@ export const handleInbound = async (req: Request, res: Response): Promise<void> 
                         type: type, // Normalized type
                         direction: fromMe ? 'outbound' : 'inbound',
                         role: fromMe ? 'assistant' : 'user',
-                        _generated_from_me: fromMe
+                        _generated_from_me: fromMe,
+                        metadata: {
+                            original_type: msg.type,
+                            context: msg.context || null,
+                            whatsapp_id: msg.id
+                        }
                     }
                 ).then(async (createdMsg: any) => {
                     console.log(`[CRM] processInbound .then() triggered. Type: ${type}, MsgID: ${createdMsg?.id}, HasContent: ${!!createdMsg?.content}`);

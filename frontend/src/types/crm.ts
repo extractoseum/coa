@@ -56,6 +56,15 @@ export interface Conversation {
     ltv?: number;
     risk_level?: string;
     updated_at?: string;
+    // Phase 61: Computed Indicators
+    hours_remaining?: number;
+    window_status?: 'active' | 'expired';
+    is_new_customer?: boolean;
+    is_vip?: boolean;
+    is_stalled?: boolean;
+    awaiting_response?: boolean;
+    health_score?: number;
+    traffic_source?: string;
 }
 
 export interface ContactSnapshot {

@@ -2,6 +2,7 @@ import React, { memo } from 'react';
 import { MessageSquare, Instagram, Mail, User, Zap, Smile, ChevronRight } from 'lucide-react';
 import type { Conversation } from '../types/crm';
 import { getAvatarGradient, getTagColor } from '../utils/crmUtils';
+import CardIndicators from './CardIndicators';
 
 interface KanbanCardProps {
     conv: Conversation;
@@ -81,32 +82,17 @@ const KanbanCard = memo(({ conv, isSelected, theme, onDragStart, onClick }: Kanb
                 {conv.summary}
             </p>
 
-            {/* Predictors layer (Phase 4) */}
-            {conv.facts && (conv.facts.friction_score !== undefined || conv.facts.emotional_vibe) && (
-                <div className="flex items-center justify-between gap-3 mb-3 bg-black/20 p-2 rounded-lg border border-white/5">
-                    {conv.facts?.emotional_vibe && (
-                        <div className="flex items-center gap-1.5 min-w-0">
-                            <Smile size={10} className="text-pink-400 shrink-0" />
-                            <span className="text-[9px] font-bold text-pink-300 truncate tracking-tight uppercase">
-                                {conv.facts.emotional_vibe}
-                            </span>
-                        </div>
-                    )}
-                    {conv.facts?.friction_score !== undefined && (
-                        <div className="flex flex-col items-end gap-1 shrink-0">
-                            <span className="text-[7px] uppercase font-bold opacity-30 tracking-widest">Friction</span>
-                            <div className="w-12 h-1 bg-white/10 rounded-full overflow-hidden">
-                                <div
-                                    className={`h-full rounded-full transition-all duration-500 ${conv.facts.friction_score > 70 ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]' :
-                                        conv.facts.friction_score > 30 ? 'bg-yellow-500' : 'bg-green-500'
-                                        }`}
-                                    style={{ width: `${conv.facts.friction_score}%` }}
-                                />
-                            </div>
-                        </div>
-                    )}
-                </div>
-            )}
+            {/* Phase 61: Smart Card Indicators */}
+            <CardIndicators
+                hoursRemaining={conv.hours_remaining}
+                windowStatus={conv.window_status}
+                isNewCustomer={conv.is_new_customer}
+                isVip={conv.is_vip}
+                isStalled={conv.is_stalled}
+                awaitingResponse={conv.awaiting_response}
+                healthScore={conv.health_score}
+                trafficSource={conv.traffic_source}
+            />
 
             <div className="flex flex-wrap gap-1">
                 {conv.tags?.map(tag => (
