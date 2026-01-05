@@ -14,6 +14,8 @@ import path from 'path';
 // Base directory for metadata
 const KNOWLEDGE_BASE_DIR = path.join(__dirname, '../../data/ai_knowledge_base');
 
+const IDENTITY_BLACKLIST = ['EXTRACTOS EUM', 'ARA', 'BERNARDO', 'EUM', 'EXTRACTOS'];
+
 export interface CRMMessage {
     id?: string;
     conversation_id: string;
@@ -1437,6 +1439,29 @@ export class CRMService {
             const result = await this.aiService.classify(systemPrompt, userPrompt);
 
             if (result) {
+                // --- NEW: IDENTITY BLACKLIST FILTERING (Phase 61.1) ---
+                if (result.user_name && IDENTITY_BLACKLIST.some(b => result.user_name.toUpperCase().includes(b))) {
+                    console.log(`[CRMService] Blacklisted name detected: ${result.user_name}. Clearing.`);
+                    result.user_name = null;
+                }
+
+                if (result.ambiguity_candidates) {
+                    result.ambiguity_candidates = result.ambiguity_candidates.filter(
+                        (c: string) => !IDENTITY_BLACKLIST.some(b => c.toUpperCase().includes(b))
+                    );
+                    if (result.ambiguity_candidates.length === 0) {
+                        delete result.identity_ambiguity;
+                        delete result.system_inquiry;
+                    }
+                }
+
+                // If system_inquiry matches blacklist, suppress it
+                if (result.system_inquiry && result.system_inquiry.question) {
+                    if (IDENTITY_BLACKLIST.some(b => result.system_inquiry.question.toUpperCase().includes(b))) {
+                        delete result.system_inquiry;
+                    }
+                }
+
                 // --- NEW: PROACTIVE NAME EXTRACTION (FAST GATE) ---
                 // If AI missed it, look for patterns in last 5 messages
                 if (!result.user_name) {

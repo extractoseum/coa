@@ -10,6 +10,8 @@ interface CardIndicatorsProps {
     awaitingResponse?: boolean;
     healthScore?: number;
     trafficSource?: string;
+    frictionScore?: number;
+    emotionalVibe?: string;
 }
 
 const CardIndicators: React.FC<CardIndicatorsProps> = ({
@@ -20,7 +22,9 @@ const CardIndicators: React.FC<CardIndicatorsProps> = ({
     isStalled = false,
     awaitingResponse = false,
     healthScore = 50,
-    trafficSource = 'organic'
+    trafficSource = 'organic',
+    frictionScore = 0,
+    emotionalVibe
 }) => {
     // Determine color for the 24h window
     const getWindowColor = () => {
@@ -34,6 +38,13 @@ const CardIndicators: React.FC<CardIndicatorsProps> = ({
         if (healthScore > 75) return 'bg-green-500';
         if (healthScore > 40) return 'bg-yellow-500';
         return 'bg-red-500';
+    };
+
+    // Determine friction color
+    const getFrictionColor = () => {
+        if (frictionScore > 70) return 'bg-red-500';
+        if (frictionScore > 30) return 'bg-yellow-500';
+        return 'bg-green-500';
     };
 
     // Get Traffic Source Icon
@@ -100,16 +111,42 @@ const CardIndicators: React.FC<CardIndicatorsProps> = ({
                 </div>
             </div>
 
-            {/* Health Bar (Friction vs Intent) */}
-            <div className="flex items-center gap-2 bg-black/10 p-1.5 rounded-md border border-white/5">
-                <Activity size={10} className="text-white/40" />
-                <div className="flex-1 h-1 bg-white/5 rounded-full overflow-hidden">
-                    <div
-                        className={`h-full rounded-full transition-all duration-1000 ${getHealthColor()}`}
-                        style={{ width: `${healthScore}%`, boxShadow: `0 0 8px ${healthScore > 75 ? 'rgba(34,197,94,0.4)' : healthScore > 40 ? 'rgba(234,179,8,0.4)' : 'rgba(239,68,68,0.4)'}` }}
-                    />
+            {/* Emotional Vibe (Secondary Indicator) */}
+            {emotionalVibe && (
+                <div className="flex items-center gap-1 px-1 opacity-80">
+                    <span className="text-[9px] font-black uppercase text-pink-400 truncate max-w-[150px]">
+                        {emotionalVibe}
+                    </span>
                 </div>
-                <span className="text-[8px] font-mono text-white/30">{healthScore}%</span>
+            )}
+
+            {/* Health & Friction Row */}
+            <div className="flex flex-col gap-1.5 bg-black/10 p-1.5 rounded-md border border-white/5">
+                {/* Health Bar */}
+                <div className="flex items-center gap-2">
+                    <Activity size={10} className="text-white/40" />
+                    <div className="flex-1 h-1 bg-white/5 rounded-full overflow-hidden">
+                        <div
+                            className={`h-full rounded-full transition-all duration-1000 ${getHealthColor()}`}
+                            style={{ width: `${healthScore}%`, boxShadow: `0 0 8px ${healthScore > 75 ? 'rgba(34,197,94,0.4)' : healthScore > 40 ? 'rgba(234,179,8,0.4)' : 'rgba(239,68,68,0.4)'}` }}
+                        />
+                    </div>
+                    <span className="text-[8px] font-mono text-white/30 truncate w-6">H:{healthScore}%</span>
+                </div>
+
+                {/* Friction Bar (Restored) */}
+                {frictionScore > 0 && (
+                    <div className="flex items-center gap-2">
+                        <AlertCircle size={10} className="text-white/20" />
+                        <div className="flex-1 h-1 bg-white/5 rounded-full overflow-hidden">
+                            <div
+                                className={`h-full rounded-full transition-all duration-1000 ${getFrictionColor()}`}
+                                style={{ width: `${frictionScore}%` }}
+                            />
+                        </div>
+                        <span className="text-[8px] font-mono text-white/30 truncate w-6 text-right">F:{frictionScore}%</span>
+                    </div>
+                )}
             </div>
         </div>
     );

@@ -92,6 +92,8 @@ const KanbanCard = memo(({ conv, isSelected, theme, onDragStart, onClick }: Kanb
                 awaitingResponse={conv.awaiting_response}
                 healthScore={conv.health_score}
                 trafficSource={conv.traffic_source}
+                frictionScore={conv.facts?.friction_score}
+                emotionalVibe={conv.facts?.emotional_vibe}
             />
 
             <div className="flex flex-wrap gap-1">
