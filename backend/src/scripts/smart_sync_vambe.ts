@@ -234,9 +234,11 @@ async function smartSyncVambe(dryRun: boolean = true): Promise<SyncStats> {
 
         } else {
             // CREATE new client
+            // Note: email is required (NOT NULL constraint), generate placeholder if needed
+            const placeholderEmail = `lead_${normalizedPhone || Date.now()}@placeholder.extractoseum.com`;
             const newClient = {
                 phone: contact.phone ? `+52${normalizedPhone}` : null,
-                email: email || null,
+                email: email || placeholderEmail,
                 name: contact.contactName || 'Sin nombre',
                 tags: vambeTags,
                 is_active: true,

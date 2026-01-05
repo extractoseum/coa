@@ -1136,6 +1136,7 @@ export class CRMService {
     /**
      * Gets a contact snapshot, syncing if stale (> 24h)
      * Now also includes client email for identity bridging with browsing events
+     * Enhanced: Falls back to Shopify customer search if no real email found locally
      */
     public async getContactSnapshot(handle: string, channel: string): Promise<any> {
         const { data } = await supabase
@@ -1152,13 +1153,37 @@ export class CRMService {
         const cleanPhone = cleanupPhone(handle);
         const { data: client } = await supabase
             .from('clients')
-            .select('email')
+            .select('id, email')
             .or(`phone.ilike.%${cleanPhone}%,phone.ilike.%${cleanPhone.slice(-10)}%`)
             .maybeSingle();
 
+        let email = client?.email || null;
+
+        // If email is fake (@noemail.eum) or missing, try to get it from Shopify
+        if (!email || email.includes('@noemail.eum')) {
+            try {
+                const shopifyCustomers = await searchShopifyCustomerByPhone(handle);
+                if (shopifyCustomers.length > 0 && shopifyCustomers[0].email) {
+                    email = shopifyCustomers[0].email;
+                    console.log(`[CRMService] Found email from Shopify for ${handle}: ${email}`);
+
+                    // Update client record with real email from Shopify
+                    if (client?.id) {
+                        await supabase
+                            .from('clients')
+                            .update({ email })
+                            .eq('id', client.id);
+                        console.log(`[CRMService] Updated client ${client.id} with Shopify email`);
+                    }
+                }
+            } catch (shopifyErr: any) {
+                console.warn(`[CRMService] Shopify email lookup failed for ${handle}:`, shopifyErr.message);
+            }
+        }
+
         return {
             ...data,
-            email: client?.email || null
+            email
         };
     }
 

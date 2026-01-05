@@ -23,9 +23,16 @@ const sqlContent = fs.readFileSync(
 
 // Split into separate statements and execute each one
 const statements = sqlContent
-    .split(/;(?=\s*(?:--|CREATE|ALTER|INSERT|DO|DROP))/i)
+    .split(/;(?=\s*(?:--|CREATE|ALTER|INSERT|DO|DROP|WITH))/i)
     .map(s => s.trim())
-    .filter(s => s && !s.startsWith('--'));
+    .filter(s => {
+        if (!s) return false;
+        // If it starts with a comment but has a command later, keep it
+        if (s.startsWith('--')) {
+            return /CREATE|ALTER|INSERT|DO|DROP|WITH|UPDATE|DELETE/i.test(s);
+        }
+        return true;
+    });
 
 async function executeStatement(sql) {
     return new Promise((resolve, reject) => {
