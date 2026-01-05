@@ -13,6 +13,7 @@ import {
     setupPWAInstallListener,
     isPWAInstalled
 } from '../services/onesignalService';
+import { telemetry } from '../services/telemetryService';
 
 interface Client {
     id: string;
@@ -181,6 +182,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 localStorage.setItem('accessToken', data.accessToken);
                 localStorage.setItem('refreshToken', data.refreshToken);
                 setClient(data.client);
+                // Identify user in telemetry & Clarity
+                telemetry.identifyUser(data.client.email, { name: data.client.name });
                 return { success: true };
             }
 
@@ -219,6 +222,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 localStorage.setItem('accessToken', data.accessToken);
                 localStorage.setItem('refreshToken', data.refreshToken);
                 setClient(data.client);
+                telemetry.identifyUser(data.client.email, { name: data.client.name });
                 return { success: true };
             }
             return { success: false, error: data.error || 'Código incorrecto' };
@@ -242,6 +246,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 localStorage.setItem('accessToken', data.accessToken);
                 localStorage.setItem('refreshToken', data.refreshToken);
                 setClient(data.client);
+                telemetry.identifyUser(data.client.email, { name: data.client.name });
                 return { success: true };
             }
 
@@ -268,6 +273,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 localStorage.setItem('accessToken', data.accessToken);
                 localStorage.setItem('refreshToken', data.refreshToken);
                 setClient(data.client);
+                telemetry.identifyUser(data.client.email, { name: data.client.name });
                 return { success: true, isNewUser: data.isNewUser };
             }
 
@@ -294,6 +300,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 localStorage.setItem('accessToken', data.accessToken);
                 localStorage.setItem('refreshToken', data.refreshToken);
                 setClient(data.client);
+                telemetry.identifyUser(data.client.email, { name: data.client.name });
                 return { success: true, redirectTo: data.redirectTo };
             }
 
