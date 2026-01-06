@@ -1,0 +1,107 @@
+<!--
+  EUM CHECKOUT TRACKING SCRIPT FOR SHOPIFY
+  =========================================
+
+  Install this in: Settings > Checkout > Additional Scripts
+  (Also known as "Order status page" scripts)
+
+  This tracks completed purchases and thank you page views.
+-->
+
+<script>
+(function() {
+  'use strict';
+
+  var EUM_API = 'https://coa.extractoseum.com/api/behavior/track';
+
+  // Get stored identity
+  function getSessionId() {
+    return sessionStorage.getItem('eum_session_id') || 'checkout_' + Date.now().toString(36);
+  }
+
+  function getFingerprint() {
+    return localStorage.getItem('eum_fingerprint') || null;
+  }
+
+  // Customer info from checkout
+  var customerEmail = '{{ checkout.email }}' || Shopify.checkout.email || null;
+  var customerName = '{{ checkout.billing_address.name }}' || '';
+
+  // Identify in Clarity
+  if (typeof clarity === 'function' && customerEmail) {
+    clarity('set', 'customUserId', customerEmail);
+    clarity('set', 'customer_name', customerName);
+  }
+
+  // Track purchase event
+  {% if first_time_accessed %}
+  fetch(EUM_API, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      event_type: 'purchase',
+      handle: customerEmail,
+      session_id: getSessionId(),
+      fingerprint: getFingerprint(),
+      url: window.location.href,
+      metadata: {
+        order_id: '{{ checkout.order_id }}',
+        order_number: '{{ checkout.order_number }}',
+        order_name: '{{ checkout.name }}',
+        total_price: {{ checkout.total_price | divided_by: 100.0 }},
+        subtotal_price: {{ checkout.subtotal_price | divided_by: 100.0 }},
+        shipping_price: {{ checkout.shipping_price | divided_by: 100.0 }},
+        tax_price: {{ checkout.tax_price | divided_by: 100.0 }},
+        currency: '{{ checkout.currency }}',
+        items_count: {{ checkout.line_items.size }},
+        line_items: [
+          {% for item in checkout.line_items %}
+          {
+            product_id: '{{ item.product_id }}',
+            variant_id: '{{ item.variant_id }}',
+            title: '{{ item.title | escape }}',
+            quantity: {{ item.quantity }},
+            price: {{ item.price | divided_by: 100.0 }},
+            sku: '{{ item.sku | escape }}'
+          }{% unless forloop.last %},{% endunless %}
+          {% endfor %}
+        ],
+        customer_name: customerName,
+        customer_email: customerEmail,
+        billing_city: '{{ checkout.billing_address.city | escape }}',
+        billing_province: '{{ checkout.billing_address.province | escape }}',
+        billing_country: '{{ checkout.billing_address.country | escape }}',
+        shipping_city: '{{ checkout.shipping_address.city | escape }}',
+        shipping_province: '{{ checkout.shipping_address.province | escape }}',
+        shipping_country: '{{ checkout.shipping_address.country | escape }}',
+        discount_codes: [
+          {% for discount in checkout.discount_applications %}
+          '{{ discount.title | escape }}'{% unless forloop.last %},{% endunless %}
+          {% endfor %}
+        ],
+        payment_gateway: '{{ checkout.transactions[0].gateway | escape }}',
+        timestamp: new Date().toISOString()
+      }
+    }),
+    keepalive: true
+  }).then(function() {
+    console.log('[EUM] Purchase tracked: {{ checkout.order_number }}');
+  }).catch(function(err) {
+    console.warn('[EUM] Purchase tracking failed:', err);
+  });
+
+  // Clarity purchase event
+  if (typeof clarity === 'function') {
+    clarity('event', 'purchase');
+    clarity('set', 'last_order_total', '{{ checkout.total_price | divided_by: 100.0 }}');
+    clarity('set', 'last_order_id', '{{ checkout.order_number }}');
+  }
+  {% endif %}
+
+  console.log('[EUM] Checkout tracking loaded', {
+    order: '{{ checkout.order_number }}',
+    customer: customerEmail
+  });
+
+})();
+</script>

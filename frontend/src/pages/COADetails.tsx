@@ -13,6 +13,7 @@ import QuickRegisterModal from '../components/QuickRegisterModal';
 import { useTheme } from '../contexts/ThemeContext';
 import Layout from '../components/Layout';
 import { Screen } from '../telemetry/Screen';
+import { telemetry } from '../services/telemetryService';
 import ClientCOAEditor from '../components/ClientCOAEditor';
 import ChromatogramSVG from '../components/ChromatogramSVG';
 import { InAppBrowser } from '../components/InAppBrowser';
@@ -69,6 +70,15 @@ const trackCOAAccess = async (token: string, accessType: string, linkSource?: st
             if (window.Trakpilot) {
                 window.Trakpilot.track('view_coa', { token });
             }
+
+            // EUM Behavior Tracking (Identity Graph)
+            telemetry.trackBehavior('view_product', {
+                product_id: token,
+                product_type: 'coa',
+                access_type: accessType,
+                link_source: linkSource,
+                ...utmParams
+            });
         }
 
     } catch (error) {
@@ -84,6 +94,13 @@ const trackPDFDownload = async (token: string, pdfType: string = 'branded') => {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ pdf_type: pdfType })
+        });
+
+        // EUM Behavior Tracking
+        telemetry.trackBehavior('download_pdf', {
+            product_id: token,
+            product_type: 'coa',
+            pdf_type: pdfType
         });
     } catch (error) {
         console.error('[Analytics] PDF tracking error:', error);
@@ -111,6 +128,16 @@ const trackLinkClick = async (token: string, linkType: string, linkUrl: string, 
                     destination: linkUrl
                 });
             }
+
+            // EUM Behavior Tracking
+            const eventType = linkType === 'purchase' || linkType === 'shop' ? 'add_to_cart' : 'link_click';
+            telemetry.trackBehavior(eventType, {
+                product_id: token,
+                product_type: 'coa',
+                link_type: linkType,
+                link_url: linkUrl,
+                link_label: linkLabel
+            });
         }
     } catch (error) {
         console.error('[Analytics] Link tracking error:', error);
