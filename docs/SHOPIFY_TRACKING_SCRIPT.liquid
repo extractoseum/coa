@@ -1,21 +1,10 @@
-<!--
-  EUM COMPLETE TRACKING SCRIPT FOR SHOPIFY
-  =========================================
-
-  Install this in: Online Store > Themes > Edit Code > Layout > theme.liquid
-  Place it right before the closing </head> tag
-
-  Also install in: Settings > Checkout > Additional Scripts (for post-purchase tracking)
--->
-
 <!-- EUM Identity Graph & Behavior Tracking -->
 <script>
 (function() {
   'use strict';
 
   // === CONFIGURATION ===
-  var EUM_API = 'https://coa.extractoseum.com/api/behavior/track';
-  var CLARITY_PROJECT_ID = 'uwvz4motxs'; // EXTRACTOS EUM Shopify project
+  var EUM_API = 'https://coa.extractoseum.com/api/v1/behavior/track';
 
   // === SESSION & FINGERPRINT MANAGEMENT ===
   function getSessionId() {
@@ -55,7 +44,6 @@
         canvasData.slice(-50)
       ].join('|');
 
-      // Simple hash
       var hash = 0;
       for (var i = 0; i < fp.length; i++) {
         hash = ((hash << 5) - hash) + fp.charCodeAt(i);
@@ -68,23 +56,13 @@
   }
 
   // === CUSTOMER IDENTIFICATION ===
-  var customerEmail = null;
-  var customerName = null;
+  var customerEmail = {{ customer.email | json }} || null;
+  var customerName = {{ customer.name | json }} || null;
 
-  {% if customer %}
-    customerEmail = '{{ customer.email }}';
-    customerName = '{{ customer.name | escape }}';
-
-    // Identify in Microsoft Clarity
-    if (typeof clarity === 'function') {
-      clarity('set', 'customUserId', customerEmail);
-      clarity('set', 'customer_name', customerName);
-      {% if customer.orders_count %}
-        clarity('set', 'orders_count', '{{ customer.orders_count }}');
-        clarity('set', '{{ customer.orders_count | plus: 0 | at_least: 1 | divided_by: 1 | times: 0 | plus: customer.orders_count }}' > 0 ? 'returning_customer' : 'new_customer', 'true');
-      {% endif %}
-    }
-  {% endif %}
+  if (customerEmail && typeof clarity === 'function') {
+    clarity('set', 'customUserId', customerEmail);
+    if (customerName) clarity('set', 'customer_name', customerName);
+  }
 
   // === CORE TRACKING FUNCTION ===
   function trackEvent(eventType, metadata) {
@@ -102,7 +80,6 @@
       })
     };
 
-    // Send to EUM API
     fetch(EUM_API, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -112,102 +89,75 @@
       console.warn('[EUM] Track failed:', err);
     });
 
-    // Also send to Clarity as custom event
     if (typeof clarity === 'function') {
       clarity('event', eventType);
-      if (metadata && metadata.product_title) {
-        clarity('set', 'last_product_viewed', metadata.product_title);
-      }
     }
   }
 
   // === PAGE-SPECIFIC TRACKING ===
+  var template = {{ template | json }} || '';
 
-  // Product page
-  {% if template contains 'product' %}
+  if (template.indexOf('product') !== -1) {
     trackEvent('view_product', {
-      product_id: '{{ product.id }}',
-      product_title: '{{ product.title | escape }}',
-      product_handle: '{{ product.handle }}',
-      product_price: {{ product.price | divided_by: 100.0 }},
-      product_vendor: '{{ product.vendor | escape }}',
-      product_type: '{{ product.type | escape }}',
-      variant_id: '{{ product.selected_or_first_available_variant.id }}',
-      variant_title: '{{ product.selected_or_first_available_variant.title | escape }}'
+      product_id: {{ product.id | json }},
+      product_title: {{ product.title | json }},
+      product_handle: {{ product.handle | json }},
+      product_price: {{ product.price | divided_by: 100.0 | json }},
+      product_vendor: {{ product.vendor | json }},
+      product_type: {{ product.type | json }}
     });
-  {% endif %}
+  }
 
-  // Collection page
-  {% if template contains 'collection' %}
+  if (template.indexOf('collection') !== -1) {
     trackEvent('view_collection', {
-      collection_id: '{{ collection.id }}',
-      collection_title: '{{ collection.title | escape }}',
-      collection_handle: '{{ collection.handle }}',
-      products_count: {{ collection.products_count | default: 0 }}
+      collection_id: {{ collection.id | json }},
+      collection_title: {{ collection.title | json }},
+      collection_handle: {{ collection.handle | json }},
+      products_count: {{ collection.products_count | default: 0 | json }}
     });
-  {% endif %}
+  }
 
-  // Search results
-  {% if template contains 'search' %}
+  if (template.indexOf('search') !== -1) {
     trackEvent('search_view', {
-      search_query: '{{ search.terms | escape }}',
-      results_count: {{ search.results_count | default: 0 }}
+      search_query: {{ search.terms | json }},
+      results_count: {{ search.results_count | default: 0 | json }}
     });
-  {% endif %}
+  }
 
-  // Cart page
-  {% if template contains 'cart' %}
+  if (template.indexOf('cart') !== -1) {
     trackEvent('view_cart', {
-      cart_total: {{ cart.total_price | divided_by: 100.0 }},
-      items_count: {{ cart.item_count }},
-      items: [
-        {% for item in cart.items %}
-        {
-          product_id: '{{ item.product_id }}',
-          title: '{{ item.title | escape }}',
-          quantity: {{ item.quantity }},
-          price: {{ item.price | divided_by: 100.0 }}
-        }{% unless forloop.last %},{% endunless %}
-        {% endfor %}
-      ]
+      cart_total: {{ cart.total_price | divided_by: 100.0 | json }},
+      items_count: {{ cart.item_count | json }}
     });
-  {% endif %}
+  }
 
   // === ADD TO CART TRACKING ===
   document.addEventListener('submit', function(e) {
     var form = e.target;
-    if (form.action && form.action.includes('/cart/add')) {
-      var productTitle = form.querySelector('[name="product-title"]')?.value
-        || document.querySelector('.product__title, .product-title, h1')?.textContent?.trim()
-        || 'Unknown Product';
-
-      trackEvent('add_to_cart', {
-        product_title: productTitle,
-        form_action: form.action
-      });
+    if (form.action && form.action.indexOf('/cart/add') !== -1) {
+      var titleEl = document.querySelector('.product__title, .product-title, h1');
+      var productTitle = titleEl ? titleEl.textContent.trim() : 'Unknown Product';
+      trackEvent('add_to_cart', { product_title: productTitle });
     }
   });
 
-  // AJAX add to cart (for themes using fetch/XHR)
+  // AJAX add to cart
   var originalFetch = window.fetch;
   window.fetch = function() {
     var url = arguments[0];
-    if (typeof url === 'string' && url.includes('/cart/add')) {
-      trackEvent('add_to_cart', {
-        method: 'ajax',
-        url: url
-      });
+    if (typeof url === 'string' && url.indexOf('/cart/add') !== -1) {
+      trackEvent('add_to_cart', { method: 'ajax', url: url });
     }
     return originalFetch.apply(this, arguments);
   };
 
-  // === PAGE VIEW (for general tracking) ===
+  // === PAGE VIEW ===
   trackEvent('page_view', {
-    template: '{{ template }}',
-    shop_name: '{{ shop.name | escape }}'
+    template: template,
+    shop_name: {{ shop.name | json }}
   });
 
-  // === CONSOLE LOG FOR DEBUGGING ===
+  // === DEBUG LOG ===
   console.log('[EUM] Tracking initialized', {
     session_id: getSessionId(),
     fingerprint: getFingerprint(),
