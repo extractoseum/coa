@@ -1,6 +1,6 @@
 
 import express from 'express';
-import { getColumns, moveConversation, handleInbound, updateColumnConfig, getConversations, createConversation, getMessages, sendMessage, archiveConversation, deleteConversation, getContactSnapshot, getClientOrders, getOrderDetails, createCoupon, searchClients, startConversationWithClient } from '../controllers/crmController';
+import { getColumns, moveConversation, handleInbound, updateColumnConfig, getConversations, createConversation, getMessages, sendMessage, archiveConversation, deleteConversation, getContactSnapshot, getClientOrders, getOrderDetails, createCoupon, searchClients, startConversationWithClient, createeDarkStoreTicket } from '../controllers/crmController';
 import { requireAuth, requireRole } from '../middleware/authMiddleware';
 
 const router = express.Router();
@@ -32,6 +32,9 @@ router.post('/coupons', requireAuth, requireRole('admin', 'super_admin', 'staff'
 // Client search and conversation initiation
 router.get('/clients/search', requireAuth, requireRole('admin', 'super_admin', 'staff'), searchClients);
 router.post('/clients/start-conversation', requireAuth, requireRole('admin', 'super_admin', 'staff'), startConversationWithClient);
+
+// eDarkStore Ticket System
+router.post('/tickets/edarkstore', requireAuth, requireRole('admin', 'super_admin', 'staff'), createeDarkStoreTicket);
 router.post('/conversations/:conversationId/sync-facts', requireAuth, requireRole('admin', 'super_admin', 'staff'), (req, res) => require('../controllers/crmController').syncFacts(req, res));
 router.put('/contacts/:handle', requireAuth, requireRole('admin', 'super_admin', 'staff'), (req, res) => require('../controllers/crmController').updateContact(req, res));
 router.patch('/conversations/:conversationId', requireAuth, requireRole('admin', 'super_admin', 'staff'), (req, res) => require('../controllers/crmController').updateConversation(req, res));

@@ -607,3 +607,295 @@ export const getAraEmailStatus = (): { configured: boolean; polling: boolean; em
 
 // Initialize Ara transporter on module load
 initAraTransporter();
+
+// ============================================================================
+// EDARKSTORE TICKET SYSTEM
+// ============================================================================
+
+/**
+ * eDarkStore team recipients for ticket notifications
+ */
+export const EDARKSTORE_RECIPIENTS = {
+    primary: [
+        'bbeltran@edarkstore.cl',
+        'barze@edarkstore.cl',
+        'customer.service.test@edarkstore.cl',
+        'mvelarde@edarkstore.cl'
+    ],
+    // Can add specific team members for different ticket types
+    logistics: ['bbeltran@edarkstore.cl', 'barze@edarkstore.cl'],
+    customerService: ['customer.service.test@edarkstore.cl', 'mvelarde@edarkstore.cl']
+};
+
+export type eDarkStoreTicketType = 'shipping_issue' | 'delivery_problem' | 'package_lost' | 'return_request' | 'general_inquiry' | 'urgent';
+
+export interface eDarkStoreTicket {
+    type: eDarkStoreTicketType;
+    subject: string;
+    description: string;
+    orderNumber?: string;
+    trackingNumber?: string;
+    customerEmail?: string;
+    customerName?: string;
+    priority?: 'low' | 'normal' | 'high' | 'urgent';
+    attachments?: Array<{ filename: string; content: Buffer | string; contentType?: string }>;
+    additionalRecipients?: string[];
+}
+
+/**
+ * Get email template for eDarkStore tickets
+ */
+const geteDarkStoreTicketTemplate = (ticket: eDarkStoreTicket, ticketId: string): string => {
+    const priorityColors: Record<string, string> = {
+        low: '#6B7280',
+        normal: '#3B82F6',
+        high: '#F59E0B',
+        urgent: '#EF4444'
+    };
+
+    const priorityColor = priorityColors[ticket.priority || 'normal'];
+    const typeLabels: Record<eDarkStoreTicketType, string> = {
+        shipping_issue: '📦 Problema de Envío',
+        delivery_problem: '🚚 Problema de Entrega',
+        package_lost: '❌ Paquete Extraviado',
+        return_request: '↩️ Solicitud de Devolución',
+        general_inquiry: '❓ Consulta General',
+        urgent: '🚨 URGENTE'
+    };
+
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background: #f4f4f4; }
+        .container { max-width: 650px; margin: 20px auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .header { background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%); color: #fff; padding: 20px 30px; }
+        .header h1 { margin: 0; font-size: 20px; }
+        .header .ticket-id { font-size: 12px; opacity: 0.9; margin-top: 5px; }
+        .priority-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; background: ${priorityColor}; color: #fff; margin-left: 10px; }
+        .content { padding: 30px; }
+        .type-badge { display: inline-block; padding: 6px 14px; background: #EEF2FF; color: #4F46E5; border-radius: 6px; font-weight: 600; margin-bottom: 20px; }
+        .field { margin-bottom: 15px; }
+        .field-label { font-size: 12px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+        .field-value { font-size: 15px; color: #1F2937; }
+        .description { background: #F9FAFB; border-left: 4px solid #4F46E5; padding: 15px; margin: 20px 0; border-radius: 0 8px 8px 0; }
+        .footer { background: #F9FAFB; padding: 15px 30px; text-align: center; font-size: 12px; color: #6B7280; border-top: 1px solid #E5E7EB; }
+        .order-box { background: #FEF3C7; border: 1px solid #F59E0B; border-radius: 8px; padding: 12px 15px; margin: 15px 0; }
+        .order-box strong { color: #92400E; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>
+                Nuevo Ticket de Soporte
+                <span class="priority-badge">${(ticket.priority || 'normal').toUpperCase()}</span>
+            </h1>
+            <div class="ticket-id">Ticket ID: ${ticketId}</div>
+        </div>
+        <div class="content">
+            <div class="type-badge">${typeLabels[ticket.type]}</div>
+
+            <h2 style="margin-top: 0; color: #1F2937;">${ticket.subject}</h2>
+
+            ${ticket.orderNumber || ticket.trackingNumber ? `
+            <div class="order-box">
+                ${ticket.orderNumber ? `<div><strong>📋 Pedido:</strong> ${ticket.orderNumber}</div>` : ''}
+                ${ticket.trackingNumber ? `<div><strong>🔍 Tracking:</strong> ${ticket.trackingNumber}</div>` : ''}
+            </div>
+            ` : ''}
+
+            ${ticket.customerName || ticket.customerEmail ? `
+            <div class="field">
+                <div class="field-label">Cliente</div>
+                <div class="field-value">
+                    ${ticket.customerName || 'N/A'}
+                    ${ticket.customerEmail ? `<br><a href="mailto:${ticket.customerEmail}">${ticket.customerEmail}</a>` : ''}
+                </div>
+            </div>
+            ` : ''}
+
+            <div class="description">
+                <div class="field-label">Descripción del Problema</div>
+                <p style="margin: 10px 0 0 0; white-space: pre-wrap;">${ticket.description}</p>
+            </div>
+        </div>
+        <div class="footer">
+            <p>Este ticket fue generado automáticamente por el sistema EUM CRM</p>
+            <p>Para responder, envía un email a <a href="mailto:ara@extractoseum.com">ara@extractoseum.com</a> con el ID de ticket en el asunto</p>
+        </div>
+    </div>
+</body>
+</html>
+`;
+};
+
+/**
+ * Generate unique ticket ID
+ */
+const generateTicketId = (): string => {
+    const timestamp = Date.now().toString(36).toUpperCase();
+    const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+    return `EDS-${timestamp}-${random}`;
+};
+
+/**
+ * Send ticket to eDarkStore team
+ */
+export const sendeDarkStoreTicket = async (
+    ticket: eDarkStoreTicket
+): Promise<{ success: boolean; ticketId?: string; error?: string }> => {
+    if (!araTransporter) {
+        initAraTransporter();
+    }
+
+    if (!araTransporter) {
+        return { success: false, error: 'Email service not configured' };
+    }
+
+    const ticketId = generateTicketId();
+
+    // Determine recipients based on ticket type
+    let recipients: string[];
+    if (ticket.type === 'urgent' || ticket.priority === 'urgent') {
+        recipients = [...EDARKSTORE_RECIPIENTS.primary]; // All recipients for urgent
+    } else if (ticket.type === 'shipping_issue' || ticket.type === 'delivery_problem' || ticket.type === 'package_lost') {
+        recipients = [...EDARKSTORE_RECIPIENTS.logistics];
+    } else {
+        recipients = [...EDARKSTORE_RECIPIENTS.customerService];
+    }
+
+    // Add any additional recipients
+    if (ticket.additionalRecipients?.length) {
+        recipients = [...new Set([...recipients, ...ticket.additionalRecipients])];
+    }
+
+    const priorityPrefix = ticket.priority === 'urgent' ? '🚨 URGENTE: ' :
+                          ticket.priority === 'high' ? '⚠️ ' : '';
+
+    const subject = `[EDS Ticket ${ticketId}] ${priorityPrefix}${ticket.subject}`;
+    const html = geteDarkStoreTicketTemplate(ticket, ticketId);
+    const text = `
+Nuevo Ticket de Soporte - ${ticketId}
+=====================================
+Tipo: ${ticket.type}
+Prioridad: ${ticket.priority || 'normal'}
+Asunto: ${ticket.subject}
+${ticket.orderNumber ? `Pedido: ${ticket.orderNumber}` : ''}
+${ticket.trackingNumber ? `Tracking: ${ticket.trackingNumber}` : ''}
+${ticket.customerName ? `Cliente: ${ticket.customerName}` : ''}
+${ticket.customerEmail ? `Email Cliente: ${ticket.customerEmail}` : ''}
+
+Descripción:
+${ticket.description}
+
+---
+Este ticket fue generado por el sistema EUM CRM.
+Para responder, envía un email a ara@extractoseum.com con el ID de ticket en el asunto.
+`;
+
+    try {
+        const result = await araTransporter.sendMail({
+            from: `"Ara - Extractos EUM Tickets" <${ARA_EMAIL_CONFIG.user}>`,
+            to: recipients.join(', '),
+            subject,
+            text,
+            html,
+            attachments: ticket.attachments,
+            headers: {
+                'X-Ticket-ID': ticketId,
+                'X-Ticket-Type': ticket.type,
+                'X-Ticket-Priority': ticket.priority || 'normal'
+            }
+        });
+
+        console.log(`[eDarkStore] Ticket ${ticketId} sent to ${recipients.length} recipients`);
+
+        // Log to system
+        await supabase.from('system_logs').insert({
+            event_type: 'edarkstore_ticket_created',
+            category: 'ticket',
+            metadata: {
+                ticket_id: ticketId,
+                type: ticket.type,
+                priority: ticket.priority || 'normal',
+                order_number: ticket.orderNumber,
+                tracking_number: ticket.trackingNumber,
+                recipients,
+                message_id: result.messageId
+            }
+        });
+
+        return { success: true, ticketId };
+    } catch (error: any) {
+        console.error('[eDarkStore] Ticket send error:', error.message);
+        return { success: false, error: error.message };
+    }
+};
+
+/**
+ * Create eDarkStore ticket from CRM conversation
+ */
+export const createeDarkStoreTicketFromConversation = async (
+    conversationId: string,
+    ticketData: Partial<eDarkStoreTicket>
+): Promise<{ success: boolean; ticketId?: string; error?: string }> => {
+    // Get conversation details
+    const { data: conv } = await supabase
+        .from('conversations')
+        .select('contact_handle, contact_name, facts, summary')
+        .eq('id', conversationId)
+        .single();
+
+    if (!conv) {
+        return { success: false, error: 'Conversation not found' };
+    }
+
+    // Get recent messages for context
+    const { data: messages } = await supabase
+        .from('messages')
+        .select('content, sender, created_at')
+        .eq('conversation_id', conversationId)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+    const messageContext = messages?.reverse().map(m =>
+        `[${m.sender === 'client' ? 'Cliente' : 'Agente'}]: ${m.content}`
+    ).join('\n\n') || '';
+
+    const ticket: eDarkStoreTicket = {
+        type: ticketData.type || 'general_inquiry',
+        subject: ticketData.subject || conv.summary || 'Consulta desde CRM',
+        description: ticketData.description || `
+Contexto de la conversación:
+${messageContext}
+
+---
+Información adicional:
+- Handle: ${conv.contact_handle}
+- Nombre: ${conv.contact_name || 'N/A'}
+`,
+        orderNumber: ticketData.orderNumber || conv.facts?.order_number,
+        trackingNumber: ticketData.trackingNumber || conv.facts?.tracking_number,
+        customerEmail: conv.contact_handle.includes('@') ? conv.contact_handle : conv.facts?.user_email,
+        customerName: conv.contact_name || conv.facts?.user_name,
+        priority: ticketData.priority || 'normal',
+        additionalRecipients: ticketData.additionalRecipients
+    };
+
+    const result = await sendeDarkStoreTicket(ticket);
+
+    if (result.success) {
+        // Add system message to conversation
+        await supabase.from('messages').insert({
+            conversation_id: conversationId,
+            sender: 'system',
+            content: `📧 Ticket enviado a eDarkStore: ${result.ticketId}\nTipo: ${ticket.type}\nPrioridad: ${ticket.priority}`,
+            message_type: 'system'
+        });
+    }
+
+    return result;
+};

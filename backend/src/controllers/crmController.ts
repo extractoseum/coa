@@ -811,3 +811,56 @@ export const startConversationWithClient = async (req: Request, res: Response): 
     }
 };
 
+/**
+ * Create eDarkStore support ticket
+ * POST /api/v1/crm/tickets/edarkstore
+ */
+export const createeDarkStoreTicket = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { conversationId, type, subject, description, orderNumber, trackingNumber, priority, additionalRecipients } = req.body;
+
+        // Import the ticket function
+        const { sendeDarkStoreTicket, createeDarkStoreTicketFromConversation } = require('../services/emailService');
+
+        let result;
+
+        if (conversationId) {
+            // Create ticket from conversation context
+            result = await createeDarkStoreTicketFromConversation(conversationId, {
+                type: type || 'general_inquiry',
+                subject,
+                description,
+                orderNumber,
+                trackingNumber,
+                priority: priority || 'normal',
+                additionalRecipients
+            });
+        } else {
+            // Create standalone ticket
+            if (!subject || !description) {
+                res.status(400).json({ success: false, error: 'Subject and description are required' });
+                return;
+            }
+
+            result = await sendeDarkStoreTicket({
+                type: type || 'general_inquiry',
+                subject,
+                description,
+                orderNumber,
+                trackingNumber,
+                priority: priority || 'normal',
+                additionalRecipients
+            });
+        }
+
+        if (result.success) {
+            res.json({ success: true, data: { ticketId: result.ticketId } });
+        } else {
+            res.status(500).json({ success: false, error: result.error });
+        }
+    } catch (error: any) {
+        console.error('[CRM] createeDarkStoreTicket error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
