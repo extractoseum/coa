@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Save, Loader2, Image, FileText, Link as LinkIcon, X, Plus, EyeOff, Eye, Upload, BarChart3, Users, MousePointerClick, Download, RefreshCw, MapPin, Globe } from 'lucide-react';
+import { Save, Loader2, Image, FileText, Link as LinkIcon, X, Plus, EyeOff, Eye, Upload, BarChart3, Users, MousePointerClick, Download, RefreshCw, MapPin, Globe, Tag, Lock } from 'lucide-react';
 import { authFetch } from '../contexts/AuthContext';
 import type { ThemeMode } from '../contexts/ThemeContext';
 
@@ -18,8 +18,21 @@ const CLIENT_EDITABLE_FIELDS = [
     'custom_title',
     'purchase_links',
     'additional_docs',
-    'is_hidden'
+    'is_hidden',
+    'visibility_mode',
+    'required_tags'
 ];
+
+// Available Shopify tags for tag-restricted visibility
+const AVAILABLE_TAGS = [
+    { value: 'Club_partner', label: 'Club Partner', color: '#4F46E5' },
+    { value: 'Club_user', label: 'Club User', color: '#6366F1' },
+    { value: 'Gold_member', label: 'Gold Member', color: '#D4AF37' },
+    { value: 'Platino_member', label: 'Platino Member', color: '#A0A5AB' },
+    { value: 'Black_member', label: 'Black Member', color: '#1a1a1a' }
+];
+
+type VisibilityMode = 'public' | 'hidden' | 'tag_restricted';
 
 // Analytics interface
 interface AnalyticsData {
@@ -53,6 +66,15 @@ export default function ClientCOAEditor({ coaToken, coa, onComplete, themeMode }
     const [additionalDocs, setAdditionalDocs] = useState<{ type: string; url: string; filename: string }[]>(
         coa?.additional_docs || []
     );
+
+    // Visibility state - derive initial mode from existing data
+    const getInitialVisibilityMode = (): VisibilityMode => {
+        if (coa?.visibility_mode) return coa.visibility_mode as VisibilityMode;
+        if (coa?.is_hidden) return 'hidden';
+        return 'public';
+    };
+    const [visibilityMode, setVisibilityMode] = useState<VisibilityMode>(getInitialVisibilityMode());
+    const [requiredTags, setRequiredTags] = useState<string[]>(coa?.required_tags || []);
 
     // Image upload state
     const [productImage, setProductImage] = useState<File | null>(null);
@@ -189,7 +211,9 @@ export default function ClientCOAEditor({ coaToken, coa, onComplete, themeMode }
                     short_description: shortDescription,
                     long_description: longDescription,
                     product_image_url: productImageUrl,
-                    is_hidden: isHidden,
+                    is_hidden: visibilityMode === 'hidden', // Keep for backwards compatibility
+                    visibility_mode: visibilityMode,
+                    required_tags: visibilityMode === 'tag_restricted' ? requiredTags : [],
                     purchase_links: purchaseLinks.filter(l => l.label && l.url),
                     additional_docs: additionalDocs.filter(d => d.type && d.url)
                 })
@@ -464,44 +488,135 @@ export default function ClientCOAEditor({ coaToken, coa, onComplete, themeMode }
                     </div>
                 </div>
 
-                {/* Visibility Toggle */}
-                <div
-                    className="p-4 rounded-lg border"
-                    style={{
-                        backgroundColor: isHidden ? '#7c3aed20' : theme.cardBg,
-                        borderColor: isHidden ? '#7c3aed' : theme.border
-                    }}
-                >
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            {isHidden ? (
-                                <EyeOff className="w-5 h-5" style={{ color: '#7c3aed' }} />
-                            ) : (
-                                <Eye className="w-5 h-5" style={{ color: theme.accent }} />
-                            )}
-                            <div>
-                                <span className="font-medium" style={{ color: theme.text }}>
-                                    {isHidden ? 'COA Oculto' : 'COA Publico'}
-                                </span>
-                                <p className="text-xs" style={{ color: theme.textMuted }}>
-                                    {isHidden
-                                        ? 'Este COA no aparecera en carpetas publicas'
-                                        : 'Este COA es visible en carpetas publicas compartidas'}
-                                </p>
-                            </div>
-                        </div>
+                {/* Visibility Mode Selector */}
+                <div className="p-4 rounded-lg border" style={{ backgroundColor: theme.cardBg, borderColor: theme.border }}>
+                    <label className="block text-sm mb-3 flex items-center" style={{ color: theme.textMuted }}>
+                        <Eye className="w-4 h-4 mr-1" />
+                        Visibilidad en Carpetas Publicas
+                    </label>
+
+                    {/* Three visibility options */}
+                    <div className="space-y-2">
+                        {/* Public */}
                         <button
                             type="button"
-                            onClick={() => setIsHidden(!isHidden)}
-                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${isHidden ? 'bg-purple-600' : 'bg-gray-400'
+                            onClick={() => setVisibilityMode('public')}
+                            className={`w-full p-3 rounded-lg border text-left transition-all ${visibilityMode === 'public'
+                                ? 'border-emerald-500 bg-emerald-500/10'
+                                : 'border-transparent bg-white/5 hover:bg-white/10'
                                 }`}
                         >
-                            <span
-                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isHidden ? 'translate-x-6' : 'translate-x-1'
-                                    }`}
-                            />
+                            <div className="flex items-center gap-3">
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${visibilityMode === 'public' ? 'bg-emerald-500/20' : 'bg-white/10'}`}>
+                                    <Eye className="w-4 h-4" style={{ color: visibilityMode === 'public' ? '#10b981' : theme.textMuted }} />
+                                </div>
+                                <div>
+                                    <span className="font-medium block" style={{ color: visibilityMode === 'public' ? '#10b981' : theme.text }}>
+                                        COA Publico
+                                    </span>
+                                    <span className="text-xs" style={{ color: theme.textMuted }}>
+                                        Visible para todos en carpetas publicas
+                                    </span>
+                                </div>
+                            </div>
+                        </button>
+
+                        {/* Hidden */}
+                        <button
+                            type="button"
+                            onClick={() => setVisibilityMode('hidden')}
+                            className={`w-full p-3 rounded-lg border text-left transition-all ${visibilityMode === 'hidden'
+                                ? 'border-purple-500 bg-purple-500/10'
+                                : 'border-transparent bg-white/5 hover:bg-white/10'
+                                }`}
+                        >
+                            <div className="flex items-center gap-3">
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${visibilityMode === 'hidden' ? 'bg-purple-500/20' : 'bg-white/10'}`}>
+                                    <EyeOff className="w-4 h-4" style={{ color: visibilityMode === 'hidden' ? '#a855f7' : theme.textMuted }} />
+                                </div>
+                                <div>
+                                    <span className="font-medium block" style={{ color: visibilityMode === 'hidden' ? '#a855f7' : theme.text }}>
+                                        COA Oculto
+                                    </span>
+                                    <span className="text-xs" style={{ color: theme.textMuted }}>
+                                        No aparece en carpetas publicas
+                                    </span>
+                                </div>
+                            </div>
+                        </button>
+
+                        {/* Tag Restricted */}
+                        <button
+                            type="button"
+                            onClick={() => setVisibilityMode('tag_restricted')}
+                            className={`w-full p-3 rounded-lg border text-left transition-all ${visibilityMode === 'tag_restricted'
+                                ? 'border-amber-500 bg-amber-500/10'
+                                : 'border-transparent bg-white/5 hover:bg-white/10'
+                                }`}
+                        >
+                            <div className="flex items-center gap-3">
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${visibilityMode === 'tag_restricted' ? 'bg-amber-500/20' : 'bg-white/10'}`}>
+                                    <Lock className="w-4 h-4" style={{ color: visibilityMode === 'tag_restricted' ? '#f59e0b' : theme.textMuted }} />
+                                </div>
+                                <div>
+                                    <span className="font-medium block" style={{ color: visibilityMode === 'tag_restricted' ? '#f59e0b' : theme.text }}>
+                                        Solo Tags Seleccionados
+                                    </span>
+                                    <span className="text-xs" style={{ color: theme.textMuted }}>
+                                        Visible solo para clientes con tags especificos de Shopify
+                                    </span>
+                                </div>
+                            </div>
                         </button>
                     </div>
+
+                    {/* Tag selector (shown when tag_restricted is selected) */}
+                    {visibilityMode === 'tag_restricted' && (
+                        <div className="mt-4 p-3 rounded-lg bg-amber-500/5 border border-amber-500/20">
+                            <label className="block text-sm mb-2 flex items-center" style={{ color: '#f59e0b' }}>
+                                <Tag className="w-4 h-4 mr-1" />
+                                Selecciona los tags permitidos
+                            </label>
+                            <p className="text-xs mb-3" style={{ color: theme.textMuted }}>
+                                Solo los clientes con al menos uno de estos tags podran ver este COA
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                                {AVAILABLE_TAGS.map(tag => {
+                                    const isSelected = requiredTags.includes(tag.value);
+                                    return (
+                                        <button
+                                            key={tag.value}
+                                            type="button"
+                                            onClick={() => {
+                                                if (isSelected) {
+                                                    setRequiredTags(requiredTags.filter(t => t !== tag.value));
+                                                } else {
+                                                    setRequiredTags([...requiredTags, tag.value]);
+                                                }
+                                            }}
+                                            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${isSelected
+                                                ? 'ring-2 ring-offset-2 ring-offset-black'
+                                                : 'opacity-60 hover:opacity-100'
+                                                }`}
+                                            style={{
+                                                backgroundColor: isSelected ? tag.color : `${tag.color}30`,
+                                                color: isSelected ? '#fff' : tag.color,
+                                                // @ts-ignore - ringColor is a Tailwind CSS variable
+                                                '--tw-ring-color': tag.color
+                                            } as React.CSSProperties}
+                                        >
+                                            {tag.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            {requiredTags.length === 0 && (
+                                <p className="text-xs mt-2 text-amber-500">
+                                    Selecciona al menos un tag para restringir el acceso
+                                </p>
+                            )}
+                        </div>
+                    )}
                 </div>
 
                 {/* Additional Documents */}

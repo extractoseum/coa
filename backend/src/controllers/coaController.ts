@@ -517,7 +517,9 @@ const CLIENT_EDITABLE_FIELDS = [
     'custom_title',
     'purchase_links',
     'additional_docs',
-    'is_hidden'  // Allow clients to hide COAs from public views
+    'is_hidden',  // Allow clients to hide COAs from public views (legacy)
+    'visibility_mode',  // New visibility mode: public, hidden, tag_restricted
+    'required_tags'  // Array of Shopify tags required when visibility_mode is tag_restricted
 ];
 
 // Update COA with permission check (for authenticated users)

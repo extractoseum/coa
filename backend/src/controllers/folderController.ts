@@ -4,6 +4,50 @@ import { supabase } from '../config/supabase';
 // Shopify API Key for secure communication
 const SHOPIFY_API_KEY = process.env.SHOPIFY_INTEGRATION_API_KEY || '';
 
+// Helper: Get viewer's Shopify tags by email
+const getViewerShopifyTags = async (email: string | undefined): Promise<string[]> => {
+    if (!email) return [];
+
+    const { data: customer } = await supabase
+        .from('shopify_customers_backup')
+        .select('tags')
+        .eq('email', email.toLowerCase())
+        .single();
+
+    if (!customer?.tags) return [];
+
+    return customer.tags.split(',').map((t: string) => t.trim()).filter(Boolean);
+};
+
+// Helper: Check if COA should be visible to viewer based on visibility mode and tags
+const isCoaVisibleToViewer = (
+    coa: any,
+    isOwner: boolean,
+    viewerTags: string[]
+): boolean => {
+    // Owner always sees all their COAs
+    if (isOwner) return true;
+
+    const visibilityMode = coa.visibility_mode || (coa.is_hidden ? 'hidden' : 'public');
+
+    switch (visibilityMode) {
+        case 'public':
+            return true;
+        case 'hidden':
+            return false;
+        case 'tag_restricted':
+            // Check if viewer has at least one required tag
+            const requiredTags = coa.required_tags || [];
+            if (requiredTags.length === 0) return true; // No tags required = public
+            return requiredTags.some((tag: string) =>
+                viewerTags.some(vt => vt.toLowerCase() === tag.toLowerCase())
+            );
+        default:
+            // Fallback to is_hidden logic for backwards compatibility
+            return !coa.is_hidden;
+    }
+};
+
 // Helper: Build folder tree from flat array
 const buildFolderTree = (folders: any[], parentId: string | null = null): any[] => {
     return folders
@@ -380,6 +424,10 @@ export const getFolderByToken = async (req: Request, res: Response) => {
         let coas: any[] = [];
         const isOwner = folder.client_id === clientId;
 
+        // Get viewer's email for tag-based filtering
+        const viewerEmail = (req as any).client?.email;
+        const viewerTags = await getViewerShopifyTags(viewerEmail);
+
         if (folderItems && folderItems.length > 0) {
             const coaIds = folderItems.map(item => item.coa_id);
             const { data: coaData } = await supabase
@@ -396,6 +444,8 @@ export const getFolderByToken = async (req: Request, res: Response) => {
                     compliance_status,
                     product_image_url,
                     is_hidden,
+                    visibility_mode,
+                    required_tags,
                     created_at,
                     metadata
                 `)
@@ -407,8 +457,8 @@ export const getFolderByToken = async (req: Request, res: Response) => {
                 coas = folderItems
                     .map(item => coaMap.get(item.coa_id))
                     .filter(Boolean)
-                    // Filter out hidden COAs for public views (non-owners)
-                    .filter((coa: any) => isOwner || !coa.is_hidden)
+                    // Filter COAs based on visibility mode and viewer's tags
+                    .filter((coa: any) => isCoaVisibleToViewer(coa, isOwner, viewerTags))
                     .map((coa: any) => ({
                         ...coa,
                         // Use metadata.batch_number if set, otherwise batch_id
