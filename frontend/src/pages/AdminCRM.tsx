@@ -89,6 +89,8 @@ const AdminCRM: React.FC = () => {
     const [clientSearchResults, setClientSearchResults] = useState<any[]>([]);
     const [searchingClients, setSearchingClients] = useState(false);
     const [showClientResults, setShowClientResults] = useState(false);
+    const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
+    const searchInputRef = useRef<HTMLInputElement>(null);
     const [sidePanelWidth, setSidePanelWidth] = useState(() => {
         const saved = localStorage.getItem('crm_sidePanelWidth');
         return saved ? parseInt(saved, 10) : 800;
@@ -213,6 +215,14 @@ const AdminCRM: React.FC = () => {
                 if (data.success && data.data.length > 0) {
                     setClientSearchResults(data.data);
                     setShowClientResults(true);
+                    // Calculate dropdown position
+                    if (searchInputRef.current) {
+                        const rect = searchInputRef.current.getBoundingClientRect();
+                        setDropdownPosition({
+                            top: rect.bottom + 8,
+                            left: Math.max(rect.left - 60, 10)
+                        });
+                    }
                 } else {
                     setClientSearchResults([]);
                     setShowClientResults(false);
@@ -1012,27 +1022,42 @@ const AdminCRM: React.FC = () => {
                             </div>
                         </div>
 
-                        <div className="flex items-center gap-4 min-w-0 shrink">
-                            <div className="relative shrink min-w-[20px] max-w-[300px]">
-                                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30 pointer-events-none z-10" style={{ color: theme.text }} />
+                        <div className="flex items-center gap-4 min-w-0 shrink overflow-visible">
+                            <div className="relative shrink min-w-[20px] max-w-[300px] overflow-visible">
+                                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30 pointer-events-none" style={{ color: theme.text }} />
                                 {searchingClients && (
-                                    <Loader2 size={14} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-pink-400 z-10" />
+                                    <Loader2 size={14} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-pink-400" />
                                 )}
                                 <input
+                                    ref={searchInputRef}
                                     type="text"
-                                    placeholder="Buscar contacto o cliente..."
+                                    placeholder="Cliente, email, orden..."
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
-                                    onFocus={() => clientSearchResults.length > 0 && setShowClientResults(true)}
-                                    onBlur={() => setTimeout(() => setShowClientResults(false), 200)}
+                                    onFocus={() => {
+                                        if (clientSearchResults.length > 0 && searchInputRef.current) {
+                                            const rect = searchInputRef.current.getBoundingClientRect();
+                                            setDropdownPosition({ top: rect.bottom + 8, left: Math.max(rect.left - 60, 10) });
+                                            setShowClientResults(true);
+                                        }
+                                    }}
+                                    onBlur={() => setTimeout(() => setShowClientResults(false), 300)}
                                     className="bg-black/20 border rounded-full pl-9 pr-8 py-1.5 text-sm outline-none w-full transition-all focus:border-pink-500/50"
                                     style={{ borderColor: theme.border, color: theme.text }}
                                 />
-                                {/* Client Search Dropdown */}
+                                {/* Client Search Dropdown - Fixed positioning to avoid clipping */}
                                 {showClientResults && clientSearchResults.length > 0 && (
                                     <div
-                                        className="absolute top-full mt-2 left-0 right-0 min-w-[320px] rounded-xl shadow-2xl border overflow-hidden z-50"
-                                        style={{ backgroundColor: theme.cardBg, borderColor: theme.border }}
+                                        className="fixed rounded-xl shadow-2xl border overflow-hidden"
+                                        style={{
+                                            backgroundColor: theme.cardBg,
+                                            borderColor: theme.border,
+                                            zIndex: 9999,
+                                            width: '380px',
+                                            maxWidth: '90vw',
+                                            top: dropdownPosition.top,
+                                            left: dropdownPosition.left
+                                        }}
                                     >
                                         <div className="px-3 py-2 border-b text-xs font-medium flex items-center gap-2" style={{ borderColor: theme.border, color: theme.textMuted }}>
                                             <Users size={12} />
@@ -1120,7 +1145,18 @@ const AdminCRM: React.FC = () => {
                                                             )}
                                                         </div>
                                                     </div>
-                                                    {client.total_orders > 0 && (
+                                                    {/* Show matched orders if searching by order number */}
+                                                    {client.matched_orders && client.matched_orders.length > 0 && (
+                                                        <div className="mt-1.5 ml-10 flex flex-wrap gap-1">
+                                                            {client.matched_orders.map((order: any, idx: number) => (
+                                                                <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-pink-500/20 text-pink-400 text-[10px]">
+                                                                    <Hash size={8} /> {order.order_number}
+                                                                    {order.total_price && <span className="opacity-70">${Number(order.total_price).toFixed(0)}</span>}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                    {client.total_orders > 0 && !client.matched_orders && (
                                                         <div className="mt-1 flex items-center gap-2 text-[10px] ml-10" style={{ color: theme.textMuted }}>
                                                             <span className="flex items-center gap-1">
                                                                 <ShoppingBag size={10} /> {client.total_orders} pedidos

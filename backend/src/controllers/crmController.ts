@@ -583,8 +583,9 @@ export const updateConversation = async (req: Request, res: Response): Promise<v
 };
 
 /**
- * Search clients by email, phone, or name
+ * Search clients by email, phone, name, or order number
  * Returns clients from the clients table that match the search query
+ * Also searches orders by order_number and returns associated clients
  */
 export const searchClients = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -596,25 +597,93 @@ export const searchClients = async (req: Request, res: Response): Promise<void> 
 
         const searchTerm = q.toLowerCase().trim();
         const rawDigits = searchTerm.replace(/\D/g, '');
+        const results: any[] = [];
+        const seenClientIds = new Set<string>();
 
-        // Search in clients table by email, phone, or name
-        let query = supabase
+        // 1. Search in clients table by email, phone, or name
+        const { data: clients, error: clientsError } = await supabase
             .from('clients')
             .select('id, email, name, phone, tags, shopify_customer_id, created_at, last_login_at, membership_tier')
             .or(`email.ilike.%${searchTerm}%,name.ilike.%${searchTerm}%${rawDigits.length >= 4 ? `,phone.ilike.%${rawDigits}%` : ''}`)
             .order('last_login_at', { ascending: false, nullsFirst: false })
-            .limit(20);
+            .limit(15);
 
-        const { data: clients, error } = await query;
-
-        if (error) {
-            console.error('[CRM] searchClients error:', error);
-            res.status(500).json({ success: false, error: error.message });
-            return;
+        if (clientsError) {
+            console.error('[CRM] searchClients clients error:', clientsError);
         }
 
-        // For each client, check if they have an existing conversation
-        const clientsWithConvStatus = await Promise.all((clients || []).map(async (client) => {
+        // 2. Search orders by order_number (e.g., "EUM_1608", "#1608", "1608")
+        // Clean the search term to just get the number portion
+        const orderNumberMatch = searchTerm.match(/(\d{3,})/);
+        let ordersClients: any[] = [];
+
+        if (orderNumberMatch) {
+            const orderNum = orderNumberMatch[1];
+            // Search in orders table
+            const { data: orders, error: ordersError } = await supabase
+                .from('orders')
+                .select('id, order_number, client_id, email, total_price, created_at, fulfillment_status, financial_status')
+                .or(`order_number.ilike.%${orderNum}%,order_number.ilike.%EUM_${orderNum}%`)
+                .limit(10);
+
+            if (!ordersError && orders && orders.length > 0) {
+                // Get unique client_ids from orders
+                const clientIdsFromOrders = [...new Set(orders.map(o => o.client_id).filter(Boolean))];
+
+                if (clientIdsFromOrders.length > 0) {
+                    const { data: orderClients } = await supabase
+                        .from('clients')
+                        .select('id, email, name, phone, tags, shopify_customer_id, created_at, last_login_at, membership_tier')
+                        .in('id', clientIdsFromOrders);
+
+                    if (orderClients) {
+                        ordersClients = orderClients.map(c => ({
+                            ...c,
+                            matched_orders: orders.filter(o => o.client_id === c.id).map(o => ({
+                                order_number: o.order_number,
+                                total_price: o.total_price,
+                                status: o.fulfillment_status || o.financial_status
+                            }))
+                        }));
+                    }
+                }
+
+                // Also check by email if no client_id but has email
+                const ordersWithEmail = orders.filter(o => !o.client_id && o.email);
+                for (const order of ordersWithEmail) {
+                    const { data: clientByEmail } = await supabase
+                        .from('clients')
+                        .select('id, email, name, phone, tags, shopify_customer_id, created_at, last_login_at, membership_tier')
+                        .eq('email', order.email)
+                        .single();
+
+                    if (clientByEmail && !ordersClients.find(c => c.id === clientByEmail.id)) {
+                        ordersClients.push({
+                            ...clientByEmail,
+                            matched_orders: [{ order_number: order.order_number, total_price: order.total_price, status: order.fulfillment_status || order.financial_status }]
+                        });
+                    }
+                }
+            }
+        }
+
+        // Combine results, prioritizing order matches
+        for (const client of ordersClients) {
+            if (!seenClientIds.has(client.id)) {
+                seenClientIds.add(client.id);
+                results.push(client);
+            }
+        }
+
+        for (const client of (clients || [])) {
+            if (!seenClientIds.has(client.id)) {
+                seenClientIds.add(client.id);
+                results.push(client);
+            }
+        }
+
+        // For each client, check if they have an existing conversation and count orders
+        const clientsWithConvStatus = await Promise.all(results.map(async (client) => {
             // Check for conversation by phone or email
             const handles = [client.phone, client.email].filter(Boolean);
             let hasConversation = false;
@@ -634,10 +703,21 @@ export const searchClients = async (req: Request, res: Response): Promise<void> 
                 }
             }
 
+            // Count total orders for this client
+            let totalOrders = 0;
+            if (client.id) {
+                const { count } = await supabase
+                    .from('orders')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('client_id', client.id);
+                totalOrders = count || 0;
+            }
+
             return {
                 ...client,
                 has_conversation: hasConversation,
-                conversation_id: conversationId
+                conversation_id: conversationId,
+                total_orders: totalOrders
             };
         }));
 
