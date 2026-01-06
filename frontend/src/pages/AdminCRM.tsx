@@ -86,6 +86,9 @@ const AdminCRM: React.FC = () => {
     const [browsingEvents, setBrowsingEvents] = useState<any[]>([]);
     const [loadingEvents, setLoadingEvents] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
+    const [clientSearchResults, setClientSearchResults] = useState<any[]>([]);
+    const [searchingClients, setSearchingClients] = useState(false);
+    const [showClientResults, setShowClientResults] = useState(false);
     const [sidePanelWidth, setSidePanelWidth] = useState(() => {
         const saved = localStorage.getItem('crm_sidePanelWidth');
         return saved ? parseInt(saved, 10) : 800;
@@ -191,6 +194,73 @@ const AdminCRM: React.FC = () => {
             fetchClientOrders(selectedConv.contact_handle, email);
         }
     }, [resourceDockTab, selectedConv, showResourceDock]);
+
+    // Client search with debounce
+    useEffect(() => {
+        if (!searchTerm || searchTerm.length < 2) {
+            setClientSearchResults([]);
+            setShowClientResults(false);
+            return;
+        }
+
+        const timer = setTimeout(async () => {
+            setSearchingClients(true);
+            try {
+                const res = await fetch(`/api/v1/crm/clients/search?q=${encodeURIComponent(searchTerm)}`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                const data = await res.json();
+                if (data.success && data.data.length > 0) {
+                    setClientSearchResults(data.data);
+                    setShowClientResults(true);
+                } else {
+                    setClientSearchResults([]);
+                    setShowClientResults(false);
+                }
+            } catch (err) {
+                console.error('Client search failed:', err);
+                setClientSearchResults([]);
+            } finally {
+                setSearchingClients(false);
+            }
+        }, 300); // 300ms debounce
+
+        return () => clearTimeout(timer);
+    }, [searchTerm, token]);
+
+    // Start conversation with a client from search results
+    const handleStartConversation = async (client: any, channel: 'EMAIL' | 'WA' = 'EMAIL') => {
+        try {
+            const res = await fetch('/api/v1/crm/clients/start-conversation', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    email: client.email,
+                    phone: client.phone,
+                    channel
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                // Refresh conversations and select the new/existing one
+                const updatedConversations = await fetchConversations();
+                const conv = updatedConversations.find((c: Conversation) => c.id === data.data.conversation_id);
+                if (conv) {
+                    setSelectedConv(conv);
+                }
+                setShowClientResults(false);
+                setSearchTerm('');
+            } else {
+                alert(`Error: ${data.error}`);
+            }
+        } catch (err: any) {
+            console.error('Failed to start conversation:', err);
+            alert(`Error al iniciar conversación: ${err.message}`);
+        }
+    };
 
     const fetchClientOrders = async (handle: string, email?: string) => {
         if (!handle) return;
@@ -748,6 +818,24 @@ const AdminCRM: React.FC = () => {
         }
     };
 
+    // Standalone function to refresh conversations
+    const fetchConversations = async () => {
+        try {
+            const resConv = await fetch('/api/v1/crm/conversations', {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            const dataConv = await resConv.json();
+            if (dataConv.success) {
+                const unique = Array.from(new Map(dataConv.data.map((c: Conversation) => [c.id, c])).values());
+                setConversations(unique as Conversation[]);
+                return unique as Conversation[];
+            }
+        } catch (err) {
+            console.error('Failed to fetch conversations:', err);
+        }
+        return [];
+    };
+
     const handleDragStart = (e: React.DragEvent, conversationId: string) => {
         e.dataTransfer.setData('conversationId', conversationId);
         e.dataTransfer.effectAllowed = 'move';
@@ -925,16 +1013,125 @@ const AdminCRM: React.FC = () => {
                         </div>
 
                         <div className="flex items-center gap-4 min-w-0 shrink">
-                            <div className="relative shrink min-w-[20px] max-w-[250px]">
-                                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30 pointer-events-none" style={{ color: theme.text }} />
+                            <div className="relative shrink min-w-[20px] max-w-[300px]">
+                                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30 pointer-events-none z-10" style={{ color: theme.text }} />
+                                {searchingClients && (
+                                    <Loader2 size={14} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-pink-400 z-10" />
+                                )}
                                 <input
                                     type="text"
-                                    placeholder="Buscar contacto..."
+                                    placeholder="Buscar contacto o cliente..."
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
-                                    className="bg-black/20 border rounded-full pl-9 pr-4 py-1.5 text-sm outline-none w-full transition-all focus:border-pink-500/50 focus:w-full"
+                                    onFocus={() => clientSearchResults.length > 0 && setShowClientResults(true)}
+                                    onBlur={() => setTimeout(() => setShowClientResults(false), 200)}
+                                    className="bg-black/20 border rounded-full pl-9 pr-8 py-1.5 text-sm outline-none w-full transition-all focus:border-pink-500/50"
                                     style={{ borderColor: theme.border, color: theme.text }}
                                 />
+                                {/* Client Search Dropdown */}
+                                {showClientResults && clientSearchResults.length > 0 && (
+                                    <div
+                                        className="absolute top-full mt-2 left-0 right-0 min-w-[320px] rounded-xl shadow-2xl border overflow-hidden z-50"
+                                        style={{ backgroundColor: theme.cardBg, borderColor: theme.border }}
+                                    >
+                                        <div className="px-3 py-2 border-b text-xs font-medium flex items-center gap-2" style={{ borderColor: theme.border, color: theme.textMuted }}>
+                                            <Users size={12} />
+                                            Clientes encontrados ({clientSearchResults.length})
+                                        </div>
+                                        <div className="max-h-64 overflow-y-auto">
+                                            {clientSearchResults.map((client: any) => (
+                                                <div
+                                                    key={client.id}
+                                                    className="px-3 py-2 hover:bg-white/5 cursor-pointer border-b last:border-0 transition-colors"
+                                                    style={{ borderColor: theme.border }}
+                                                >
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="flex items-center gap-2">
+                                                                <div
+                                                                    className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
+                                                                    style={{ background: getAvatarGradient(client.email || client.phone || 'U') }}
+                                                                >
+                                                                    {(client.name || client.email || 'U')[0].toUpperCase()}
+                                                                </div>
+                                                                <div className="min-w-0">
+                                                                    <p className="text-sm font-medium truncate" style={{ color: theme.text }}>
+                                                                        {client.name || 'Sin nombre'}
+                                                                    </p>
+                                                                    <div className="flex items-center gap-2 text-xs" style={{ color: theme.textMuted }}>
+                                                                        {client.email && (
+                                                                            <span className="flex items-center gap-1 truncate">
+                                                                                <Mail size={10} /> {client.email}
+                                                                            </span>
+                                                                        )}
+                                                                        {client.phone && (
+                                                                            <span className="flex items-center gap-1">
+                                                                                <Phone size={10} /> {client.phone}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center gap-1 ml-2 shrink-0">
+                                                            {client.has_conversation ? (
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        const conv = conversations.find(c => c.id === client.conversation_id);
+                                                                        if (conv) {
+                                                                            setSelectedConv(conv);
+                                                                            setShowClientResults(false);
+                                                                            setSearchTerm('');
+                                                                        }
+                                                                    }}
+                                                                    className="p-1.5 rounded-lg bg-green-500/20 text-green-400 hover:bg-green-500/30 transition-colors"
+                                                                    title="Ver conversación existente"
+                                                                >
+                                                                    <MessageSquare size={14} />
+                                                                </button>
+                                                            ) : (
+                                                                <>
+                                                                    {client.email && (
+                                                                        <button
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                handleStartConversation(client, 'EMAIL');
+                                                                            }}
+                                                                            className="p-1.5 rounded-lg bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 transition-colors"
+                                                                            title="Iniciar conversación por Email"
+                                                                        >
+                                                                            <Mail size={14} />
+                                                                        </button>
+                                                                    )}
+                                                                    {client.phone && (
+                                                                        <button
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                handleStartConversation(client, 'WA');
+                                                                            }}
+                                                                            className="p-1.5 rounded-lg bg-green-500/20 text-green-400 hover:bg-green-500/30 transition-colors"
+                                                                            title="Iniciar conversación por WhatsApp"
+                                                                        >
+                                                                            <MessageCircle size={14} />
+                                                                        </button>
+                                                                    )}
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    {client.total_orders > 0 && (
+                                                        <div className="mt-1 flex items-center gap-2 text-[10px] ml-10" style={{ color: theme.textMuted }}>
+                                                            <span className="flex items-center gap-1">
+                                                                <ShoppingBag size={10} /> {client.total_orders} pedidos
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
                                 <button

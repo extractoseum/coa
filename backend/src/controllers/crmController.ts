@@ -582,3 +582,152 @@ export const updateConversation = async (req: Request, res: Response): Promise<v
     }
 };
 
+/**
+ * Search clients by email, phone, or name
+ * Returns clients from the clients table that match the search query
+ */
+export const searchClients = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { q } = req.query;
+        if (!q || typeof q !== 'string' || q.length < 2) {
+            res.status(400).json({ success: false, error: 'Search query must be at least 2 characters' });
+            return;
+        }
+
+        const searchTerm = q.toLowerCase().trim();
+        const rawDigits = searchTerm.replace(/\D/g, '');
+
+        // Search in clients table by email, phone, or name
+        let query = supabase
+            .from('clients')
+            .select('id, email, name, phone, tags, shopify_customer_id, created_at, last_login_at, membership_tier')
+            .or(`email.ilike.%${searchTerm}%,name.ilike.%${searchTerm}%${rawDigits.length >= 4 ? `,phone.ilike.%${rawDigits}%` : ''}`)
+            .order('last_login_at', { ascending: false, nullsFirst: false })
+            .limit(20);
+
+        const { data: clients, error } = await query;
+
+        if (error) {
+            console.error('[CRM] searchClients error:', error);
+            res.status(500).json({ success: false, error: error.message });
+            return;
+        }
+
+        // For each client, check if they have an existing conversation
+        const clientsWithConvStatus = await Promise.all((clients || []).map(async (client) => {
+            // Check for conversation by phone or email
+            const handles = [client.phone, client.email].filter(Boolean);
+            let hasConversation = false;
+            let conversationId = null;
+
+            for (const handle of handles) {
+                const { data: conv } = await supabase
+                    .from('conversations')
+                    .select('id')
+                    .eq('contact_handle', handle?.replace(/\+/g, ''))
+                    .single();
+
+                if (conv) {
+                    hasConversation = true;
+                    conversationId = conv.id;
+                    break;
+                }
+            }
+
+            return {
+                ...client,
+                has_conversation: hasConversation,
+                conversation_id: conversationId
+            };
+        }));
+
+        res.json({ success: true, data: clientsWithConvStatus });
+    } catch (error: any) {
+        console.error('[CRM] searchClients error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * Start a new conversation with a client (by email or phone)
+ * Creates a conversation entry and optionally sends an initial message
+ */
+export const startConversationWithClient = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { client_id, channel, initial_message } = req.body;
+
+        if (!client_id || !channel) {
+            res.status(400).json({ success: false, error: 'client_id and channel are required' });
+            return;
+        }
+
+        // Get client details
+        const { data: client, error: clientError } = await supabase
+            .from('clients')
+            .select('*')
+            .eq('id', client_id)
+            .single();
+
+        if (clientError || !client) {
+            res.status(404).json({ success: false, error: 'Client not found' });
+            return;
+        }
+
+        // Determine the handle based on channel
+        let handle: string;
+        if (channel === 'EMAIL') {
+            handle = client.email;
+        } else if (channel === 'WA') {
+            handle = client.phone?.replace(/\+/g, '') || '';
+        } else {
+            handle = client.email || client.phone?.replace(/\+/g, '') || '';
+        }
+
+        if (!handle) {
+            res.status(400).json({ success: false, error: `No valid handle for channel ${channel}` });
+            return;
+        }
+
+        // Check if conversation already exists
+        const { data: existing } = await supabase
+            .from('conversations')
+            .select('id')
+            .eq('contact_handle', handle)
+            .eq('channel', channel)
+            .single();
+
+        if (existing) {
+            res.json({ success: true, data: { conversation_id: existing.id, existed: true } });
+            return;
+        }
+
+        // Create new conversation
+        const conversation = await crmService.getOrCreateConversation(channel, handle);
+
+        // Update conversation with client info
+        await supabase
+            .from('conversations')
+            .update({
+                client_id: client.id,
+                contact_name: client.name,
+                facts: {
+                    user_name: client.name,
+                    user_email: client.email,
+                    user_phone: client.phone
+                }
+            })
+            .eq('id', conversation.id);
+
+        // If initial message provided and channel is EMAIL, queue it
+        if (initial_message && channel === 'EMAIL') {
+            // Email sending will be handled by EmailService (to be implemented)
+            console.log(`[CRM] Initial email message queued for ${handle}: ${initial_message.substring(0, 50)}...`);
+        }
+
+        res.json({ success: true, data: { conversation_id: conversation.id, existed: false } });
+    } catch (error: any) {
+        console.error('[CRM] startConversationWithClient error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+

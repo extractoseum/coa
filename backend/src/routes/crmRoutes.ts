@@ -1,6 +1,6 @@
 
 import express from 'express';
-import { getColumns, moveConversation, handleInbound, updateColumnConfig, getConversations, createConversation, getMessages, sendMessage, archiveConversation, deleteConversation, getContactSnapshot, getClientOrders, getOrderDetails, createCoupon } from '../controllers/crmController';
+import { getColumns, moveConversation, handleInbound, updateColumnConfig, getConversations, createConversation, getMessages, sendMessage, archiveConversation, deleteConversation, getContactSnapshot, getClientOrders, getOrderDetails, createCoupon, searchClients, startConversationWithClient } from '../controllers/crmController';
 import { requireAuth, requireRole } from '../middleware/authMiddleware';
 
 const router = express.Router();
@@ -28,6 +28,10 @@ router.get('/contacts/:handle/snapshot', requireAuth, requireRole('admin', 'supe
 router.get('/contacts/:handle/orders', requireAuth, requireRole('admin', 'super_admin', 'staff'), getClientOrders);
 router.get('/orders/:orderId', requireAuth, requireRole('admin', 'super_admin', 'staff'), getOrderDetails);
 router.post('/coupons', requireAuth, requireRole('admin', 'super_admin', 'staff'), createCoupon);
+
+// Client search and conversation initiation
+router.get('/clients/search', requireAuth, requireRole('admin', 'super_admin', 'staff'), searchClients);
+router.post('/clients/start-conversation', requireAuth, requireRole('admin', 'super_admin', 'staff'), startConversationWithClient);
 router.post('/conversations/:conversationId/sync-facts', requireAuth, requireRole('admin', 'super_admin', 'staff'), (req, res) => require('../controllers/crmController').syncFacts(req, res));
 router.put('/contacts/:handle', requireAuth, requireRole('admin', 'super_admin', 'staff'), (req, res) => require('../controllers/crmController').updateContact(req, res));
 router.patch('/conversations/:conversationId', requireAuth, requireRole('admin', 'super_admin', 'staff'), (req, res) => require('../controllers/crmController').updateConversation(req, res));
