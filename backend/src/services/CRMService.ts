@@ -815,6 +815,25 @@ export class CRMService {
             });
         }
 
+        // 5. Fetch open ticket counts for all conversations
+        const ticketCountMap: Record<string, number> = {};
+        try {
+            const { data: ticketCounts } = await supabase
+                .from('support_tickets')
+                .select('conversation_id')
+                .in('conversation_id', convIds)
+                .in('status', ['open', 'pending', 'in_progress']);
+
+            if (ticketCounts) {
+                ticketCounts.forEach((t: any) => {
+                    ticketCountMap[t.conversation_id] = (ticketCountMap[t.conversation_id] || 0) + 1;
+                });
+            }
+        } catch (ticketError: any) {
+            // Table might not exist yet, ignore
+            console.warn('[CRMService] Ticket count fetch failed (table may not exist):', ticketError.message);
+        }
+
         return uniqueConvs.map(conv => ({
             ...conv,
             ...indicatorMap[conv.id], // Merge computed indicators (hours_remaining, window_status, etc.)
@@ -822,7 +841,8 @@ export class CRMService {
             avatar_url: snapshotMap[conv.contact_handle]?.avatar_url || null,
             ltv: snapshotMap[conv.contact_handle]?.ltv || 0,
             risk_level: snapshotMap[conv.contact_handle]?.risk_level || 'low',
-            tags: snapshotMap[conv.contact_handle]?.tags || []
+            tags: snapshotMap[conv.contact_handle]?.tags || [],
+            open_tickets_count: ticketCountMap[conv.id] || 0
         }));
     }
 

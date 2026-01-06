@@ -864,3 +864,69 @@ export const createeDarkStoreTicket = async (req: Request, res: Response): Promi
     }
 };
 
+/**
+ * Get tickets for a conversation
+ * GET /api/v1/crm/conversations/:conversationId/tickets
+ */
+export const getConversationTickets = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { conversationId } = req.params;
+
+        const { data: tickets, error } = await supabase
+            .from('support_tickets')
+            .select('*')
+            .eq('conversation_id', conversationId)
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            console.error('[CRM] getConversationTickets error:', error);
+            res.status(500).json({ success: false, error: error.message });
+            return;
+        }
+
+        res.json({ success: true, data: tickets || [] });
+    } catch (error: any) {
+        console.error('[CRM] getConversationTickets error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * Update ticket status
+ * PATCH /api/v1/crm/tickets/:ticketId
+ */
+export const updateTicketStatus = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { ticketId } = req.params;
+        const { status } = req.body;
+
+        if (!status || !['open', 'pending', 'in_progress', 'resolved', 'closed'].includes(status)) {
+            res.status(400).json({ success: false, error: 'Invalid status' });
+            return;
+        }
+
+        const updateData: any = { status };
+        if (status === 'resolved' || status === 'closed') {
+            updateData.resolved_at = new Date().toISOString();
+        }
+
+        const { data: ticket, error } = await supabase
+            .from('support_tickets')
+            .update(updateData)
+            .eq('ticket_id', ticketId)
+            .select()
+            .single();
+
+        if (error) {
+            console.error('[CRM] updateTicketStatus error:', error);
+            res.status(500).json({ success: false, error: error.message });
+            return;
+        }
+
+        res.json({ success: true, data: ticket });
+    } catch (error: any) {
+        console.error('[CRM] updateTicketStatus error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+

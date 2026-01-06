@@ -1,6 +1,6 @@
 
 import express from 'express';
-import { getColumns, moveConversation, handleInbound, updateColumnConfig, getConversations, createConversation, getMessages, sendMessage, archiveConversation, deleteConversation, getContactSnapshot, getClientOrders, getOrderDetails, createCoupon, searchClients, startConversationWithClient, createeDarkStoreTicket } from '../controllers/crmController';
+import { getColumns, moveConversation, handleInbound, updateColumnConfig, getConversations, createConversation, getMessages, sendMessage, archiveConversation, deleteConversation, getContactSnapshot, getClientOrders, getOrderDetails, createCoupon, searchClients, startConversationWithClient, createeDarkStoreTicket, getConversationTickets, updateTicketStatus } from '../controllers/crmController';
 import { requireAuth, requireRole } from '../middleware/authMiddleware';
 
 const router = express.Router();
@@ -35,6 +35,8 @@ router.post('/clients/start-conversation', requireAuth, requireRole('admin', 'su
 
 // eDarkStore Ticket System
 router.post('/tickets/edarkstore', requireAuth, requireRole('admin', 'super_admin', 'staff'), createeDarkStoreTicket);
+router.get('/conversations/:conversationId/tickets', requireAuth, requireRole('admin', 'super_admin', 'staff'), getConversationTickets);
+router.patch('/tickets/:ticketId', requireAuth, requireRole('admin', 'super_admin', 'staff'), updateTicketStatus);
 router.post('/conversations/:conversationId/sync-facts', requireAuth, requireRole('admin', 'super_admin', 'staff'), (req, res) => require('../controllers/crmController').syncFacts(req, res));
 router.put('/contacts/:handle', requireAuth, requireRole('admin', 'super_admin', 'staff'), (req, res) => require('../controllers/crmController').updateContact(req, res));
 router.patch('/conversations/:conversationId', requireAuth, requireRole('admin', 'super_admin', 'staff'), (req, res) => require('../controllers/crmController').updateConversation(req, res));

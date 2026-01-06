@@ -65,6 +65,29 @@ export interface Conversation {
     awaiting_response?: boolean;
     health_score?: number;
     traffic_source?: string;
+    // Ticket tracking
+    open_tickets_count?: number;
+}
+
+export interface SupportTicket {
+    id: string;
+    ticket_id: string;
+    conversation_id?: string;
+    client_id?: string;
+    type: 'shipping_issue' | 'delivery_problem' | 'package_lost' | 'return_request' | 'general_inquiry' | 'urgent';
+    subject: string;
+    description?: string;
+    priority: 'low' | 'normal' | 'high' | 'urgent';
+    status: 'open' | 'pending' | 'in_progress' | 'resolved' | 'closed';
+    order_number?: string;
+    tracking_number?: string;
+    customer_email?: string;
+    customer_name?: string;
+    recipient_type: string;
+    recipients?: string[];
+    created_at: string;
+    updated_at: string;
+    resolved_at?: string;
 }
 
 export interface ContactSnapshot {

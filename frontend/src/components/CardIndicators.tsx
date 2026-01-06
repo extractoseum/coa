@@ -1,5 +1,5 @@
 import React from 'react';
-import { Clock, UserPlus, Star, Activity, AlertCircle, MessageCircle, Share2, Globe, Scan } from 'lucide-react';
+import { Clock, UserPlus, Star, Activity, AlertCircle, MessageCircle, Share2, Globe, Scan, Ticket } from 'lucide-react';
 
 interface CardIndicatorsProps {
     hoursRemaining?: number;
@@ -12,6 +12,7 @@ interface CardIndicatorsProps {
     trafficSource?: string;
     frictionScore?: number;
     emotionalVibe?: string;
+    openTicketsCount?: number;
 }
 
 const CardIndicators: React.FC<CardIndicatorsProps> = ({
@@ -24,7 +25,8 @@ const CardIndicators: React.FC<CardIndicatorsProps> = ({
     healthScore = 50,
     trafficSource = 'organic',
     frictionScore = 0,
-    emotionalVibe
+    emotionalVibe,
+    openTicketsCount = 0
 }) => {
     // Determine color for the 24h window
     const getWindowColor = () => {
@@ -102,6 +104,14 @@ const CardIndicators: React.FC<CardIndicatorsProps> = ({
                     <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-500/10 border border-gray-500/20 text-gray-400">
                         <AlertCircle size={10} />
                         <span className="text-[9px] font-black tracking-tight uppercase">Estancado</span>
+                    </div>
+                )}
+
+                {/* Open Tickets Badge */}
+                {openTicketsCount > 0 && (
+                    <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-orange-500/10 border border-orange-500/20 text-orange-400">
+                        <Ticket size={10} />
+                        <span className="text-[9px] font-black tracking-tight">{openTicketsCount} TICKET{openTicketsCount > 1 ? 'S' : ''}</span>
                     </div>
                 )}
 

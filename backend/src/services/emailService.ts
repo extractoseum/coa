@@ -813,6 +813,23 @@ Para responder, envía un email a ara@extractoseum.com con el ID de ticket en el
 
         console.log(`[eDarkStore] Ticket ${ticketId} sent to ${recipients.length} recipients`);
 
+        // Save ticket to database for tracking
+        await supabase.from('support_tickets').insert({
+            ticket_id: ticketId,
+            type: ticket.type,
+            subject: ticket.subject,
+            description: ticket.description,
+            priority: ticket.priority || 'normal',
+            status: 'open',
+            order_number: ticket.orderNumber,
+            tracking_number: ticket.trackingNumber,
+            customer_email: ticket.customerEmail,
+            customer_name: ticket.customerName,
+            recipient_type: 'edarkstore',
+            recipients,
+            external_message_id: result.messageId
+        });
+
         // Log to system
         await supabase.from('system_logs').insert({
             event_type: 'edarkstore_ticket_created',
@@ -888,6 +905,11 @@ Información adicional:
     const result = await sendeDarkStoreTicket(ticket);
 
     if (result.success) {
+        // Link ticket to conversation in database
+        await supabase.from('support_tickets')
+            .update({ conversation_id: conversationId })
+            .eq('ticket_id', result.ticketId);
+
         // Add system message to conversation
         await supabase.from('messages').insert({
             conversation_id: conversationId,

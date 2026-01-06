@@ -26,6 +26,7 @@ import ToolEditor from '../components/ToolEditor';
 import OrchestratorConfig from '../components/OrchestratorConfig';
 import { VoiceSelector } from '../components/VoiceSelector';
 import KanbanCard from '../components/KanbanCard';
+import CreateTicketModal from '../components/CreateTicketModal';
 import type { Column, Conversation, AgentMetadata, ToolRegistryItem, ContactSnapshot } from '../types/crm';
 import { getAvatarGradient, getTagColor, getChannelIcon } from '../utils/crmUtils';
 import { useNavigate } from 'react-router-dom';
@@ -101,6 +102,7 @@ const AdminCRM: React.FC = () => {
     });
     const [isResizingSidePanel, setIsResizingSidePanel] = useState(false);
     const [isResizingResourceDock, setIsResizingResourceDock] = useState(false);
+    const [showCreateTicketModal, setShowCreateTicketModal] = useState(false);
 
     const filteredConversations = useMemo(() => {
         let base = conversations;
@@ -1786,13 +1788,16 @@ const AdminCRM: React.FC = () => {
                                                                 <button
                                                                     key={action}
                                                                     onClick={() => {
+                                                                        if (action === 'Crear Ticket') {
+                                                                            setShowCreateTicketModal(true);
+                                                                            return;
+                                                                        }
                                                                         const texts: Record<string, string> = {
                                                                             'Pedir Pago': 'Hola! Para proceder, puedes realizar tu pago aquí: [Link de Pago]',
                                                                             'Enviar Catálogo': 'Claro, aquí tienes nuestro catálogo actualizado: [Enlace al Catálogo]',
-                                                                            'Agendar Llamada': '¿Te gustaría agendar una llamada con uno de nuestros asesores?',
-                                                                            'Crear Ticket': 'He creado un ticket de soporte para tu caso. Folio: #' + Math.floor(Math.random() * 10000)
+                                                                            'Agendar Llamada': '¿Te gustaría agendar una llamada con uno de nuestros asesores?'
                                                                         };
-                                                                        setNewMessage(prev => prev + (prev ? '\n' : '') + texts[action]);
+                                                                        setNewMessage(prev => prev + (prev ? '\n' : '') + (texts[action] || ''));
                                                                     }}
                                                                     className="p-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/5 text-[10px] font-medium transition-all text-left active:scale-95"
                                                                 >
@@ -2182,6 +2187,18 @@ const AdminCRM: React.FC = () => {
 
                     {showToolEditor && <ToolEditor onClose={() => setShowToolEditor(false)} />}
                     {showOrchestrator && <OrchestratorConfig onClose={() => setShowOrchestrator(false)} />}
+                    {showCreateTicketModal && selectedConv && (
+                        <CreateTicketModal
+                            conversation={selectedConv}
+                            onClose={() => setShowCreateTicketModal(false)}
+                            onSuccess={(ticketId) => {
+                                setShowCreateTicketModal(false);
+                                fetchData(); // Refresh to update ticket count
+                                // Optional: Show success toast or notification
+                                console.log(`Ticket created: ${ticketId}`);
+                            }}
+                        />
+                    )}
                 </div>
             </AppLayout>
         </Screen >

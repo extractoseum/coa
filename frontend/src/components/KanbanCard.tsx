@@ -94,6 +94,7 @@ const KanbanCard = memo(({ conv, isSelected, theme, onDragStart, onClick }: Kanb
                 trafficSource={conv.traffic_source}
                 frictionScore={conv.facts?.friction_score}
                 emotionalVibe={conv.facts?.emotional_vibe}
+                openTicketsCount={conv.open_tickets_count}
             />
 
             <div className="flex flex-wrap gap-1">
