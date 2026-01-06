@@ -2,7 +2,7 @@ import { supabase } from '../config/supabase';
 import { AIService, CustomerContext } from './aiService';
 import { logger } from '../utils/Logger'; // Phase 31: Structured Logging
 import { sendWhatsAppMessage, sendWhatsAppVoice, getContactInfo } from './whapiService';
-import { sendDataEmail } from './emailService';
+import { sendDataEmail, sendAraEmail } from './emailService';
 import { searchShopifyCustomers, getShopifyCustomerOrders, searchShopifyCustomerByPhone } from './shopifyService';
 import { ChannelRouter } from './channelRouter';
 import { ChipEngine } from './chipEngine';
@@ -372,7 +372,7 @@ export class CRMService {
             // 1. Get Conversation and its linked Chip
             const { data: conv } = await supabase
                 .from('conversations')
-                .select('channel, contact_handle, channel_chip_id')
+                .select('channel, contact_handle, channel_chip_id, facts')
                 .eq('id', conversationId)
                 .single();
 
@@ -420,16 +420,17 @@ export class CRMService {
                 errorMsg = res.error || '';
                 externalId = res.message?.id || null;
             } else if (conv.channel === 'EMAIL') {
-                const emailRes = await sendDataEmail(
-                    conv.contact_handle,
-                    '[EUM] Nuevo mensaje de Ara',
-                    content,
-                    { fromName: 'Ara de Extractos EUM', replyTo: 'ara@extractoseum.com' }
-                );
+                // Use Ara's email for CRM conversations
+                const emailRes = await sendAraEmail({
+                    to: conv.contact_handle,
+                    subject: conv.facts?.last_subject ? `Re: ${conv.facts.last_subject}` : '[EUM] Mensaje de Ara',
+                    text: content,
+                    html: `<div style="font-family: Arial, sans-serif; line-height: 1.6;">${content.replace(/\n/g, '<br>')}</div>`
+                });
                 success = emailRes.success;
                 errorMsg = emailRes.error || '';
+                externalId = emailRes.messageId || null;
                 res = emailRes;
-                // Emails don't have a simple external ID we track this way usually
             }
 
             // Update status in DB

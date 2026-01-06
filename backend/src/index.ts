@@ -38,6 +38,7 @@ import vapiRoutes from './routes/vapiRoutes'; // NEW: Vapi Real-Time Voice
 import driftRoutes from './routes/driftRoutes'; // NEW: Drift Bot Mission Control
 
 import { initCronJobs } from './services/cronService';
+import { startEmailPolling } from './services/emailService';
 
 const app = express();
 
@@ -176,4 +177,7 @@ app.listen(config.port, () => {
 
     // Initialize cron jobs after server starts
     initCronJobs();
+
+    // Start Ara email polling (check for new emails every 60 seconds)
+    startEmailPolling(60000);
 });
