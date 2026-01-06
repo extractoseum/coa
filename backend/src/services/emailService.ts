@@ -218,7 +218,7 @@ export const sendAbandonedRecoveryEmail = async (to: string, name: string, check
 // ARA EMAIL SERVICE - IMAP/SMTP for CRM Integration
 // ============================================================================
 
-import imaps from 'imap-simple';
+import { ImapFlow } from 'imapflow';
 import { simpleParser, ParsedMail } from 'mailparser';
 import { supabase } from '../config/supabase';
 
@@ -372,75 +372,86 @@ export const sendAraEmailToConversation = async (
 };
 
 /**
- * Fetch new emails from IMAP
+ * Fetch new emails from IMAP using ImapFlow
  */
 export const fetchAraEmails = async (): Promise<IncomingEmail[]> => {
     if (!ARA_EMAIL_CONFIG.password) {
         return [];
     }
 
-    const config = {
-        imap: {
-            user: ARA_EMAIL_CONFIG.user,
-            password: ARA_EMAIL_CONFIG.password,
-            host: ARA_EMAIL_CONFIG.imap.host,
-            port: ARA_EMAIL_CONFIG.imap.port,
-            tls: ARA_EMAIL_CONFIG.imap.tls,
-            tlsOptions: { rejectUnauthorized: false },
-            authTimeout: 10000
-        }
-    };
-
-    let connection: imaps.ImapSimple | null = null;
     const emails: IncomingEmail[] = [];
+    const client = new ImapFlow({
+        host: ARA_EMAIL_CONFIG.imap.host,
+        port: ARA_EMAIL_CONFIG.imap.port,
+        secure: ARA_EMAIL_CONFIG.imap.tls,
+        auth: {
+            user: ARA_EMAIL_CONFIG.user,
+            pass: ARA_EMAIL_CONFIG.password
+        },
+        logger: false,
+        tls: { rejectUnauthorized: false }
+    });
 
     try {
-        connection = await imaps.connect(config);
-        await connection.openBox('INBOX');
+        await client.connect();
+        const lock = await client.getMailboxLock('INBOX');
 
-        const searchCriteria = ['UNSEEN'];
-        const fetchOptions = { bodies: ['HEADER', 'TEXT', ''], markSeen: true, struct: true };
-        const messages = await connection.search(searchCriteria, fetchOptions);
+        try {
+            // Search for unseen messages
+            const searchResult = await client.search({ seen: false });
 
-        for (const item of messages) {
-            try {
-                const all = item.parts.find((p: any) => p.which === '');
-                if (!all) continue;
-
-                const parsed: ParsedMail = await simpleParser(all.body);
-
-                const email: IncomingEmail = {
-                    messageId: parsed.messageId || `${Date.now()}`,
-                    from: parsed.from?.value[0]?.address || '',
-                    fromName: parsed.from?.value[0]?.name,
-                    to: parsed.to ? (Array.isArray(parsed.to) ? parsed.to.flatMap(t => t.value.map(v => v.address || '')) : parsed.to.value.map(v => v.address || '')) : [],
-                    cc: parsed.cc ? (Array.isArray(parsed.cc) ? parsed.cc.flatMap(t => t.value.map(v => v.address || '')) : parsed.cc.value.map(v => v.address || '')) : undefined,
-                    subject: parsed.subject || '(No Subject)',
-                    text: parsed.text,
-                    html: typeof parsed.html === 'string' ? parsed.html : undefined,
-                    date: parsed.date || new Date(),
-                    inReplyTo: parsed.inReplyTo,
-                    references: parsed.references ? (Array.isArray(parsed.references) ? parsed.references : [parsed.references]) : undefined,
-                    attachments: parsed.attachments?.map(a => ({
-                        filename: a.filename || 'attachment',
-                        contentType: a.contentType,
-                        size: a.size
-                    }))
-                };
-
-                emails.push(email);
-            } catch (parseError: any) {
-                console.error('[AraEmail] Parse error:', parseError.message);
+            // Handle case where search returns false (no results)
+            if (!searchResult || (Array.isArray(searchResult) && searchResult.length === 0)) {
+                console.log('[AraEmail] No new emails');
+                return emails;
             }
-        }
 
-        console.log(`[AraEmail] Fetched ${emails.length} new emails`);
+            const unseenUids = Array.isArray(searchResult) ? searchResult : [];
+
+            // Fetch each unseen message
+            for (const uid of unseenUids) {
+                try {
+                    const fetchResult = await client.fetchOne(uid, { source: true });
+                    if (!fetchResult || !fetchResult.source) continue;
+
+                    const parsed = await simpleParser(fetchResult.source);
+
+                    const email: IncomingEmail = {
+                        messageId: parsed.messageId || `${Date.now()}`,
+                        from: parsed.from?.value[0]?.address || '',
+                        fromName: parsed.from?.value[0]?.name,
+                        to: parsed.to ? (Array.isArray(parsed.to) ? parsed.to.flatMap(t => t.value.map(v => v.address || '')) : parsed.to.value.map(v => v.address || '')) : [],
+                        cc: parsed.cc ? (Array.isArray(parsed.cc) ? parsed.cc.flatMap(t => t.value.map(v => v.address || '')) : parsed.cc.value.map(v => v.address || '')) : undefined,
+                        subject: parsed.subject || '(No Subject)',
+                        text: parsed.text,
+                        html: typeof parsed.html === 'string' ? parsed.html : undefined,
+                        date: parsed.date || new Date(),
+                        inReplyTo: parsed.inReplyTo,
+                        references: parsed.references ? (Array.isArray(parsed.references) ? parsed.references : [parsed.references]) : undefined,
+                        attachments: parsed.attachments?.map(a => ({
+                            filename: a.filename || 'attachment',
+                            contentType: a.contentType,
+                            size: a.size
+                        }))
+                    };
+
+                    emails.push(email);
+
+                    // Mark as seen
+                    await client.messageFlagsAdd(uid, ['\\Seen']);
+                } catch (parseError: any) {
+                    console.error('[AraEmail] Parse error:', parseError.message);
+                }
+            }
+
+            console.log(`[AraEmail] Fetched ${emails.length} new emails`);
+        } finally {
+            lock.release();
+        }
     } catch (error: any) {
         console.error('[AraEmail] IMAP error:', error.message);
     } finally {
-        if (connection) {
-            try { await connection.end(); } catch (e) { /* ignore */ }
-        }
+        try { await client.logout(); } catch { /* ignore */ }
     }
 
     return emails;

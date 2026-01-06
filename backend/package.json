@@ -39,7 +39,7 @@
     "geoip-lite": "^1.4.10",
     "heic-convert": "^2.1.0",
     "helmet": "^8.1.0",
-    "imap-simple": "^5.1.0",
+    "imapflow": "^1.2.4",
     "jsonwebtoken": "^9.0.3",
     "mailparser": "^3.9.1",
     "multer": "^2.0.2",
