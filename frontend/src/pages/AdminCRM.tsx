@@ -1787,7 +1787,9 @@ const AdminCRM: React.FC = () => {
                                                             {['Pedir Pago', 'Enviar Catálogo', 'Agendar Llamada', 'Crear Ticket'].map(action => (
                                                                 <button
                                                                     key={action}
-                                                                    onClick={() => {
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        e.preventDefault();
                                                                         if (action === 'Crear Ticket') {
                                                                             setShowCreateTicketModal(true);
                                                                             return;
