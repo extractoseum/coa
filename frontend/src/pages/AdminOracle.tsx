@@ -106,11 +106,11 @@ const AdminOracle: React.FC = () => {
                 alert(`Proceso ejecutado: ${JSON.stringify(data)}`);
                 fetchData(); // Refresh data
             } else {
-                alert('Error ejecutando proceso');
+                alert('Error al ejecutar proceso: ' + (data.error || 'Error desconocido'));
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error(error);
-            alert('Error de conexión');
+            alert('Error de conexión: ' + error.message);
         } finally {
             setIsRefreshing(false);
         }
@@ -192,8 +192,8 @@ const AdminOracle: React.FC = () => {
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id as any)}
                             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === tab.id
-                                    ? 'bg-purple-600 text-white shadow-lg shadow-purple-900/20'
-                                    : 'text-gray-400 hover:text-white hover:bg-white/5'
+                                ? 'bg-purple-600 text-white shadow-lg shadow-purple-900/20'
+                                : 'text-gray-400 hover:text-white hover:bg-white/5'
                                 }`}
                         >
                             {tab.icon}
