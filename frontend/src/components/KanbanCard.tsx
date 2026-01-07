@@ -3,6 +3,7 @@ import { MessageSquare, Instagram, Mail, User, Zap, Smile, ChevronRight } from '
 import type { Conversation } from '../types/crm';
 import { getAvatarGradient, getTagColor } from '../utils/crmUtils';
 import CardIndicators from './CardIndicators';
+import { useTheme } from '../contexts/ThemeContext';
 
 interface KanbanCardProps {
     conv: Conversation;
@@ -13,16 +14,31 @@ interface KanbanCardProps {
 }
 
 const KanbanCard = memo(({ conv, isSelected, theme, onDragStart, onClick }: KanbanCardProps) => {
+    const { themeMode } = useTheme();
+    const isLightMode = themeMode === 'light';
+
+    // Light mode specific styles
+    const cardBg = isLightMode
+        ? (isSelected ? 'bg-pink-50 border-pink-300' : 'bg-white border-gray-200 hover:bg-gray-50 hover:border-pink-200')
+        : (isSelected ? 'bg-pink-500/[0.05] border-pink-500/50' : 'bg-white/[0.03] border-white/5 hover:bg-white/[0.07] hover:border-pink-500/30');
+
+    const nameColor = isLightMode ? 'text-gray-900' : 'text-white';
+    const nameHover = isLightMode ? 'group-hover:text-pink-700' : 'group-hover:text-pink-200';
+    const summaryBorder = isLightMode ? 'border-gray-200' : 'border-white/5';
+    const footerButtonPrimary = isLightMode ? 'text-blue-600 hover:text-blue-800' : 'text-blue-400 hover:text-blue-300';
+    const footerButtonSecondary = isLightMode ? 'text-gray-600 hover:text-gray-900' : 'text-gray-400 hover:text-white';
+    const ltvBadge = isLightMode
+        ? 'text-green-700 bg-green-100 border-green-300'
+        : 'text-green-500/80 bg-green-500/10 border-green-500/20';
+
     return (
         <div
             draggable
             onDragStart={(e) => onDragStart(e, conv.id)}
             onClick={() => onClick(conv)}
             className={`p-4 rounded-xl border backdrop-blur-md transition-all cursor-pointer group hover:scale-[1.02] active:scale-95 relative overflow-hidden
-            ${isSelected
-                    ? 'ring-2 ring-pink-500 border-pink-500/50 bg-pink-500/[0.05] shadow-[0_0_30px_rgba(236,72,153,0.15)]'
-                    : 'border-white/5 bg-white/[0.03] hover:bg-white/[0.07] hover:border-pink-500/30 hover:shadow-lg'
-                }`}
+            ${cardBg}
+            ${isSelected ? 'ring-2 ring-pink-500 shadow-[0_0_30px_rgba(236,72,153,0.15)]' : 'hover:shadow-lg'}`}
             style={{
                 boxShadow: isSelected ? '0 0 30px rgba(236,72,153,0.15)' : '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
             }}
@@ -53,21 +69,21 @@ const KanbanCard = memo(({ conv, isSelected, theme, onDragStart, onClick }: Kanb
                         </div>
                     </div>
                     <div className="flex flex-col min-w-0">
-                        <span className="text-sm font-black tracking-tight truncate max-w-[140px] text-white group-hover:text-pink-200 transition-colors">
+                        <span className={`text-sm font-black tracking-tight truncate max-w-[140px] ${nameColor} ${nameHover} transition-colors`}>
                             {conv.contact_name || conv.facts?.user_name || conv.contact_handle}
                         </span>
                         {conv.contact_name && (
-                            <span className="text-[10px] opacity-40 truncate font-mono">{conv.contact_handle}</span>
+                            <span className={`text-[10px] truncate font-mono ${isLightMode ? 'text-gray-500' : 'opacity-40'}`}>{conv.contact_handle}</span>
                         )}
                     </div>
                 </div>
                 <div className="flex flex-col items-end gap-1">
-                    <span className="text-[10px] opacity-40 font-mono" style={{ color: theme.textMuted }}>
+                    <span className={`text-[10px] font-mono ${isLightMode ? 'text-gray-500' : 'opacity-40'}`} style={{ color: isLightMode ? undefined : theme.textMuted }}>
                         {new Date(conv.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
                     {conv.ltv && conv.ltv > 0 ? (
                         <div className="flex items-center gap-1">
-                            <span className="text-[9px] font-bold text-green-500/80 bg-green-500/10 px-1.5 py-0.5 rounded border border-green-500/20">
+                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${ltvBadge}`}>
                                 ${Math.round(conv.ltv).toLocaleString()}
                             </span>
                             {conv.risk_level === 'vip' && (
@@ -78,7 +94,7 @@ const KanbanCard = memo(({ conv, isSelected, theme, onDragStart, onClick }: Kanb
                 </div>
             </div>
 
-            <p className="text-[11px] line-clamp-2 mb-2 leading-relaxed opacity-60 font-light mt-2 pl-1 border-l-2 border-white/5" style={{ color: theme.text }}>
+            <p className={`text-[11px] line-clamp-2 mb-2 leading-relaxed font-light mt-2 pl-1 border-l-2 ${summaryBorder} ${isLightMode ? 'text-gray-600' : 'opacity-60'}`} style={{ color: isLightMode ? undefined : theme.text }}>
                 {conv.summary}
             </p>
 
@@ -101,7 +117,7 @@ const KanbanCard = memo(({ conv, isSelected, theme, onDragStart, onClick }: Kanb
                 {conv.tags?.map(tag => (
                     <span
                         key={tag}
-                        className={`text-[9px] font-bold px-2 py-0.5 rounded-md border ${getTagColor(tag)}`}
+                        className={`text-[9px] font-bold px-2 py-0.5 rounded-md border ${getTagColor(tag, isLightMode)}`}
                     >
                         {tag}
                     </span>
@@ -109,10 +125,10 @@ const KanbanCard = memo(({ conv, isSelected, theme, onDragStart, onClick }: Kanb
             </div>
 
             {/* Footer Actions */}
-            <div className="mt-4 pt-3 border-t flex justify-between items-center opacity-0 group-hover:opacity-100 transition-opacity" style={{ borderColor: `${theme.border}55` }}>
+            <div className={`mt-4 pt-3 border-t flex justify-between items-center opacity-0 group-hover:opacity-100 transition-opacity ${isLightMode ? 'border-gray-200' : ''}`} style={{ borderColor: isLightMode ? undefined : `${theme.border}55` }}>
                 <div className="flex gap-2">
-                    <button className="text-[10px] uppercase font-bold text-blue-400 hover:text-blue-300">Resumen</button>
-                    <button className="text-[10px] uppercase font-bold text-gray-400 hover:text-white">Mover</button>
+                    <button className={`text-[10px] uppercase font-bold ${footerButtonPrimary}`}>Resumen</button>
+                    <button className={`text-[10px] uppercase font-bold ${footerButtonSecondary}`}>Mover</button>
                 </div>
                 <ChevronRight size={14} style={{ color: theme.accent }} />
             </div>

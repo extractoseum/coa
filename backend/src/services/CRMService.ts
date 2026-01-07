@@ -614,15 +614,16 @@ export class CRMService {
             .from('crm_columns')
             .select('*')
             .eq('id', conversation.column_id)
-            .eq('id', conversation.column_id)
             .single();
 
         if (error) {
-            console.warn(`[CRMService] Column fetch failed: ${error.message}`);
+            console.warn(`[CRMService] Column fetch failed for column_id=${conversation.column_id}: ${error.message}`);
         }
 
+        console.log(`[CRMService] Column check: id=${column?.id}, name=${column?.name}, mode=${column?.mode}, assigned_agent=${column?.assigned_agent_id}`);
+
         if (!column || column.mode === 'HUMAN_MODE') {
-            console.log(`[CRMService] Column ${column?.name || 'unknown'} is in HUMAN_MODE or missing. AI response silenced.`);
+            console.log(`[CRMService] Column ${column?.name || 'unknown'} (mode=${column?.mode || 'null'}) is in HUMAN_MODE or missing. AI response silenced.`);
             // Continue to facts sync below
         } else {
             // 2.1 STOP if this is my own message (prevent infinite loops)
