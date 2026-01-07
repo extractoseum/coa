@@ -600,13 +600,20 @@ const AdminAIKnowledge = () => {
         setIsMultiSelectMode(false);
     };
 
-    // Track if drag started to prevent click after drag attempt
-    const dragStartedRef = useRef(false);
+    // Track mouse position to distinguish click from drag
+    const mouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
+    const dragInitiatedRef = useRef(false);
+
+    // Handle mouse down - capture position to detect drag vs click
+    const handleFileMouseDown = (e: React.MouseEvent) => {
+        mouseDownPosRef.current = { x: e.clientX, y: e.clientY };
+        dragInitiatedRef.current = false;
+    };
 
     // Drag and Drop Functions
     const handleDragStart = (e: React.DragEvent, path: string, folder: string, fileName: string, agentName?: string) => {
         console.log('[DragStart] Starting drag for:', path);
-        dragStartedRef.current = true;
+        dragInitiatedRef.current = true;
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', path);
 
@@ -639,8 +646,30 @@ const AdminAIKnowledge = () => {
         setDraggedFile(null);
         setDropTarget(null);
         setIsDragging(false);
-        // Reset drag flag after a short delay to prevent click from firing
-        setTimeout(() => { dragStartedRef.current = false; }, 100);
+        // Reset refs after drag ends
+        mouseDownPosRef.current = null;
+        // Keep dragInitiatedRef true briefly to prevent click
+        setTimeout(() => { dragInitiatedRef.current = false; }, 150);
+    };
+
+    // Handle file click - only trigger if it was a real click, not a drag attempt
+    const handleFileRowClick = (e: React.MouseEvent, folder: string, fileName: string) => {
+        // If drag was initiated, don't process click
+        if (dragInitiatedRef.current) {
+            return;
+        }
+        // If mousedown position exists, check if mouse moved significantly (indicating drag attempt)
+        if (mouseDownPosRef.current) {
+            const deltaX = Math.abs(e.clientX - mouseDownPosRef.current.x);
+            const deltaY = Math.abs(e.clientY - mouseDownPosRef.current.y);
+            // If mouse moved more than 5px, it was likely a drag attempt
+            if (deltaX > 5 || deltaY > 5) {
+                mouseDownPosRef.current = null;
+                return;
+            }
+        }
+        mouseDownPosRef.current = null;
+        handleFileClick(folder, fileName);
     };
 
     const handleDragOver = (e: React.DragEvent, folder: string, agentName?: string) => {
@@ -876,9 +905,10 @@ const AdminAIKnowledge = () => {
                                                                         key={file.path}
                                                                         className={`group flex items-center gap-1 py-1 px-1 rounded-lg transition-all duration-200 cursor-grab active:cursor-grabbing select-none ${isBeingDragged ? 'opacity-30 scale-95 bg-pink-500/10' : ''} ${isChecked ? 'bg-blue-500/10 ring-1 ring-blue-500/30' : isSelected ? 'bg-white/10 ring-1 ring-pink-500/30' : 'hover:bg-white/5'}`}
                                                                         draggable={true}
+                                                                        onMouseDown={handleFileMouseDown}
                                                                         onDragStart={(e) => handleDragStart(e, filePath, folder, file.name, agent.name)}
                                                                         onDragEnd={handleDragEnd}
-                                                                        onClick={() => { if (!dragStartedRef.current) handleFileClick(folder, `${agent.name}/${file.name}`); }}
+                                                                        onClick={(e) => handleFileRowClick(e, folder, `${agent.name}/${file.name}`)}
                                                                         title={`${file.name}${file.summary ? '\n\n' + file.summary : ''}`}
                                                                     >
                                                                         {/* Multi-select Checkbox */}
@@ -954,9 +984,10 @@ const AdminAIKnowledge = () => {
                                                         key={file.path}
                                                         className={`group flex items-center gap-1 py-1 px-1 rounded-lg transition-all duration-200 cursor-grab active:cursor-grabbing select-none ${isBeingDragged ? 'opacity-30 scale-95 bg-pink-500/10' : ''} ${isChecked ? 'bg-blue-500/10 ring-1 ring-blue-500/30' : isSelected ? 'bg-white/10 ring-1 ring-pink-500/30' : 'hover:bg-white/5'}`}
                                                         draggable={true}
+                                                        onMouseDown={handleFileMouseDown}
                                                         onDragStart={(e) => handleDragStart(e, filePath, folder, file.name)}
                                                         onDragEnd={handleDragEnd}
-                                                        onClick={() => { if (!dragStartedRef.current) handleFileClick(folder, file.name); }}
+                                                        onClick={(e) => handleFileRowClick(e, folder, file.name)}
                                                         title={`${file.name}${file.summary ? '\n\n' + file.summary : ''}`}
                                                     >
                                                         {/* Multi-select Checkbox */}
