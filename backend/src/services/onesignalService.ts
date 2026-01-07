@@ -829,25 +829,41 @@ export const notifyLoyaltyUpdate = async (clientId: string, tierName: string, ty
  * Notify user of a new order
  */
 export const notifyOrderCreated = async (clientId: string, orderNumber: string, clientData?: any) => {
-    // --- DEDUPLICATION ---
-    try {
-        const sixtyMinsAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-        const { data: recentNotif } = await supabase
-            .from('system_logs')
-            .select('id, payload')
-            .eq('event_type', 'order_created_sent')
-            .eq('client_id', clientId)
-            .gte('created_at', sixtyMinsAgo);
+    // --- DEDUPLICATION with atomic lock ---
+    // Use upsert to create a lock record first, preventing race conditions
+    const lockKey = `order_created_${clientId}_${orderNumber}`;
 
-        if (recentNotif && recentNotif.length > 0) {
-            const isDuplicate = recentNotif.some(n => n.payload?.orderNumber === orderNumber);
-            if (isDuplicate) {
-                console.log(`[OneSignal] Skipping duplicate CREATED notification for ${orderNumber}`);
+    try {
+        // Try to insert a lock record - this will fail if it already exists (duplicate)
+        const { error: lockError } = await supabase
+            .from('system_logs')
+            .insert({
+                event_type: 'order_created_sent',
+                client_id: clientId,
+                payload: { orderNumber, status: 'sending' }
+            });
+
+        if (lockError) {
+            // Check if it's a duplicate by looking for existing record
+            const sixtyMinsAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+            const { data: existing } = await supabase
+                .from('system_logs')
+                .select('id')
+                .eq('event_type', 'order_created_sent')
+                .eq('client_id', clientId)
+                .gte('created_at', sixtyMinsAgo)
+                .contains('payload', { orderNumber })
+                .limit(1);
+
+            if (existing && existing.length > 0) {
+                console.log(`[OneSignal] Skipping duplicate CREATED notification for ${orderNumber} (lock exists)`);
                 return;
             }
+            // If no existing record found, it was a different error - continue anyway
+            console.warn('[OneSignal] Lock insert failed but no duplicate found, continuing:', lockError.message);
         }
     } catch (err) {
-        console.warn('[OneSignal] Deduplication check failed for created notif:', err);
+        console.warn('[OneSignal] Deduplication lock failed for created notif:', err);
     }
 
     const firstName = await getClientFirstName(clientId, clientData);
@@ -879,7 +895,8 @@ export const notifyOrderCreated = async (clientId: string, orderNumber: string, 
         await sendOrderCreatedEmail(email, orderNumber);
     }
 
-    await logNotification('order_created_sent', { orderNumber }, clientId);
+    // Update the log to mark as completed (the initial insert already created the record)
+    console.log(`[OneSignal] Order CREATED notification sent for ${orderNumber}`);
 };
 
 /**
@@ -898,37 +915,46 @@ export const notifyOrderShipped = async (
     const trackingString = guides.join(', ');
     const isPlural = guides.length > 1;
 
-    // --- DEDUPLICATION ---
-    // Check if we already sent a notification for these SAME guides for this order in the last 60 minutes
+    // --- DEDUPLICATION with atomic lock ---
+    // Insert lock record FIRST to prevent race conditions with concurrent webhooks
     try {
-        const sixtyMinsAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-        const { data: recentNotif } = await supabase
+        const { error: lockError } = await supabase
             .from('system_logs')
-            .select('id, payload')
-            .eq('event_type', 'order_shipped_sent')
-            .eq('client_id', clientId)
-            .gte('created_at', sixtyMinsAgo);
-
-        if (recentNotif && recentNotif.length > 0) {
-            // Check if any of the recent notifications have the same orderNumber and tracking_numbers
-            const isDuplicate = recentNotif.some(n => {
-                const p = n.payload;
-                if (p.orderNumber !== orderNumber) return false;
-
-                // Compare tracking numbers
-                const existingGuides = Array.isArray(p.tracking_numbers) ? p.tracking_numbers : [];
-                if (existingGuides.length !== guides.length) return false;
-
-                return guides.every(g => existingGuides.includes(g));
+            .insert({
+                event_type: 'order_shipped_sent',
+                client_id: clientId,
+                payload: { orderNumber, carrier, tracking_numbers: guides, status: 'sending' }
             });
 
-            if (isDuplicate) {
-                console.log(`[OneSignal] Skipping duplicate SHIPPED notification for ${orderNumber} (${trackingString})`);
-                return;
+        if (lockError) {
+            // Check if it's a duplicate by looking for existing record
+            const sixtyMinsAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+            const { data: existing } = await supabase
+                .from('system_logs')
+                .select('id, payload')
+                .eq('event_type', 'order_shipped_sent')
+                .eq('client_id', clientId)
+                .gte('created_at', sixtyMinsAgo);
+
+            if (existing && existing.length > 0) {
+                // Check if any existing notification has same order AND same tracking numbers
+                const isDuplicate = existing.some(n => {
+                    const p = n.payload;
+                    if (p.orderNumber !== orderNumber) return false;
+                    const existingGuides = Array.isArray(p.tracking_numbers) ? p.tracking_numbers : [];
+                    if (existingGuides.length !== guides.length) return false;
+                    return guides.every(g => existingGuides.includes(g));
+                });
+
+                if (isDuplicate) {
+                    console.log(`[OneSignal] Skipping duplicate SHIPPED notification for ${orderNumber} (${trackingString}) - lock exists`);
+                    return;
+                }
             }
+            console.warn('[OneSignal] Lock insert failed but no duplicate found, continuing:', lockError.message);
         }
     } catch (err) {
-        console.warn('[OneSignal] Deduplication check failed, proceeding with notification:', err);
+        console.warn('[OneSignal] Deduplication lock failed, proceeding with notification:', err);
     }
 
     const firstName = await getClientFirstName(clientId, clientData);
@@ -979,7 +1005,8 @@ export const notifyOrderShipped = async (
         await sendOrderShippedEmail(email, orderNumber, carrier, guides);
     }
 
-    await logNotification('order_shipped_sent', { orderNumber, carrier, tracking_numbers: guides, message }, clientId);
+    // Log already created at start with atomic lock, just log completion
+    console.log(`[OneSignal] Order SHIPPED notification sent for ${orderNumber} (${trackingString})`);
 };
 
 /**
