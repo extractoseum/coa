@@ -25,6 +25,7 @@ const AdminAIKnowledge = lazy(() => import('./pages/AdminAIKnowledge'));
 const AdminTelemetry = lazy(() => import('./pages/AdminTelemetry')); // Telemetry Dashboard
 const AdminCRM = lazy(() => import('./pages/AdminCRM'));
 const AdminAgentPerformance = lazy(() => import('./pages/AdminAgentPerformance'));
+const AdminOracle = lazy(() => import('./pages/AdminOracle'));
 const FoldersView = lazy(() => import('./pages/FoldersView'));
 const PublicFolderView = lazy(() => import('./pages/PublicFolderView'));
 const MyCollection = lazy(() => import('./pages/MyCollection'));
@@ -134,6 +135,7 @@ function Home() {
     { label: 'Navegación', icon: <LayoutDashboard size={20} />, path: ROUTES.adminNavigation, color: '#8b5cf6' },
     { label: 'Cerebro AI', icon: <Brain size={20} />, path: ROUTES.adminKnowledge, color: '#ec4899' },
     { label: 'AI Metrics', icon: <BarChart3 size={20} />, path: ROUTES.adminAgentPerformance, color: '#a855f7' },
+    { label: 'The Oracle', icon: <Brain size={20} />, path: ROUTES.adminOracle, color: '#8b5cf6' },
     { label: 'Omni CRM', icon: <LayoutDashboard size={20} />, path: ROUTES.adminCrm, color: '#f472b6' },
     { label: 'Telemetry', icon: <Terminal size={20} />, path: ROUTES.adminTelemetry, color: '#3b82f6' },
     { label: 'Configuracion', icon: <Settings size={20} />, path: ROUTES.settings, color: '#6b7280' },
@@ -430,6 +432,11 @@ function App() {
                 <Route path={ROUTES.adminAgentPerformance} element={
                   <ProtectedRoute requireSuperAdmin>
                     <AdminAgentPerformance />
+                  </ProtectedRoute>
+                } />
+                <Route path={ROUTES.adminOracle} element={
+                  <ProtectedRoute requireSuperAdmin>
+                    <AdminOracle />
                   </ProtectedRoute>
                 } />
                 <Route path={ROUTES.folders} element={

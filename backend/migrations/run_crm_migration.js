@@ -14,7 +14,10 @@ async function run() {
         throw new Error('DATABASE_URL is missing in environment variables.');
     }
 
-    const migrationFile = path.join(__dirname, '001_crm_core.sql');
+    // Get migration file from args or default
+    const targetFile = process.argv[2] || '061_oracle_predictive_restocking.sql';
+    const migrationFile = path.join(__dirname, targetFile);
+
     if (!fs.existsSync(migrationFile)) {
         throw new Error(`Migration file not found: ${migrationFile}`);
     }
