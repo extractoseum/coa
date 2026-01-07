@@ -680,19 +680,10 @@ export default function COADetails() {
                                 </div>
                             </div>
 
-                            {/* Compliance Status Badge */}
-                            {restrictedData.compliance_status && (
-                                <div className={`px-4 py-2 rounded-lg text-center font-medium ${
-                                    restrictedData.compliance_status === 'pass'
-                                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                        : restrictedData.compliance_status === 'fail'
-                                            ? 'bg-red-500/20 text-red-400 border border-red-500/30'
-                                            : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
-                                }`}>
-                                    {restrictedData.compliance_status === 'pass' ? '✓ Producto Certificado' :
-                                        restrictedData.compliance_status === 'fail' ? '✗ No Cumple' : '⏳ Pendiente'}
-                                </div>
-                            )}
+                            {/* Analysis Status Badge - always show as "Analizado" to not reveal compliance */}
+                            <div className="px-4 py-2 rounded-lg text-center font-medium bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                                ✓ Analizado
+                            </div>
 
                             {/* Divider */}
                             <div className="border-t border-gray-700 pt-4">
