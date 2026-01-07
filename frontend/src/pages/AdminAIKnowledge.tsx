@@ -887,10 +887,9 @@ const AdminAIKnowledge = () => {
                                                                             <GripVertical size={12} className="opacity-30 group-hover:opacity-70 transition-opacity text-pink-400" />
                                                                         </div>
 
-                                                                        {/* File Button */}
+                                                                        {/* File Info - clicking opens file, dragging the row moves it */}
                                                                         <div
                                                                             onClick={() => handleFileClick(folder, `${agent.name}/${file.name}`)}
-                                                                            onMouseDown={(e) => e.stopPropagation()}
                                                                             className="flex-1 text-left flex items-center gap-2 min-w-0 py-0.5 cursor-pointer">
                                                                             <FileText size={12} className={`flex-shrink-0 ${isSelected ? 'text-pink-400' : 'opacity-40'}`} />
                                                                             <div className="flex flex-col flex-1 min-w-0">
@@ -969,10 +968,9 @@ const AdminAIKnowledge = () => {
                                                             <GripVertical size={12} className="opacity-30 group-hover:opacity-70 transition-opacity text-pink-400" />
                                                         </div>
 
-                                                        {/* File Button */}
+                                                        {/* File Info - clicking opens file, dragging the row moves it */}
                                                         <div
                                                             onClick={() => handleFileClick(folder, file.name)}
-                                                            onMouseDown={(e) => e.stopPropagation()}
                                                             className="flex-1 text-left flex items-center gap-2 min-w-0 py-0.5 cursor-pointer">
                                                             <FileText size={12} className={`flex-shrink-0 ${isSelected ? 'text-pink-400' : 'opacity-40'}`} />
                                                             <div className="flex flex-col flex-1 min-w-0">
