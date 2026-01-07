@@ -762,6 +762,50 @@ export const regenerateAllSnaps = async (req: Request, res: Response): Promise<v
         console.log(`[KnowledgeController] 🔄 Regenerating ALL snaps for ${folder}/${agentName}`);
         console.log(`[KnowledgeController] 📂 Including global folders: instructions, information, products, core`);
 
+        // STEP 0: Clean up orphaned snaps (snaps for files that no longer exist)
+        const metadataPath = path.join(agentDir, 'metadata.json');
+        if (fs.existsSync(metadataPath)) {
+            try {
+                const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf-8'));
+                if (metadata.knowledgeSnaps && metadata.knowledgeSnaps.length > 0) {
+                    const originalCount = metadata.knowledgeSnaps.length;
+                    metadata.knowledgeSnaps = metadata.knowledgeSnaps.filter((snap: any) => {
+                        // For local snaps, check if file exists in agent folder
+                        if (!snap.isGlobal) {
+                            const localPath = path.join(agentDir, snap.fileName);
+                            return fs.existsSync(localPath);
+                        }
+                        // For global snaps, check if file exists in global folder
+                        if (snap.fileName.startsWith('[GLOBAL:')) {
+                            const match = snap.fileName.match(/\[GLOBAL:(\w+)\] (.+)/);
+                            if (match) {
+                                const folderMap: Record<string, string> = {
+                                    'INSTRUCCIONES': 'instructions',
+                                    'BASE_DATOS': 'information',
+                                    'PRODUCTOS': 'products',
+                                    'CORE': 'core'
+                                };
+                                const globalFolder = folderMap[match[1]];
+                                if (globalFolder) {
+                                    const globalPath = path.join(KNOWLEDGE_BASE_DIR, globalFolder, match[2]);
+                                    return fs.existsSync(globalPath);
+                                }
+                            }
+                        }
+                        return true; // Keep unknown snaps
+                    });
+
+                    const removedCount = originalCount - metadata.knowledgeSnaps.length;
+                    if (removedCount > 0) {
+                        fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
+                        console.log(`[KnowledgeController] 🧹 Cleaned up ${removedCount} orphaned snaps`);
+                    }
+                }
+            } catch (e) {
+                console.warn('[KnowledgeController] Failed to clean orphaned snaps:', e);
+            }
+        }
+
         // Helper: Get all .md files recursively from a directory
         const getAllMdFiles = (dir: string, baseDir: string = dir): string[] => {
             const files: string[] = [];
@@ -1005,12 +1049,10 @@ export const moveKnowledgeFile = async (req: Request, res: Response): Promise<vo
         // Create snap in destination if it's an agent folder
         if (destAgentDir) {
             await intelligenceService.createKnowledgeSnap(destAgentDir, path.basename(sourceFileName), content, false);
-        } else if (['instructions', 'information'].includes(destinationFolder)) {
-            // If moved to global folder, sync to all agents
-            const globalDir = path.join(KNOWLEDGE_BASE_DIR, destinationFolder);
-            for (const category of AGENT_CATEGORIES) {
-                await intelligenceService.syncGlobalKnowledgeToAgents(globalDir, category);
-            }
+        } else if (['instructions', 'information', 'products', 'core'].includes(destinationFolder)) {
+            // If moved to global folder, DON'T auto-sync - user should regenerate snaps manually
+            // This prevents duplicates when moving files between local and global
+            console.log(`[KnowledgeController] File moved to global folder ${destinationFolder}. User should regenerate snaps.`);
         }
 
         const newPath = AGENT_CATEGORIES.includes(destinationFolder)
