@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronLeft, Send, Bell, Users, History, BarChart3, Loader2, Calendar, X, Image as ImageIcon, Check, AlertCircle, RefreshCw, MessageCircle, Search, User } from 'lucide-react';
+import { ChevronLeft, Send, Bell, Users, History, BarChart3, Loader2, Calendar, X, Image as ImageIcon, Check, AlertCircle, RefreshCw, MessageCircle, Search, User, Mail } from 'lucide-react';
 import { authFetch, useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import Layout, { ThemedCard } from '../components/Layout';
@@ -471,6 +471,13 @@ export default function PushNotificationPanel() {
     // Channel selection state
     const [channels, setChannels] = useState<string[]>(['push']);
     const [whatsappStatus, setWhatsappStatus] = useState<{ connected: boolean; configured: boolean; phone?: string } | null>(null);
+    const [emailStatus, setEmailStatus] = useState<{ configured: boolean; address?: string } | null>(null);
+
+    // Smart Option D: Vibe-Based Filtering state
+    const [vibeFilterEnabled, setVibeFilterEnabled] = useState(false);
+    const [excludeFrustrated, setExcludeFrustrated] = useState(true);  // Default: exclude frustrated users from promos
+    const [targetExcited, setTargetExcited] = useState(false);
+    const [minIntentLevel, setMinIntentLevel] = useState<'all' | 'warm' | 'hot'>('all');
 
     // History state
     const [history, setHistory] = useState<NotificationHistory[]>([]);
@@ -493,10 +500,11 @@ export default function PushNotificationPanel() {
         tagsFound: number;
     } | null>(null);
 
-    // Load Shopify tags and WhatsApp status on mount
+    // Load Shopify tags, WhatsApp and Email status on mount
     useEffect(() => {
         loadShopifyTags();
         loadWhatsAppStatus();
+        loadEmailStatus();
     }, []);
 
     const loadWhatsAppStatus = async () => {
@@ -508,6 +516,18 @@ export default function PushNotificationPanel() {
             }
         } catch (error) {
             console.error('Error loading WhatsApp status:', error);
+        }
+    };
+
+    const loadEmailStatus = async () => {
+        try {
+            const response = await authFetch(`${API_BASE}/push/email/status`);
+            const data = await response.json();
+            if (data.success) {
+                setEmailStatus(data.email);
+            }
+        } catch (error) {
+            console.error('Error loading Email status:', error);
         }
     };
 
@@ -652,6 +672,13 @@ export default function PushNotificationPanel() {
                 finalTargetValue = selectedCustomer.phone || selectedCustomer.email || String(selectedCustomer.shopify_id);
             }
 
+            // Build vibe filters if enabled (Smart Option D)
+            const vibeFilters = vibeFilterEnabled ? {
+                excludeVibeCategories: excludeFrustrated ? ['frustrated'] : undefined,
+                includeVibeCategories: targetExcited ? ['excited', 'satisfied'] : undefined,
+                minIntentScore: minIntentLevel === 'hot' ? 70 : minIntentLevel === 'warm' ? 40 : undefined
+            } : undefined;
+
             const response = await authFetch(`${API_BASE}/push/send`, {
                 method: 'POST',
                 body: JSON.stringify({
@@ -663,7 +690,9 @@ export default function PushNotificationPanel() {
                     scheduledFor: scheduledFor || undefined,
                     channels,
                     // Include full customer data for individual targeting
-                    individualCustomer: targetType === 'individual' ? selectedCustomer : undefined
+                    individualCustomer: targetType === 'individual' ? selectedCustomer : undefined,
+                    // Smart Option D: Vibe-Based Filtering
+                    vibeFilters
                 })
             });
 
@@ -923,13 +952,39 @@ export default function PushNotificationPanel() {
                                                     <span className="text-xs text-amber-500 font-medium">Desconectado</span>
                                                 )}
                                             </label>
+                                            <label className="flex items-center gap-2 cursor-pointer" style={{ color: theme.text }}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={channels.includes('email')}
+                                                    onChange={(e) => toggleChannel('email', e.target.checked)}
+                                                    className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500"
+                                                    style={{ borderColor: theme.border }}
+                                                />
+                                                <Mail className="w-4 h-4 text-purple-500" />
+                                                <span>Email</span>
+                                                {emailStatus?.configured && (
+                                                    <span className="text-xs text-purple-500 font-medium">{emailStatus.address}</span>
+                                                )}
+                                                {emailStatus && !emailStatus.configured && (
+                                                    <span className="text-xs text-amber-500 font-medium">No configurado</span>
+                                                )}
+                                            </label>
                                         </div>
 
                                         {channels.includes('whatsapp') && (
                                             <div className="mt-2 p-3 rounded-lg" style={{ backgroundColor: '#f59e0b20', border: '1px solid #f59e0b40' }}>
                                                 <p className="text-sm text-amber-500">
                                                     WhatsApp enviara a usuarios con telefono registrado en Shopify.
-                                                    Los mensajes se envian 1/segundo para evitar bloqueos.
+                                                    Rate limiting: 3-8s entre mensajes + pausa cada 10 para evitar bloqueos.
+                                                </p>
+                                            </div>
+                                        )}
+
+                                        {channels.includes('email') && (
+                                            <div className="mt-2 p-3 rounded-lg" style={{ backgroundColor: '#a855f720', border: '1px solid #a855f740' }}>
+                                                <p className="text-sm text-purple-500">
+                                                    Email marketing via ara@extractoseum.com a usuarios con email en Shopify.
+                                                    Rate limiting automatico para proteger la reputacion del dominio.
                                                 </p>
                                             </div>
                                         )}
@@ -1021,6 +1076,80 @@ export default function PushNotificationPanel() {
                                                     <option key={tier.value} value={tier.value}>{tier.label}</option>
                                                 ))}
                                             </select>
+                                        </div>
+                                    )}
+
+                                    {/* Smart Option D: Vibe-Based Filtering */}
+                                    {targetType !== 'individual' && (
+                                        <div className="p-3 rounded-lg" style={{ backgroundColor: theme.cardBg2, borderWidth: '1px', borderStyle: 'solid', borderColor: theme.border }}>
+                                            <div className="flex items-center justify-between mb-2">
+                                                <label className="flex items-center gap-2 text-sm font-medium" style={{ color: theme.text }}>
+                                                    <span>🎯</span>
+                                                    Marketing Empatico
+                                                </label>
+                                                <label className="relative inline-flex items-center cursor-pointer">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={vibeFilterEnabled}
+                                                        onChange={(e) => setVibeFilterEnabled(e.target.checked)}
+                                                        className="sr-only peer"
+                                                    />
+                                                    <div className="w-9 h-5 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+                                                </label>
+                                            </div>
+
+                                            {vibeFilterEnabled && (
+                                                <div className="space-y-3 mt-3 pt-3" style={{ borderTopWidth: '1px', borderTopStyle: 'solid', borderTopColor: theme.border }}>
+                                                    <p className="text-xs" style={{ color: theme.textMuted }}>
+                                                        Filtra tu audiencia basado en su estado emocional detectado por el CRM.
+                                                        {channels.length > 1 && (
+                                                            <span className="block mt-1 font-medium" style={{ color: theme.accent }}>
+                                                                ✓ Aplica a todos los canales: {channels.map(c => c === 'push' ? 'Push' : c === 'whatsapp' ? 'WhatsApp' : 'Email').join(' + ')}
+                                                            </span>
+                                                        )}
+                                                    </p>
+
+                                                    <label className="flex items-center gap-2 cursor-pointer">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={excludeFrustrated}
+                                                            onChange={(e) => setExcludeFrustrated(e.target.checked)}
+                                                            className="w-4 h-4 rounded border-gray-600 text-emerald-500 focus:ring-emerald-500"
+                                                        />
+                                                        <span className="text-sm" style={{ color: theme.text }}>
+                                                            😤 Excluir usuarios frustrados
+                                                        </span>
+                                                    </label>
+
+                                                    <label className="flex items-center gap-2 cursor-pointer">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={targetExcited}
+                                                            onChange={(e) => setTargetExcited(e.target.checked)}
+                                                            className="w-4 h-4 rounded border-gray-600 text-emerald-500 focus:ring-emerald-500"
+                                                        />
+                                                        <span className="text-sm" style={{ color: theme.text }}>
+                                                            🎉 Solo usuarios entusiastas/satisfechos
+                                                        </span>
+                                                    </label>
+
+                                                    <div>
+                                                        <label className="block text-sm mb-1" style={{ color: theme.text }}>
+                                                            🔥 Nivel de intencion de compra
+                                                        </label>
+                                                        <select
+                                                            value={minIntentLevel}
+                                                            onChange={(e) => setMinIntentLevel(e.target.value as 'all' | 'warm' | 'hot')}
+                                                            className="w-full px-3 py-2 rounded-lg text-sm"
+                                                            style={{ backgroundColor: theme.cardBg, color: theme.text, borderWidth: '1px', borderStyle: 'solid', borderColor: theme.border }}
+                                                        >
+                                                            <option value="all">Todos los niveles</option>
+                                                            <option value="warm">Solo tibios y calientes (40+)</option>
+                                                            <option value="hot">Solo calientes (70+)</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
 
@@ -1118,7 +1247,7 @@ export default function PushNotificationPanel() {
                                 <div className="mt-4 p-3 rounded-lg" style={{ backgroundColor: theme.cardBg2 }}>
                                     <h3 className="text-sm font-medium mb-2" style={{ color: theme.text }}>Detalles del envio:</h3>
                                     <ul className="text-sm space-y-1" style={{ color: theme.textMuted }}>
-                                        <li>Canales: {channels.map(c => c === 'push' ? 'Push' : 'WhatsApp').join(', ') || 'Ninguno'}</li>
+                                        <li>Canales: {channels.map(c => c === 'push' ? 'Push' : c === 'whatsapp' ? 'WhatsApp' : 'Email').join(', ') || 'Ninguno'}</li>
                                         <li>Audiencia: {getTargetLabel(targetType, targetValue)}</li>
                                         <li>Envio: {scheduledFor ? new Date(scheduledFor).toLocaleString('es-MX') : 'Inmediato'}</li>
                                     </ul>

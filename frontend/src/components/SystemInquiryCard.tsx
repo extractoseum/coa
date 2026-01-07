@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { ShieldAlert, Check, X, Edit2, Ghost, AlertTriangle, HelpCircle } from 'lucide-react';
+import { ShieldAlert, Check, X, Edit2, Ghost, AlertTriangle, HelpCircle, Sparkles, TrendingUp, Brain } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 
 export interface InquiryOption {
@@ -8,6 +8,8 @@ export interface InquiryOption {
     action: string;
     payload?: any;
     variant?: 'primary' | 'danger' | 'neutral';
+    confidence?: number;      // Phase 6: 0-100 confidence score
+    confidence_reason?: string; // Why this confidence level
 }
 
 export interface SystemInquiry {
@@ -18,6 +20,11 @@ export interface SystemInquiry {
     allow_custom?: boolean; // Defaults to true now
     context?: string; // Brief context about why this inquiry was raised
     meta?: any;
+    // Phase 6: Smart Inquiry Fields
+    overall_confidence?: number;       // Overall confidence in the inquiry
+    similar_resolutions?: number;      // Number of similar past resolutions
+    suggested_action?: string;         // AI-suggested action based on patterns
+    auto_resolve_eligible?: boolean;   // Can this be auto-resolved?
 }
 
 interface SystemInquiryCardProps {
@@ -98,6 +105,19 @@ export const SystemInquiryCard: React.FC<SystemInquiryCardProps> = ({ conversati
     // ALWAYS allow custom responses (default to true)
     const allowCustom = inquiry.allow_custom !== false;
 
+    // Get confidence color
+    const getConfidenceColor = (confidence: number) => {
+        if (confidence >= 80) return 'text-green-400';
+        if (confidence >= 50) return 'text-yellow-400';
+        return 'text-red-400';
+    };
+
+    const getConfidenceBg = (confidence: number) => {
+        if (confidence >= 80) return 'bg-green-500/20';
+        if (confidence >= 50) return 'bg-yellow-500/20';
+        return 'bg-red-500/20';
+    };
+
     return (
         <div className={`${getBgColor()} border rounded-xl p-4 mb-4 animate-in slide-in-from-top-2 duration-300`}>
             <div className="flex items-start gap-3 mb-3">
@@ -105,7 +125,16 @@ export const SystemInquiryCard: React.FC<SystemInquiryCardProps> = ({ conversati
                     {getIcon()}
                 </div>
                 <div className="flex-1">
-                    <h4 className="text-sm font-bold text-white opacity-90">Consulta del Sistema</h4>
+                    <div className="flex items-center gap-2">
+                        <h4 className="text-sm font-bold text-white opacity-90">Consulta del Sistema</h4>
+                        {/* Smart Indicator */}
+                        {inquiry.similar_resolutions && inquiry.similar_resolutions > 0 && (
+                            <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300">
+                                <Brain size={10} />
+                                <span className="text-[9px] font-medium">{inquiry.similar_resolutions} similares</span>
+                            </div>
+                        )}
+                    </div>
                     <p className="text-[12px] text-white/80 leading-tight mt-1">
                         {inquiry.question}
                     </p>
@@ -114,24 +143,60 @@ export const SystemInquiryCard: React.FC<SystemInquiryCardProps> = ({ conversati
                             Contexto: {inquiry.context}
                         </p>
                     )}
+                    {/* Overall Confidence Badge */}
+                    {inquiry.overall_confidence !== undefined && (
+                        <div className="flex items-center gap-2 mt-2">
+                            <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full ${getConfidenceBg(inquiry.overall_confidence)}`}>
+                                <TrendingUp size={10} className={getConfidenceColor(inquiry.overall_confidence)} />
+                                <span className={`text-[9px] font-bold ${getConfidenceColor(inquiry.overall_confidence)}`}>
+                                    {inquiry.overall_confidence}% confianza
+                                </span>
+                            </div>
+                            {inquiry.auto_resolve_eligible && (
+                                <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300">
+                                    <Sparkles size={10} />
+                                    <span className="text-[9px]">Auto-resoluble</span>
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
             </div>
 
             <div className="space-y-2">
-                {inquiry.options.map((opt, idx) => (
-                    <button
-                        key={idx}
-                        onClick={() => handleAction(opt)}
-                        disabled={isResolving}
-                        className={`w-full flex items-center justify-between p-2.5 pl-3 rounded-lg border transition-all text-xs text-left group
-                            ${opt.variant === 'danger' ? 'bg-red-500/10 hover:bg-red-500/20 border-red-500/30' :
-                                opt.variant === 'primary' ? 'bg-green-500/10 hover:bg-green-500/20 border-green-500/30' :
-                                    'bg-black/20 hover:bg-white/10 border-transparent hover:border-white/10'}`}
-                    >
-                        <span className="font-medium text-white">{opt.label}</span>
-                        <Check size={14} className="opacity-0 group-hover:opacity-100 transition-opacity" />
-                    </button>
-                ))}
+                {inquiry.options.map((opt, idx) => {
+                    const isSuggested = inquiry.suggested_action === opt.action;
+                    const hasConfidence = opt.confidence !== undefined;
+
+                    return (
+                        <button
+                            key={idx}
+                            onClick={() => handleAction(opt)}
+                            disabled={isResolving}
+                            className={`w-full flex items-center justify-between p-2.5 pl-3 rounded-lg border transition-all text-xs text-left group relative
+                                ${isSuggested ? 'bg-purple-500/20 hover:bg-purple-500/30 border-purple-500/50 ring-1 ring-purple-500/30' :
+                                    opt.variant === 'danger' ? 'bg-red-500/10 hover:bg-red-500/20 border-red-500/30' :
+                                    opt.variant === 'primary' ? 'bg-green-500/10 hover:bg-green-500/20 border-green-500/30' :
+                                        'bg-black/20 hover:bg-white/10 border-transparent hover:border-white/10'}`}
+                        >
+                            <div className="flex items-center gap-2">
+                                {isSuggested && <Sparkles size={12} className="text-purple-400" />}
+                                <span className="font-medium text-white">{opt.label}</span>
+                                {hasConfidence && (
+                                    <span className={`text-[9px] px-1.5 py-0.5 rounded ${getConfidenceBg(opt.confidence!)} ${getConfidenceColor(opt.confidence!)}`}>
+                                        {opt.confidence}%
+                                    </span>
+                                )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                                {isSuggested && (
+                                    <span className="text-[9px] text-purple-300 font-medium">Sugerido</span>
+                                )}
+                                <Check size={14} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                            </div>
+                        </button>
+                    );
+                })}
 
                 {/* ALWAYS show custom response option */}
                 {allowCustom && !showCustomInput && (

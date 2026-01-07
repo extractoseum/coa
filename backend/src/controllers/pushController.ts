@@ -16,6 +16,11 @@ import {
     isWhapiConfigured,
     checkWhapiStatus
 } from '../services/whapiService';
+import {
+    sendBulkMarketingEmail,
+    isBulkEmailConfigured,
+    getAraEmailStatus
+} from '../services/emailService';
 
 /**
  * Register a device for push notifications
@@ -24,7 +29,7 @@ import {
 export const registerDevice = async (req: Request, res: Response) => {
     try {
         const clientId = (req as any).client?.id;
-        const { playerId, platform, deviceInfo } = req.body;
+        const { playerId, platform, isNativeApp, isPWA, deviceInfo } = req.body;
 
         if (!clientId) {
             return res.status(401).json({ success: false, error: 'No autenticado' });
@@ -33,6 +38,9 @@ export const registerDevice = async (req: Request, res: Response) => {
         if (!playerId) {
             return res.status(400).json({ success: false, error: 'Player ID requerido' });
         }
+
+        // Log platform info for debugging
+        console.log(`[Push] Registering device for ${clientId}: platform=${platform}, isNativeApp=${isNativeApp}, isPWA=${isPWA}`);
 
         const success = await onesignal.registerDevice(
             clientId,
@@ -91,6 +99,48 @@ const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
 const RATE_LIMIT_MAX_SENDS = 5; // Max 5 sends per minute per admin
 
 /**
+ * Interface for vibe filters (Marketing Empático)
+ */
+interface VibeFilters {
+    includeVibeCategories?: string[];   // e.g., ['excited', 'satisfied']
+    excludeVibeCategories?: string[];   // e.g., ['frustrated']
+    maxFrictionScore?: number;          // e.g., 50 (exclude high friction)
+    minIntentScore?: number;            // e.g., 40 (only warm/hot leads)
+}
+
+/**
+ * Build SQL conditions for vibe filtering
+ * Returns an array of conditions to be applied to shopify_customers_backup queries
+ */
+const buildVibeQueryConditions = (vibeFilters: VibeFilters): {
+    excludeVibes: string[];
+    includeVibes: string[];
+    excludeFriction: string[];
+    includeIntent: string[];
+} => {
+    const excludeVibes: string[] = vibeFilters.excludeVibeCategories || [];
+    const includeVibes: string[] = vibeFilters.includeVibeCategories || [];
+    const excludeFriction: string[] = [];
+    const includeIntent: string[] = [];
+
+    // If maxFrictionScore is set, exclude high friction
+    if (vibeFilters.maxFrictionScore !== undefined && vibeFilters.maxFrictionScore < 70) {
+        excludeFriction.push('high');
+    }
+
+    // If minIntentScore is set, determine which intent levels to include
+    if (vibeFilters.minIntentScore !== undefined) {
+        if (vibeFilters.minIntentScore >= 70) {
+            includeIntent.push('hot');
+        } else if (vibeFilters.minIntentScore >= 40) {
+            includeIntent.push('hot', 'warm');
+        }
+    }
+
+    return { excludeVibes, includeVibes, excludeFriction, includeIntent };
+};
+
+/**
  * Send a push notification (super_admin only)
  * Supports multiple channels: push (OneSignal) and whatsapp (Whapi.cloud)
  * POST /api/v1/push/send
@@ -98,7 +148,7 @@ const RATE_LIMIT_MAX_SENDS = 5; // Max 5 sends per minute per admin
 export const sendNotification = async (req: Request, res: Response) => {
     try {
         const clientId = (req as any).client?.id;
-        const { title, message, targetType, targetValue, imageUrl, data, scheduledFor, channels, individualCustomer, idempotencyKey } = req.body;
+        const { title, message, targetType, targetValue, imageUrl, data, scheduledFor, channels, individualCustomer, idempotencyKey, vibeFilters } = req.body;
 
         // Default to push only if no channels specified
         const selectedChannels: string[] = channels || ['push'];
@@ -164,6 +214,11 @@ export const sendNotification = async (req: Request, res: Response) => {
         const shouldSendPush = selectedChannels.includes('push') && targetType !== 'individual';
 
         if (shouldSendPush) {
+            // Log vibe filters if present (Smart Option D)
+            if (vibeFilters && Object.keys(vibeFilters).length > 0) {
+                console.log('[Push] Vibe-based broadcasting enabled:', vibeFilters);
+            }
+
             pushResult = await onesignal.sendNotification({
                 title,
                 message,
@@ -173,7 +228,8 @@ export const sendNotification = async (req: Request, res: Response) => {
                 data,
                 scheduledFor: scheduledFor ? new Date(scheduledFor) : undefined,
                 sentBy: clientId,
-                channels: selectedChannels
+                channels: selectedChannels,
+                vibeFilters  // Smart Option D: Pass vibe filters
             });
 
             if (!pushResult.success && !selectedChannels.includes('whatsapp')) {
@@ -188,17 +244,93 @@ export const sendNotification = async (req: Request, res: Response) => {
             // Get phones based on targetType
             let phones: string[] = [];
 
+            // Build vibe filter conditions if Marketing Empático is enabled
+            const hasVibeFilters = vibeFilters && Object.keys(vibeFilters).length > 0;
+            const vibeConditions = hasVibeFilters ? buildVibeQueryConditions(vibeFilters) : null;
+
             if (targetType === 'all') {
-                // Get all phones from backup
-                const { data: customers } = await supabase
+                // Get all phones from backup with optional vibe filtering
+                let query = supabase
                     .from('shopify_customers_backup')
-                    .select('phone')
+                    .select('phone, vibe_category, friction_level, intent_level')
                     .not('phone', 'is', null)
                     .neq('phone', '');
+
+                // Apply vibe filters if Marketing Empático is enabled
+                if (vibeConditions) {
+                    // Exclude frustrated users
+                    if (vibeConditions.excludeVibes.length > 0) {
+                        // Users with these vibes OR null vibe (unknown) - we exclude the known bad ones
+                        for (const vibe of vibeConditions.excludeVibes) {
+                            query = query.neq('vibe_category', vibe);
+                        }
+                    }
+                    // Include only specific vibes (if set)
+                    if (vibeConditions.includeVibes.length > 0) {
+                        query = query.in('vibe_category', vibeConditions.includeVibes);
+                    }
+                    // Exclude high friction
+                    if (vibeConditions.excludeFriction.length > 0) {
+                        for (const level of vibeConditions.excludeFriction) {
+                            query = query.neq('friction_level', level);
+                        }
+                    }
+                    // Include only certain intent levels
+                    if (vibeConditions.includeIntent.length > 0) {
+                        query = query.in('intent_level', vibeConditions.includeIntent);
+                    }
+                }
+
+                const { data: customers } = await query;
                 phones = (customers || []).map(c => c.phone).filter(Boolean);
+
+                if (hasVibeFilters) {
+                    console.log(`[Push] WhatsApp vibe filtering applied: ${phones.length} recipients after filter`);
+                }
             } else if (targetType === 'tag' && targetValue) {
-                // Get phones by tag
-                const customers = await getCustomersByTagFromBackup(targetValue, 5000);
+                // Get phones by tag with optional vibe filtering
+                let customers = await getCustomersByTagFromBackup(targetValue, 5000);
+
+                // Apply vibe filters in-memory if enabled (since getCustomersByTagFromBackup doesn't support vibe filters)
+                if (vibeConditions && customers.length > 0) {
+                    const beforeCount = customers.length;
+
+                    // We need to fetch vibe data for these customers
+                    const customerEmails = customers.filter(c => c.email).map(c => c.email!.toLowerCase());
+                    if (customerEmails.length > 0) {
+                        const { data: vibeData } = await supabase
+                            .from('shopify_customers_backup')
+                            .select('email, vibe_category, friction_level, intent_level')
+                            .in('email', customerEmails);
+
+                        if (vibeData) {
+                            const vibeMap = new Map(vibeData.map(v => [v.email?.toLowerCase(), v]));
+
+                            customers = customers.filter(c => {
+                                if (!c.email) return true; // Keep customers without email (can't filter them)
+                                const vibe = vibeMap.get(c.email.toLowerCase());
+                                if (!vibe) return true; // No vibe data, keep them
+
+                                // Exclude bad vibes
+                                if (vibeConditions.excludeVibes.includes(vibe.vibe_category)) return false;
+
+                                // Include only good vibes (if specified)
+                                if (vibeConditions.includeVibes.length > 0 && !vibeConditions.includeVibes.includes(vibe.vibe_category)) return false;
+
+                                // Exclude high friction
+                                if (vibeConditions.excludeFriction.includes(vibe.friction_level)) return false;
+
+                                // Include only certain intent (if specified)
+                                if (vibeConditions.includeIntent.length > 0 && !vibeConditions.includeIntent.includes(vibe.intent_level)) return false;
+
+                                return true;
+                            });
+                        }
+                    }
+
+                    console.log(`[Push] WhatsApp vibe filtering: ${beforeCount} -> ${customers.length} recipients`);
+                }
+
                 phones = customers.filter(c => c.phone).map(c => c.phone!);
             } else if (targetType === 'individual') {
                 // Get phone from individual customer data
@@ -267,18 +399,153 @@ export const sendNotification = async (req: Request, res: Response) => {
             }
         }
 
+        // Send via Email (Ara) if selected
+        let emailQueued = false;
+        if (selectedChannels.includes('email') && isBulkEmailConfigured()) {
+            // Get emails based on targetType
+            let emails: string[] = [];
+
+            // Reuse vibeConditions from WhatsApp section if Marketing Empático is enabled
+            const hasVibeFilters = vibeFilters && Object.keys(vibeFilters).length > 0;
+            const vibeConditions = hasVibeFilters ? buildVibeQueryConditions(vibeFilters) : null;
+
+            if (targetType === 'all') {
+                // Get all emails from backup with optional vibe filtering
+                let query = supabase
+                    .from('shopify_customers_backup')
+                    .select('email, vibe_category, friction_level, intent_level')
+                    .not('email', 'is', null)
+                    .neq('email', '');
+
+                // Apply vibe filters if Marketing Empático is enabled
+                if (vibeConditions) {
+                    if (vibeConditions.excludeVibes.length > 0) {
+                        for (const vibe of vibeConditions.excludeVibes) {
+                            query = query.neq('vibe_category', vibe);
+                        }
+                    }
+                    if (vibeConditions.includeVibes.length > 0) {
+                        query = query.in('vibe_category', vibeConditions.includeVibes);
+                    }
+                    if (vibeConditions.excludeFriction.length > 0) {
+                        for (const level of vibeConditions.excludeFriction) {
+                            query = query.neq('friction_level', level);
+                        }
+                    }
+                    if (vibeConditions.includeIntent.length > 0) {
+                        query = query.in('intent_level', vibeConditions.includeIntent);
+                    }
+                }
+
+                const { data: customers } = await query;
+                emails = (customers || []).map(c => c.email).filter(Boolean);
+
+                if (hasVibeFilters) {
+                    console.log(`[Push] Email vibe filtering applied: ${emails.length} recipients after filter`);
+                }
+            } else if (targetType === 'tag' && targetValue) {
+                // Get emails by tag with optional vibe filtering
+                let customers = await getCustomersByTagFromBackup(targetValue, 5000);
+
+                // Apply vibe filters in-memory
+                if (vibeConditions && customers.length > 0) {
+                    const beforeCount = customers.length;
+                    const customerEmails = customers.filter(c => c.email).map(c => c.email!.toLowerCase());
+
+                    if (customerEmails.length > 0) {
+                        const { data: vibeData } = await supabase
+                            .from('shopify_customers_backup')
+                            .select('email, vibe_category, friction_level, intent_level')
+                            .in('email', customerEmails);
+
+                        if (vibeData) {
+                            const vibeMap = new Map(vibeData.map(v => [v.email?.toLowerCase(), v]));
+                            customers = customers.filter(c => {
+                                if (!c.email) return true;
+                                const vibe = vibeMap.get(c.email.toLowerCase());
+                                if (!vibe) return true;
+                                if (vibeConditions.excludeVibes.includes(vibe.vibe_category)) return false;
+                                if (vibeConditions.includeVibes.length > 0 && !vibeConditions.includeVibes.includes(vibe.vibe_category)) return false;
+                                if (vibeConditions.excludeFriction.includes(vibe.friction_level)) return false;
+                                if (vibeConditions.includeIntent.length > 0 && !vibeConditions.includeIntent.includes(vibe.intent_level)) return false;
+                                return true;
+                            });
+                        }
+                    }
+                    console.log(`[Push] Email vibe filtering: ${beforeCount} -> ${customers.length} recipients`);
+                }
+
+                emails = customers.filter(c => c.email).map(c => c.email!);
+            } else if (targetType === 'individual') {
+                // Get email from individual customer data
+                if (individualCustomer?.email) {
+                    emails = [individualCustomer.email];
+                    console.log(`[Push] Individual Email to: ${individualCustomer.email}`);
+                }
+            }
+
+            if (emails.length > 0) {
+                // Ensure we have a notification ID for tracking
+                if (!notificationId) {
+                    console.log('[Push] Creating notification record for Email tracking...');
+                    const { data: notification, error: notifError } = await supabase
+                        .from('push_notifications')
+                        .insert({
+                            title,
+                            message,
+                            target_type: targetType,
+                            target_value: targetValue,
+                            sent_by: clientId,
+                            status: 'sent',
+                            sent_at: new Date().toISOString(),
+                            idempotency_key: idempotencyKey || null
+                        })
+                        .select('id')
+                        .single();
+
+                    if (!notifError && notification) {
+                        notificationId = notification.id;
+                    }
+                }
+
+                // Build email subject
+                const emailSubject = `[EUM] ${title}`;
+
+                console.log(`[Push] Queueing Email to ${emails.length} recipients via ara@extractoseum.com...`);
+
+                // Send in background to not block response
+                if (notificationId) {
+                    sendBulkMarketingEmail(emails, emailSubject, title, message, notificationId, imageUrl)
+                        .then(result => {
+                            console.log(`[Push] Email complete: ${result.sent} sent, ${result.failed} failed`);
+                        })
+                        .catch(err => {
+                            console.error('[Push] Email error:', err);
+                        });
+                    console.log(`[Push] sendBulkMarketingEmail called (async)`);
+                }
+
+                emailQueued = true;
+            } else {
+                console.log('[Push] No emails found for Email targeting');
+            }
+        }
+
         // Check if at least one channel succeeded
         const pushSucceeded = pushResult?.success === true;
         const whatsappSucceeded = whatsappQueued === true;
+        const emailSucceeded = emailQueued === true;
 
-        // If neither channel succeeded, return error
-        if (!pushSucceeded && !whatsappSucceeded) {
+        // If no channel succeeded, return error
+        if (!pushSucceeded && !whatsappSucceeded && !emailSucceeded) {
             // Determine the error message
             let errorMsg = 'No se pudo enviar la notificacion';
             if (selectedChannels.includes('push') && targetType === 'individual') {
-                errorMsg = 'Push no disponible para usuario individual. Selecciona WhatsApp.';
+                errorMsg = 'Push no disponible para usuario individual. Selecciona WhatsApp o Email.';
             } else if (selectedChannels.includes('whatsapp') && !whatsappQueued) {
                 errorMsg = 'No se encontró teléfono para este usuario';
+            } else if (selectedChannels.includes('email') && !emailQueued) {
+                errorMsg = 'No se encontró email para este usuario';
             } else if (pushResult?.error) {
                 errorMsg = pushResult.error;
             }
@@ -304,8 +571,17 @@ export const sendNotification = async (req: Request, res: Response) => {
             response.whatsapp = {
                 queued: whatsappQueued,
                 message: whatsappQueued
-                    ? 'Mensajes de WhatsApp en cola de envío'
+                    ? 'Mensajes de WhatsApp en cola de envío (con rate limiting natural)'
                     : 'No se encontraron teléfonos para enviar'
+            };
+        }
+
+        if (selectedChannels.includes('email')) {
+            response.email = {
+                queued: emailQueued,
+                message: emailQueued
+                    ? 'Emails en cola de envío via ara@extractoseum.com'
+                    : 'No se encontraron emails para enviar'
             };
         }
 
@@ -683,6 +959,27 @@ export const getWhatsAppStatus = async (_req: Request, res: Response) => {
         });
     } catch (error: any) {
         console.error('[Push] Error getting WhatsApp status:', error);
+        res.status(500).json({ success: false, error: error.message || 'Error del servidor' });
+    }
+};
+
+/**
+ * Get Email (Ara) service status
+ * GET /api/v1/push/email/status
+ */
+export const getEmailStatus = async (_req: Request, res: Response) => {
+    try {
+        const status = getAraEmailStatus();
+        res.json({
+            success: true,
+            email: {
+                configured: status.configured,
+                address: status.email,
+                polling: status.polling
+            }
+        });
+    } catch (error: any) {
+        console.error('[Push] Error getting Email status:', error);
         res.status(500).json({ success: false, error: error.message || 'Error del servidor' });
     }
 };

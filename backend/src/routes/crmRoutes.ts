@@ -63,4 +63,17 @@ router.post('/conversations/:id/inquiry', requireAuth, requireRole('admin', 'sup
     }
 });
 
+// Phase 6: Inquiry Learning Stats
+router.get('/inquiry/learning-stats', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
+    try {
+        const { InquiryLearningService } = require('../services/InquiryLearningService');
+        const learningService = InquiryLearningService.getInstance();
+        const stats = await learningService.getLearningStats();
+        res.json({ success: true, data: stats });
+    } catch (e: any) {
+        console.error('Learning Stats Error:', e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 export default router;

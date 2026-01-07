@@ -8,6 +8,8 @@ import { ChannelRouter } from './channelRouter';
 import { ChipEngine } from './chipEngine';
 import { VoiceService } from './VoiceService';
 import { normalizePhone, cleanupPhone } from '../utils/phoneUtils';
+import { InquiryLearningService } from './InquiryLearningService'; // Phase 6: Smart Inquiries
+import { syncVibeToOneSignal } from './onesignalService'; // Smart Option D: Vibe-Based Broadcasting
 import fs from 'fs';
 import path from 'path';
 
@@ -1561,6 +1563,33 @@ export class CRMService {
                     }
                 } // End if !result.user_name
                 // 4. Merge with existing facts
+                // Phase 6: Enrich system_inquiry with learning data
+                let enrichedInquiry = result.system_inquiry || (conv as any).facts?.system_inquiry;
+                if (enrichedInquiry && !enrichedInquiry.overall_confidence) {
+                    try {
+                        const learningService = InquiryLearningService.getInstance();
+                        const enrichment = await learningService.enrichInquiry(enrichedInquiry);
+
+                        // Merge enrichment into inquiry
+                        enrichedInquiry = {
+                            ...enrichedInquiry,
+                            similar_resolutions: enrichment.similar_resolutions,
+                            suggested_action: enrichment.suggested_action,
+                            overall_confidence: enrichment.overall_confidence,
+                            auto_resolve_eligible: enrichment.auto_resolve_eligible,
+                            // Add confidence to each option
+                            options: enrichedInquiry.options?.map((opt: any) => ({
+                                ...opt,
+                                confidence: enrichment.option_confidences[opt.action] || 30
+                            }))
+                        };
+
+                        logger.info(`[CRMService] Enriched inquiry with learning: ${enrichment.similar_resolutions} similar, suggested: ${enrichment.suggested_action}`, { handle: conv.contact_handle });
+                    } catch (enrichErr: any) {
+                        logger.warn(`[CRMService] Failed to enrich inquiry:`, enrichErr.message, { handle: conv.contact_handle });
+                    }
+                }
+
                 const newFacts = {
                     ...conv.facts,
                     personality: result.personality || (conv as any).facts?.personality || [],
@@ -1571,7 +1600,7 @@ export class CRMService {
                     user_email: result.user_email || (conv as any).facts?.user_email,
                     user_name: result.user_name || (conv as any).facts?.user_name,
                     action_plan: result.action_plan || (conv as any).facts?.action_plan || [],
-                    system_inquiry: result.system_inquiry || (conv as any).facts?.system_inquiry
+                    system_inquiry: enrichedInquiry
                 };
 
                 // --- IDENTITY BRIDGE: IF EMAIL FOUND, UPDATE CLIENT RECORD ---
@@ -1645,6 +1674,21 @@ export class CRMService {
 
                 console.log(`[CRMService] facts updated for ${conversationId} (Predicted Friction: ${result.friction_score})`);
 
+                // --- Smart Option D: Sync Vibe to OneSignal for targeted broadcasting ---
+                // Fire-and-forget: Don't block on this
+                if (result.friction_score !== undefined || result.emotional_vibe || result.intent_score !== undefined) {
+                    // Find client_id from contact_handle (phone or email)
+                    this.getClientIdFromHandle(conv.contact_handle).then((clientId: string | null) => {
+                        if (clientId) {
+                            syncVibeToOneSignal(clientId, {
+                                friction_score: result.friction_score,
+                                emotional_vibe: result.emotional_vibe,
+                                intent_score: result.intent_score
+                            }).catch((err: Error) => console.warn('[CRMService] Vibe sync failed:', err.message));
+                        }
+                    }).catch(() => { /* ignore */ });
+                }
+
                 // Fix #6: Return facts
                 return newFacts;
             }
@@ -1717,6 +1761,36 @@ export class CRMService {
 
             if (error) throw new Error(error.message);
             return data;
+        }
+    }
+
+    /**
+     * Helper: Get client ID from contact handle (phone or email)
+     * Used for linking CRM conversations to push notification subscribers
+     */
+    private async getClientIdFromHandle(handle: string): Promise<string | null> {
+        try {
+            // Check if handle looks like an email
+            if (handle.includes('@')) {
+                const { data } = await supabase
+                    .from('clients')
+                    .select('id')
+                    .eq('email', handle.toLowerCase())
+                    .single();
+                return data?.id || null;
+            }
+
+            // Otherwise treat as phone
+            const cleanPhone = cleanupPhone(handle);
+            const { data } = await supabase
+                .from('clients')
+                .select('id')
+                .eq('phone', cleanPhone)
+                .single();
+
+            return data?.id || null;
+        } catch {
+            return null;
         }
     }
 

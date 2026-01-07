@@ -14,6 +14,7 @@ import {
     isPWAInstalled
 } from '../services/onesignalService';
 import { telemetry } from '../services/telemetryService';
+import { getAppIdentificationHeaders, initPlatformDetection, getPlatformInfo } from '../utils/platformDetection';
 
 interface Client {
     id: string;
@@ -54,12 +55,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Check for existing session on mount and initialize OneSignal
     useEffect(() => {
+        // Initialize platform detection first
+        initPlatformDetection();
+
         checkAuth();
         // Initialize OneSignal
         initOneSignal().then(() => {
             // Setup PWA install listener
             setupPWAInstallListener();
-            // Auto-subscribe if already running as PWA
+            // Auto-subscribe if already running as PWA or native app
             handlePWAInstall();
         }).catch(console.error);
     }, []);
@@ -76,9 +80,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // Set external user ID in OneSignal
             await setExternalUserId(currentClient.id);
 
+            // Get platform info for tags
+            const platformInfo = getPlatformInfo();
+
             // Set user tags for segmentation
             const tags: Record<string, string> = {
                 role: currentClient.role || 'client',
+                app_platform: platformInfo.platform,
+                device_os: platformInfo.os,
             };
             if (currentClient.tags && currentClient.tags.length > 0) {
                 tags.shopify_tags = currentClient.tags.join(',');
@@ -87,8 +96,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     tags.membership_tier = 'partner';
                 }
             }
-            // Add PWA tag if running as installed app
-            if (isPWAInstalled()) {
+            // Add PWA/native app tags
+            if (platformInfo.isNativeApp) {
+                tags.is_native_app = 'true';
+            } else if (isPWAInstalled()) {
                 tags.pwa_installed = 'true';
             }
             await setUserTags(tags);
@@ -416,18 +427,22 @@ export function useAuth() {
 // Helper hook to get auth headers for API calls
 export function useAuthHeaders() {
     const accessToken = localStorage.getItem('accessToken');
+    const platformHeaders = getAppIdentificationHeaders();
     return {
         'Authorization': accessToken ? `Bearer ${accessToken}` : '',
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        ...platformHeaders
     };
 }
 
 // Helper function for authenticated fetch with auto-refresh
 export async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
     const accessToken = localStorage.getItem('accessToken');
+    const platformHeaders = getAppIdentificationHeaders();
 
     const headers: HeadersInit = {
         ...options.headers,
+        ...platformHeaders,
     };
 
     if (accessToken) {

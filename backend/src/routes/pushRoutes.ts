@@ -15,7 +15,8 @@ import {
     getCustomersBackupStats,
     searchCustomers,
     getCustomersByTag,
-    getWhatsAppStatus
+    getWhatsAppStatus,
+    getEmailStatus
 } from '../controllers/pushController';
 import { requireAuth, requireSuperAdmin } from '../middleware/authMiddleware';
 
@@ -46,5 +47,8 @@ router.get('/customers/by-tag/:tag', requireAuth, requireSuperAdmin, getCustomer
 
 // WhatsApp status route (super_admin only)
 router.get('/whatsapp/status', requireAuth, requireSuperAdmin, getWhatsAppStatus);
+
+// Email status route (super_admin only)
+router.get('/email/status', requireAuth, requireSuperAdmin, getEmailStatus);
 
 export default router;

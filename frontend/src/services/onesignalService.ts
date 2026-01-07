@@ -3,6 +3,8 @@
  * Handles web push notifications via OneSignal
  */
 
+import { getPlatformForBackend, getPlatformInfo, isPWAInstalled as isPWAInstalledUtil } from '../utils/platformDetection';
+
 const ONESIGNAL_APP_ID = '4f020005-36de-48da-b820-bdccb311ff74';
 const SAFARI_WEB_ID = 'web.onesignal.auto.57017041-c410-4b69-86f6-455278402f0c';
 
@@ -226,20 +228,33 @@ export const logoutOneSignal = async (): Promise<void> => {
 
 /**
  * Register device with backend
+ * Now properly detects platform (android, ios, web_pwa, web)
  */
 export const registerDeviceWithBackend = async (
     playerId: string,
     authFetch: (url: string, options?: RequestInit) => Promise<Response>
 ): Promise<boolean> => {
     try {
+        // Get actual platform info instead of hardcoding 'web'
+        const platformInfo = getPlatformInfo();
+        const platform = getPlatformForBackend();
+
+        console.log('[OneSignal] Registering device with platform:', platform, platformInfo);
+
         const response = await authFetch('/api/v1/push/register', {
             method: 'POST',
             body: JSON.stringify({
                 playerId,
-                platform: 'web',
+                platform,
+                isNativeApp: platformInfo.isNativeApp,
+                isPWA: platformInfo.isPWA,
                 deviceInfo: {
                     browser: navigator.userAgent,
-                    model: navigator.platform
+                    model: navigator.platform,
+                    os: platformInfo.os,
+                    deviceType: platformInfo.deviceType,
+                    appPlatform: platformInfo.platform,
+                    appVersion: platformInfo.appVersion
                 }
             })
         });
@@ -273,42 +288,55 @@ export const unregisterDeviceFromBackend = async (playerId: string): Promise<boo
 
 /**
  * Check if app is running as installed PWA
+ * Re-exported from platformDetection utility for backwards compatibility
  */
 export const isPWAInstalled = (): boolean => {
-    // Check display-mode media query (works on most browsers)
-    const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
-
-    // Check iOS Safari standalone mode
-    const isIOSStandalone = (window.navigator as any).standalone === true;
-
-    // Check if running in TWA (Trusted Web Activity) on Android
-    const isTWA = document.referrer.includes('android-app://');
-
-    return isStandalone || isIOSStandalone || isTWA;
+    return isPWAInstalledUtil();
 };
 
 /**
- * Auto-subscribe to push when PWA is installed
+ * Auto-subscribe to push when PWA or Native App is installed
  * Should be called on app init
  */
 export const handlePWAInstall = async (): Promise<void> => {
+    const platformInfo = getPlatformInfo();
+
+    // Handle native app
+    if (platformInfo.isNativeApp) {
+        console.log('[OneSignal] Native app detected, setting up push...');
+
+        const result = await requestPermission();
+
+        if (result.granted) {
+            console.log('[OneSignal] Native app push subscribe successful');
+
+            await setUserTags({
+                app_platform: platformInfo.platform,
+                is_native_app: 'true',
+                app_installed_at: new Date().toISOString().split('T')[0],
+                device_os: platformInfo.os
+            });
+        }
+        return;
+    }
+
+    // Handle PWA
     if (!isPWAInstalled()) {
-        console.log('[OneSignal] Not running as PWA, skipping auto-subscribe');
+        console.log('[OneSignal] Not running as PWA or native app, skipping auto-subscribe');
         return;
     }
 
     console.log('[OneSignal] PWA detected, auto-subscribing to push...');
 
-    // Request permission automatically for PWA users
     const result = await requestPermission();
 
     if (result.granted) {
         console.log('[OneSignal] PWA auto-subscribe successful');
 
-        // Add pwa_installed tag
         await setUserTags({
+            app_platform: 'web_pwa',
             pwa_installed: 'true',
-            pwa_installed_at: new Date().toISOString().split('T')[0] // YYYY-MM-DD
+            pwa_installed_at: new Date().toISOString().split('T')[0]
         });
     } else {
         console.log('[OneSignal] PWA auto-subscribe: permission denied');

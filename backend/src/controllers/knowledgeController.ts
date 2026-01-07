@@ -318,11 +318,28 @@ export const saveKnowledgeFile = async (req: Request, res: Response) => {
 
         fs.writeFileSync(safePath, content, 'utf-8');
 
-        // BACKGROUND: Trigger Smart Analysis
+        // BACKGROUND: Trigger Smart Analysis & Knowledge Snap
         if (AGENT_CATEGORIES.includes(folder)) {
-            IntelligenceService.getInstance().analyzeFile(parentDir, path.basename(safePath), content).catch(err => {
+            const intelligenceService = IntelligenceService.getInstance();
+            // Legacy analysis
+            intelligenceService.analyzeFile(parentDir, path.basename(safePath), content).catch(err => {
                 console.error(`[KnowledgeController] Analysis hook failed:`, err);
             });
+            // New: Create knowledge snap for agent
+            intelligenceService.createKnowledgeSnap(parentDir, path.basename(safePath), content, false).catch(err => {
+                console.error(`[KnowledgeController] Knowledge snap failed:`, err);
+            });
+        } else if (['instructions', 'information'].includes(folder)) {
+            // Global knowledge - sync to all agents
+            const intelligenceService = IntelligenceService.getInstance();
+            const globalDir = path.join(KNOWLEDGE_BASE_DIR, folder);
+
+            // Sync to all agent categories
+            for (const category of AGENT_CATEGORIES) {
+                intelligenceService.syncGlobalKnowledgeToAgents(globalDir, category).catch(err => {
+                    console.error(`[KnowledgeController] Global sync failed for ${category}:`, err);
+                });
+            }
         }
 
         res.json({ success: true, message: 'Saved' });
@@ -605,5 +622,396 @@ export const getToolsRegistry = async (req: Request, res: Response): Promise<voi
     } catch (error: any) {
         console.error('[KnowledgeController] getToolsRegistry error:', error.message);
         res.status(500).json({ success: false, error: 'Error al cargar el registro de herramientas' });
+    }
+};
+
+/**
+ * GET KNOWLEDGE SNAPS for an agent
+ */
+export const getKnowledgeSnaps = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { folder, agentName } = req.params;
+
+        if (!AGENT_CATEGORIES.includes(folder)) {
+            res.status(400).json({ error: 'Invalid agent category' });
+            return;
+        }
+
+        const agentDir = path.join(KNOWLEDGE_BASE_DIR, folder, agentName);
+        if (!fs.existsSync(agentDir)) {
+            res.status(404).json({ error: 'Agent not found' });
+            return;
+        }
+
+        const metadata = IntelligenceService.getInstance().getMetadata(agentDir);
+        res.json({ success: true, data: metadata.knowledgeSnaps || [] });
+    } catch (error: any) {
+        console.error('[KnowledgeController] getKnowledgeSnaps error:', error.message);
+        res.status(500).json({ success: false, error: 'Error al cargar knowledge snaps' });
+    }
+};
+
+/**
+ * UPDATE SNAP ADMIN NOTES
+ */
+export const updateSnapNotes = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { folder, agentName } = req.params;
+        const { fileName, notes } = req.body;
+
+        if (!AGENT_CATEGORIES.includes(folder)) {
+            res.status(400).json({ error: 'Invalid agent category' });
+            return;
+        }
+
+        if (!fileName) {
+            res.status(400).json({ error: 'fileName is required' });
+            return;
+        }
+
+        const agentDir = path.join(KNOWLEDGE_BASE_DIR, folder, agentName);
+        if (!fs.existsSync(agentDir)) {
+            res.status(404).json({ error: 'Agent not found' });
+            return;
+        }
+
+        const success = await IntelligenceService.getInstance().updateSnapAdminNotes(agentDir, fileName, notes || '');
+
+        if (success) {
+            res.json({ success: true, message: 'Notas actualizadas' });
+        } else {
+            res.status(404).json({ success: false, error: 'Snap no encontrado' });
+        }
+    } catch (error: any) {
+        console.error('[KnowledgeController] updateSnapNotes error:', error.message);
+        res.status(500).json({ success: false, error: 'Error al actualizar notas' });
+    }
+};
+
+/**
+ * REGENERATE SNAP for a file (force re-analysis)
+ */
+export const regenerateSnap = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { folder, agentName } = req.params;
+        const { fileName } = req.body;
+
+        if (!AGENT_CATEGORIES.includes(folder)) {
+            res.status(400).json({ error: 'Invalid agent category' });
+            return;
+        }
+
+        const agentDir = path.join(KNOWLEDGE_BASE_DIR, folder, agentName);
+        const filePath = path.join(agentDir, fileName);
+
+        if (!fs.existsSync(filePath)) {
+            res.status(404).json({ error: 'File not found' });
+            return;
+        }
+
+        const content = fs.readFileSync(filePath, 'utf-8');
+
+        // Force regeneration by clearing the hash
+        const metadataPath = path.join(agentDir, 'metadata.json');
+        if (fs.existsSync(metadataPath)) {
+            try {
+                const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf-8'));
+                const snap = metadata.knowledgeSnaps?.find((s: any) => s.fileName === fileName);
+                if (snap) {
+                    snap.contentHash = ''; // Clear hash to force regeneration
+                    fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
+                }
+            } catch (e) { }
+        }
+
+        const snap = await IntelligenceService.getInstance().createKnowledgeSnap(agentDir, fileName, content, false);
+
+        if (snap) {
+            res.json({ success: true, data: snap });
+        } else {
+            res.status(500).json({ success: false, error: 'Error al regenerar snap' });
+        }
+    } catch (error: any) {
+        console.error('[KnowledgeController] regenerateSnap error:', error.message);
+        res.status(500).json({ success: false, error: 'Error al regenerar snap' });
+    }
+};
+
+/**
+ * REGENERATE ALL SNAPS FOR AN AGENT
+ * Scans all .md files and generates snaps for each
+ */
+export const regenerateAllSnaps = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { folder, agentName } = req.params;
+
+        if (!AGENT_CATEGORIES.includes(folder)) {
+            res.status(400).json({ error: 'Invalid agent category' });
+            return;
+        }
+
+        const agentDir = path.join(KNOWLEDGE_BASE_DIR, folder, agentName);
+        if (!fs.existsSync(agentDir)) {
+            res.status(404).json({ error: 'Agent not found' });
+            return;
+        }
+
+        console.log(`[KnowledgeController] Regenerating all snaps for ${folder}/${agentName}`);
+
+        // Get all .md files recursively
+        const getAllMdFiles = (dir: string, baseDir: string = dir): string[] => {
+            const files: string[] = [];
+            const items = fs.readdirSync(dir);
+
+            for (const item of items) {
+                const fullPath = path.join(dir, item);
+                const stat = fs.statSync(fullPath);
+
+                if (stat.isDirectory() && item !== 'node_modules') {
+                    files.push(...getAllMdFiles(fullPath, baseDir));
+                } else if (item.endsWith('.md')) {
+                    // Get relative path from agent dir
+                    const relativePath = path.relative(baseDir, fullPath);
+                    files.push(relativePath);
+                }
+            }
+
+            return files;
+        };
+
+        const mdFiles = getAllMdFiles(agentDir);
+        console.log(`[KnowledgeController] Found ${mdFiles.length} .md files to process`);
+
+        const results = { success: 0, failed: 0, errors: [] as string[] };
+        const intelligenceService = IntelligenceService.getInstance();
+
+        for (const relPath of mdFiles) {
+            try {
+                const fullPath = path.join(agentDir, relPath);
+                const content = fs.readFileSync(fullPath, 'utf-8');
+                const fileName = relPath; // Use relative path as fileName
+
+                // Clear existing hash to force regeneration
+                const metadataPath = path.join(agentDir, 'metadata.json');
+                if (fs.existsSync(metadataPath)) {
+                    try {
+                        const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf-8'));
+                        if (!metadata.knowledgeSnaps) metadata.knowledgeSnaps = [];
+                        const snap = metadata.knowledgeSnaps.find((s: any) => s.fileName === fileName);
+                        if (snap) {
+                            snap.contentHash = ''; // Force regeneration
+                            fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
+                        }
+                    } catch (e) { }
+                }
+
+                const snap = await intelligenceService.createKnowledgeSnap(agentDir, fileName, content, false);
+
+                if (snap) {
+                    results.success++;
+                    console.log(`[KnowledgeController] ✅ Snap created for ${fileName}`);
+                } else {
+                    results.failed++;
+                    results.errors.push(`${fileName}: Failed to create snap`);
+                }
+
+                // Small delay to avoid rate limiting
+                await new Promise(resolve => setTimeout(resolve, 500));
+
+            } catch (err: any) {
+                results.failed++;
+                results.errors.push(`${relPath}: ${err.message}`);
+                console.error(`[KnowledgeController] ❌ Error processing ${relPath}:`, err.message);
+            }
+        }
+
+        console.log(`[KnowledgeController] Regeneration complete: ${results.success} success, ${results.failed} failed`);
+        res.json({ success: true, results });
+
+    } catch (error: any) {
+        console.error('[KnowledgeController] regenerateAllSnaps error:', error.message);
+        res.status(500).json({ success: false, error: 'Error al regenerar snaps' });
+    }
+};
+
+/**
+ * MOVE KNOWLEDGE FILE (Drag-and-Drop)
+ * Moves a file from one location to another within the knowledge base
+ */
+export const moveKnowledgeFile = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { sourcePath, destinationFolder, destinationAgent } = req.body;
+
+        if (!sourcePath) {
+            res.status(400).json({ error: 'sourcePath is required' });
+            return;
+        }
+        if (!destinationFolder) {
+            res.status(400).json({ error: 'destinationFolder is required' });
+            return;
+        }
+
+        // Parse source path (e.g., "agents_public/sales_ara/pricing.md")
+        const sourceSegments = sourcePath.split('/');
+        if (sourceSegments.length < 2) {
+            res.status(400).json({ error: 'Invalid source path format' });
+            return;
+        }
+
+        const sourceFolder = sourceSegments[0];
+        let sourceFullPath = '';
+        let sourceAgentDir = '';
+        let sourceFileName = '';
+
+        if (AGENT_CATEGORIES.includes(sourceFolder)) {
+            // Source is in an agent folder
+            const sourceAgentName = sourceSegments[1];
+            sourceFileName = sourceSegments.slice(2).join('/');
+            sourceAgentDir = path.join(KNOWLEDGE_BASE_DIR, sourceFolder, sourceAgentName);
+            sourceFullPath = path.join(sourceAgentDir, sourceFileName);
+        } else if (STANDARD_FOLDERS.includes(sourceFolder)) {
+            // Source is in a standard folder
+            sourceFileName = sourceSegments.slice(1).join('/');
+            sourceFullPath = path.join(KNOWLEDGE_BASE_DIR, sourceFolder, sourceFileName);
+        } else {
+            res.status(400).json({ error: 'Invalid source folder' });
+            return;
+        }
+
+        // Security: Verify path is within allowed directories
+        const normalizedSource = path.resolve(sourceFullPath);
+        if (!normalizedSource.startsWith(path.resolve(KNOWLEDGE_BASE_DIR))) {
+            res.status(403).json({ error: 'Access denied: Path traversal detected' });
+            return;
+        }
+
+        if (!fs.existsSync(sourceFullPath)) {
+            res.status(404).json({ error: 'Source file not found' });
+            return;
+        }
+
+        // Determine destination path
+        let destFullPath = '';
+        let destAgentDir = '';
+
+        if (AGENT_CATEGORIES.includes(destinationFolder)) {
+            // Destination is an agent folder - require agent name
+            if (!destinationAgent) {
+                res.status(400).json({ error: 'destinationAgent is required for agent folders' });
+                return;
+            }
+            destAgentDir = path.join(KNOWLEDGE_BASE_DIR, destinationFolder, destinationAgent);
+            destFullPath = path.join(destAgentDir, path.basename(sourceFileName));
+        } else if (STANDARD_FOLDERS.includes(destinationFolder)) {
+            // Destination is a standard folder
+            destFullPath = path.join(KNOWLEDGE_BASE_DIR, destinationFolder, path.basename(sourceFileName));
+        } else {
+            res.status(400).json({ error: 'Invalid destination folder' });
+            return;
+        }
+
+        // Security: Verify destination is within allowed directories
+        const normalizedDest = path.resolve(destFullPath);
+        if (!normalizedDest.startsWith(path.resolve(KNOWLEDGE_BASE_DIR))) {
+            res.status(403).json({ error: 'Access denied: Path traversal detected' });
+            return;
+        }
+
+        // Ensure destination directory exists
+        const destDir = path.dirname(destFullPath);
+        if (!fs.existsSync(destDir)) {
+            fs.mkdirSync(destDir, { recursive: true });
+        }
+
+        // Check if destination file already exists
+        if (fs.existsSync(destFullPath)) {
+            res.status(409).json({ error: 'A file with this name already exists in the destination' });
+            return;
+        }
+
+        // Read content before moving
+        const content = fs.readFileSync(sourceFullPath, 'utf-8');
+
+        // Move the file
+        fs.renameSync(sourceFullPath, destFullPath);
+
+        // Update snaps: Remove from source agent, add to destination agent
+        const intelligenceService = IntelligenceService.getInstance();
+
+        // Remove snap from source if it was in an agent folder
+        if (sourceAgentDir && fs.existsSync(sourceAgentDir)) {
+            await intelligenceService.removeKnowledgeSnap(sourceAgentDir, path.basename(sourceFileName));
+        }
+
+        // Create snap in destination if it's an agent folder
+        if (destAgentDir) {
+            await intelligenceService.createKnowledgeSnap(destAgentDir, path.basename(sourceFileName), content, false);
+        } else if (['instructions', 'information'].includes(destinationFolder)) {
+            // If moved to global folder, sync to all agents
+            const globalDir = path.join(KNOWLEDGE_BASE_DIR, destinationFolder);
+            for (const category of AGENT_CATEGORIES) {
+                await intelligenceService.syncGlobalKnowledgeToAgents(globalDir, category);
+            }
+        }
+
+        const newPath = AGENT_CATEGORIES.includes(destinationFolder)
+            ? `${destinationFolder}/${destinationAgent}/${path.basename(sourceFileName)}`
+            : `${destinationFolder}/${path.basename(sourceFileName)}`;
+
+        res.json({
+            success: true,
+            message: 'File moved successfully',
+            data: {
+                oldPath: sourcePath,
+                newPath
+            }
+        });
+
+    } catch (error: any) {
+        console.error('[KnowledgeController] moveKnowledgeFile error:', error.message);
+        res.status(500).json({ success: false, error: 'Failed to move file' });
+    }
+};
+
+/**
+ * UPDATE SNAP ENHANCED FIELDS (triggers, priority, category)
+ */
+export const updateSnapEnhancedFields = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { folder, agentName } = req.params;
+        const { fileName, triggers, priority, category } = req.body;
+
+        if (!AGENT_CATEGORIES.includes(folder)) {
+            res.status(400).json({ error: 'Invalid agent category' });
+            return;
+        }
+
+        if (!fileName) {
+            res.status(400).json({ error: 'fileName is required' });
+            return;
+        }
+
+        const agentDir = path.join(KNOWLEDGE_BASE_DIR, folder, agentName);
+        if (!fs.existsSync(agentDir)) {
+            res.status(404).json({ error: 'Agent not found' });
+            return;
+        }
+
+        type SnapCategory = 'product' | 'policy' | 'faq' | 'procedure' | 'reference' | 'pricing' | 'general';
+        const updates: { triggers?: string[]; priority?: number; category?: SnapCategory } = {};
+        if (triggers !== undefined) updates.triggers = triggers;
+        if (priority !== undefined) updates.priority = priority;
+        if (category !== undefined) updates.category = category as SnapCategory;
+
+        const success = await IntelligenceService.getInstance().updateSnapEnhancedFields(agentDir, fileName, updates);
+
+        if (success) {
+            res.json({ success: true, message: 'Enhanced fields updated' });
+        } else {
+            res.status(404).json({ success: false, error: 'Snap not found' });
+        }
+    } catch (error: any) {
+        console.error('[KnowledgeController] updateSnapEnhancedFields error:', error.message);
+        res.status(500).json({ success: false, error: 'Error updating enhanced fields' });
     }
 };

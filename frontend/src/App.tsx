@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import {
   Info, Brain, Terminal, FileText, Upload, Box, Award, Image,
   FileCode, Bell, LayoutDashboard, Settings, FolderOpen, Package,
-  Heart, ShieldCheck, Leaf
+  Heart, ShieldCheck, Leaf, BarChart3
 } from 'lucide-react';
 import DOMPurify from 'isomorphic-dompurify';
 
@@ -24,6 +24,7 @@ const NavigationManagement = lazy(() => import('./pages/NavigationManagement'));
 const AdminAIKnowledge = lazy(() => import('./pages/AdminAIKnowledge'));
 const AdminTelemetry = lazy(() => import('./pages/AdminTelemetry')); // Telemetry Dashboard
 const AdminCRM = lazy(() => import('./pages/AdminCRM'));
+const AdminAgentPerformance = lazy(() => import('./pages/AdminAgentPerformance'));
 const FoldersView = lazy(() => import('./pages/FoldersView'));
 const PublicFolderView = lazy(() => import('./pages/PublicFolderView'));
 const MyCollection = lazy(() => import('./pages/MyCollection'));
@@ -132,6 +133,7 @@ function Home() {
     { label: 'Push Notif.', icon: <Bell size={20} />, path: ROUTES.adminPush, color: '#ec4899' },
     { label: 'Navegación', icon: <LayoutDashboard size={20} />, path: ROUTES.adminNavigation, color: '#8b5cf6' },
     { label: 'Cerebro AI', icon: <Brain size={20} />, path: ROUTES.adminKnowledge, color: '#ec4899' },
+    { label: 'AI Metrics', icon: <BarChart3 size={20} />, path: ROUTES.adminAgentPerformance, color: '#a855f7' },
     { label: 'Omni CRM', icon: <LayoutDashboard size={20} />, path: ROUTES.adminCrm, color: '#f472b6' },
     { label: 'Telemetry', icon: <Terminal size={20} />, path: ROUTES.adminTelemetry, color: '#3b82f6' },
     { label: 'Configuracion', icon: <Settings size={20} />, path: ROUTES.settings, color: '#6b7280' },
@@ -423,6 +425,11 @@ function App() {
                     <Screen id="screen.admin.crm">
                       <AdminCRM />
                     </Screen>
+                  </ProtectedRoute>
+                } />
+                <Route path={ROUTES.adminAgentPerformance} element={
+                  <ProtectedRoute requireSuperAdmin>
+                    <AdminAgentPerformance />
                   </ProtectedRoute>
                 } />
                 <Route path={ROUTES.folders} element={

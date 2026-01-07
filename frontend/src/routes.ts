@@ -42,6 +42,7 @@ export const ROUTES = {
     adminKnowledge: '/admin/knowledge',
     adminCrm: '/admin/crm',
     adminTelemetry: '/admin/telemetry',
+    adminAgentPerformance: '/admin/agent-performance',
 } as const;
 
 // Helper functions to generate dynamic routes safely

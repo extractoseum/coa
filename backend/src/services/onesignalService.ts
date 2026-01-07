@@ -167,11 +167,18 @@ interface SendNotificationOptions {
     message: string;
     data?: Record<string, any>;
     imageUrl?: string;
-    targetType: 'all' | 'tag' | 'segment' | 'individual' | 'tier';
+    targetType: 'all' | 'tag' | 'segment' | 'individual' | 'tier' | 'vibe';
     targetValue?: string;
     scheduledFor?: Date;
     sentBy?: string;
     channels?: string[];  // For multi-channel support (push, whatsapp)
+    // Smart Option D: Vibe-Based Filtering
+    vibeFilters?: {
+        includeVibeCategories?: string[];   // e.g., ['excited', 'satisfied']
+        excludeVibeCategories?: string[];   // e.g., ['frustrated']
+        maxFrictionScore?: number;          // e.g., 50 (exclude high friction)
+        minIntentScore?: number;            // e.g., 40 (only warm/hot leads)
+    };
 }
 
 /**
@@ -203,7 +210,7 @@ interface NotificationResult {
  * Send a push notification via OneSignal
  */
 export const sendNotification = async (options: SendNotificationOptions): Promise<NotificationResult> => {
-    const { title, message, data, imageUrl, targetType, targetValue, scheduledFor, sentBy } = options;
+    const { title, message, data, imageUrl, targetType, targetValue, scheduledFor, sentBy, vibeFilters } = options;
 
     if (!ONESIGNAL_APP_ID || !ONESIGNAL_REST_API_KEY) {
         console.error('[OneSignal] Missing API credentials');
@@ -225,10 +232,74 @@ export const sendNotification = async (options: SendNotificationOptions): Promis
             payload.chrome_web_image = imageUrl;
         }
 
+        // Helper to build vibe filter conditions for OneSignal
+        const buildVibeFilters = (): any[] => {
+            const filters: any[] = [];
+
+            if (vibeFilters?.excludeVibeCategories?.length) {
+                // Exclude frustrated users (use NOT_EQUAL for each)
+                for (const vibe of vibeFilters.excludeVibeCategories) {
+                    if (filters.length > 0) filters.push({ operator: 'AND' });
+                    filters.push({ field: 'tag', key: 'vibe_category', relation: '!=', value: vibe });
+                }
+            }
+
+            if (vibeFilters?.includeVibeCategories?.length) {
+                // Include only specific vibes (use OR between them)
+                const vibeConditions: any[] = [];
+                for (const vibe of vibeFilters.includeVibeCategories) {
+                    if (vibeConditions.length > 0) vibeConditions.push({ operator: 'OR' });
+                    vibeConditions.push({ field: 'tag', key: 'vibe_category', relation: '=', value: vibe });
+                }
+                if (vibeConditions.length > 0) {
+                    if (filters.length > 0) filters.push({ operator: 'AND' });
+                    filters.push(...vibeConditions);
+                }
+            }
+
+            if (vibeFilters?.maxFrictionScore !== undefined) {
+                // Exclude high friction (friction_level = 'high' when score >= 70)
+                if (filters.length > 0) filters.push({ operator: 'AND' });
+                filters.push({ field: 'tag', key: 'friction_level', relation: '!=', value: 'high' });
+            }
+
+            if (vibeFilters?.minIntentScore !== undefined) {
+                // Only include warm/hot leads
+                if (filters.length > 0) filters.push({ operator: 'AND' });
+                if (vibeFilters.minIntentScore >= 70) {
+                    filters.push({ field: 'tag', key: 'intent_level', relation: '=', value: 'hot' });
+                } else if (vibeFilters.minIntentScore >= 40) {
+                    filters.push({ field: 'tag', key: 'intent_level', relation: '!=', value: 'cold' });
+                }
+            }
+
+            return filters;
+        };
+
         // Handle targeting
         switch (targetType) {
             case 'all':
-                payload.included_segments = ['All'];
+                // Check if we have vibe filters to apply
+                if (vibeFilters && Object.keys(vibeFilters).length > 0) {
+                    const filters = buildVibeFilters();
+                    if (filters.length > 0) {
+                        payload.filters = filters;
+                    } else {
+                        payload.included_segments = ['All'];
+                    }
+                } else {
+                    payload.included_segments = ['All'];
+                }
+                break;
+
+            case 'vibe':
+                // Pure vibe-based targeting
+                payload.filters = buildVibeFilters();
+                if (payload.filters.length === 0) {
+                    // Fallback to all if no filters specified
+                    payload.included_segments = ['All'];
+                    delete payload.filters;
+                }
                 break;
 
             case 'tag':
@@ -237,6 +308,14 @@ export const sendNotification = async (options: SendNotificationOptions): Promis
                 payload.filters = [
                     { field: 'tag', key: 'shopify_tags', relation: 'contains', value: targetValue }
                 ];
+                // Add vibe filters if present
+                if (vibeFilters && Object.keys(vibeFilters).length > 0) {
+                    const vibeFilterConditions = buildVibeFilters();
+                    if (vibeFilterConditions.length > 0) {
+                        payload.filters.push({ operator: 'AND' });
+                        payload.filters.push(...vibeFilterConditions);
+                    }
+                }
                 break;
 
             case 'tier':
@@ -244,6 +323,14 @@ export const sendNotification = async (options: SendNotificationOptions): Promis
                 payload.filters = [
                     { field: 'tag', key: 'membership_tier', relation: '=', value: targetValue }
                 ];
+                // Add vibe filters if present
+                if (vibeFilters && Object.keys(vibeFilters).length > 0) {
+                    const vibeFilterConditions = buildVibeFilters();
+                    if (vibeFilterConditions.length > 0) {
+                        payload.filters.push({ operator: 'AND' });
+                        payload.filters.push(...vibeFilterConditions);
+                    }
+                }
                 break;
 
             case 'segment':
@@ -517,12 +604,20 @@ export const notifyCoaAssigned = async (clientId: string, coaName: string, coaTo
 
 /**
  * Register or update a device token
+ * Platform can be: 'web', 'web_pwa', 'ios', 'android'
  */
 export const registerDevice = async (
     clientId: string,
     playerId: string,
-    platform: 'web' | 'ios' | 'android',
-    deviceInfo?: { model?: string; browser?: string }
+    platform: string,
+    deviceInfo?: {
+        model?: string;
+        browser?: string;
+        os?: string;
+        deviceType?: string;
+        appPlatform?: string;
+        appVersion?: string;
+    }
 ) => {
     // Upsert the token
     const { error } = await supabase
@@ -533,6 +628,10 @@ export const registerDevice = async (
             platform,
             device_model: deviceInfo?.model,
             browser: deviceInfo?.browser,
+            device_os: deviceInfo?.os,
+            device_type: deviceInfo?.deviceType,
+            app_platform: deviceInfo?.appPlatform,
+            app_version: deviceInfo?.appVersion,
             is_active: true,
             updated_at: new Date().toISOString(),
             last_active_at: new Date().toISOString()
@@ -613,6 +712,201 @@ export const updateOneSignalTags = async (playerId: string, tags: string[]) => {
     } catch (error) {
         console.error('[OneSignal] Error updating tags:', error);
     }
+};
+
+/**
+ * Sync emotional vibe and friction score to OneSignal tags AND local database
+ * Used for Vibe-Based Broadcasting (Smart Option D)
+ *
+ * Syncs to:
+ * 1. OneSignal player tags (for push notification filtering)
+ * 2. shopify_customers_backup table (for WhatsApp/Email filtering)
+ *
+ * @param clientId - The client ID to update tags for
+ * @param vibeData - Object containing emotional_vibe and friction_score
+ */
+export const syncVibeToOneSignal = async (
+    clientId: string,
+    vibeData: {
+        emotional_vibe?: string;
+        friction_score?: number;
+        intent_score?: number;
+    }
+): Promise<boolean> => {
+    // Build vibe categories (used for both OneSignal and local DB)
+    let friction_level: string | undefined;
+    let intent_level: string | undefined;
+    let vibe_category: string | undefined;
+
+    // Categorize friction score into buckets for targeting
+    if (vibeData.friction_score !== undefined) {
+        if (vibeData.friction_score >= 70) {
+            friction_level = 'high';      // Frustrated - exclude from promos
+        } else if (vibeData.friction_score >= 40) {
+            friction_level = 'medium';    // Neutral
+        } else {
+            friction_level = 'low';       // Happy - good for promos
+        }
+    }
+
+    // Categorize intent score
+    if (vibeData.intent_score !== undefined) {
+        if (vibeData.intent_score >= 70) {
+            intent_level = 'hot';         // Ready to buy
+        } else if (vibeData.intent_score >= 40) {
+            intent_level = 'warm';        // Interested
+        } else {
+            intent_level = 'cold';        // Just browsing
+        }
+    }
+
+    // Store simplified vibe category
+    if (vibeData.emotional_vibe) {
+        const vibeLower = vibeData.emotional_vibe.toLowerCase();
+        if (vibeLower.includes('frustrad') || vibeLower.includes('molest') || vibeLower.includes('enojad')) {
+            vibe_category = 'frustrated';
+        } else if (vibeLower.includes('entusiasm') || vibeLower.includes('emocion') || vibeLower.includes('feliz')) {
+            vibe_category = 'excited';
+        } else if (vibeLower.includes('preocup') || vibeLower.includes('ansi')) {
+            vibe_category = 'anxious';
+        } else if (vibeLower.includes('satisf') || vibeLower.includes('content')) {
+            vibe_category = 'satisfied';
+        } else {
+            vibe_category = 'neutral';
+        }
+    }
+
+    // === SYNC TO LOCAL DATABASE (for WhatsApp/Email filtering) ===
+    try {
+        // Get client email/phone to link with shopify_customers_backup
+        const { data: client } = await supabase
+            .from('clients')
+            .select('email, phone, onesignal_player_id')
+            .eq('id', clientId)
+            .single();
+
+        if (client?.email || client?.phone) {
+            // Update shopify_customers_backup via email or phone
+            const vibeUpdateData: Record<string, any> = {
+                vibe_updated_at: new Date().toISOString()
+            };
+
+            if (vibe_category) vibeUpdateData.vibe_category = vibe_category;
+            if (friction_level) vibeUpdateData.friction_level = friction_level;
+            if (intent_level) vibeUpdateData.intent_level = intent_level;
+            if (vibeData.friction_score !== undefined) vibeUpdateData.friction_score = vibeData.friction_score;
+            if (vibeData.intent_score !== undefined) vibeUpdateData.intent_score = vibeData.intent_score;
+            if (vibeData.emotional_vibe) vibeUpdateData.emotional_vibe = vibeData.emotional_vibe.substring(0, 200);
+
+            // Try to update by email first
+            if (client.email) {
+                const { error: emailError } = await supabase
+                    .from('shopify_customers_backup')
+                    .update(vibeUpdateData)
+                    .eq('email', client.email.toLowerCase());
+
+                if (!emailError) {
+                    console.log(`[OneSignal] Vibe synced to shopify_customers_backup via email: ${client.email}`);
+                }
+            }
+
+            // Also try by phone (some customers might match by phone only)
+            if (client.phone) {
+                const cleanPhone = client.phone.replace(/\D/g, '');
+                const { error: phoneError } = await supabase
+                    .from('shopify_customers_backup')
+                    .update(vibeUpdateData)
+                    .ilike('phone', `%${cleanPhone.slice(-10)}`);
+
+                if (!phoneError) {
+                    console.log(`[OneSignal] Vibe synced to shopify_customers_backup via phone`);
+                }
+            }
+        }
+
+        // === SYNC TO ONESIGNAL (for push filtering) ===
+        if (!ONESIGNAL_APP_ID || !ONESIGNAL_REST_API_KEY) {
+            console.warn('[OneSignal] Missing credentials for vibe sync to OneSignal');
+            return true; // Return true since local sync succeeded
+        }
+
+        if (!client?.onesignal_player_id) {
+            // Client doesn't have push notifications enabled, but local sync is done
+            return true;
+        }
+
+        // Build vibe tags for OneSignal
+        const vibeTags: Record<string, string> = {};
+        if (friction_level) vibeTags.friction_level = friction_level;
+        if (intent_level) vibeTags.intent_level = intent_level;
+        if (vibe_category) vibeTags.vibe_category = vibe_category;
+        if (vibeData.friction_score !== undefined) vibeTags.friction_score = String(vibeData.friction_score);
+        if (vibeData.intent_score !== undefined) vibeTags.intent_score = String(vibeData.intent_score);
+        if (vibeData.emotional_vibe) vibeTags.emotional_vibe = vibeData.emotional_vibe.substring(0, 50);
+        vibeTags.vibe_updated_at = new Date().toISOString().split('T')[0];
+
+        // Update player tags via OneSignal API
+        const response = await fetch(`https://onesignal.com/api/v1/players/${client.onesignal_player_id}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Basic ${ONESIGNAL_REST_API_KEY}`
+            },
+            body: JSON.stringify({
+                app_id: ONESIGNAL_APP_ID,
+                tags: vibeTags
+            })
+        });
+
+        if (!response.ok) {
+            const error = await response.text();
+            console.error('[OneSignal] Vibe sync to OneSignal failed:', error);
+            return true; // Return true since local sync still succeeded
+        }
+
+        console.log(`[OneSignal] Vibe synced for client ${clientId}:`, vibeTags);
+        return true;
+
+    } catch (error) {
+        console.error('[OneSignal] Error syncing vibe:', error);
+        return false;
+    }
+};
+
+/**
+ * Get vibe distribution stats for targeting UI
+ * Returns counts of users by vibe_category and friction_level
+ */
+export const getVibeStats = async (): Promise<{
+    byVibeCategory: Record<string, number>;
+    byFrictionLevel: Record<string, number>;
+    byIntentLevel: Record<string, number>;
+    total: number;
+}> => {
+    // We'll query from our local push_tokens with joined client data
+    // For now, return empty stats - will be populated as users get vibe synced
+    const { data: tokens, error } = await supabase
+        .from('push_tokens')
+        .select('client_id')
+        .eq('is_active', true);
+
+    if (error || !tokens) {
+        return {
+            byVibeCategory: {},
+            byFrictionLevel: {},
+            byIntentLevel: {},
+            total: 0
+        };
+    }
+
+    // TODO: In future, store vibe tags locally for faster querying
+    // For now, just return total count
+    return {
+        byVibeCategory: { unknown: tokens.length },
+        byFrictionLevel: { unknown: tokens.length },
+        byIntentLevel: { unknown: tokens.length },
+        total: tokens.length
+    };
 };
 
 /**

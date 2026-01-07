@@ -22,9 +22,32 @@ const openai = new OpenAI({
     apiKey: API_KEY,
 });
 
+export type ConfidenceLevel = 'high' | 'medium' | 'low' | null;
+
 interface AIResponse {
     content: string | null;
     usage: OpenAI.Completions.CompletionUsage | undefined;
+    confidence?: ConfidenceLevel;
+}
+
+/**
+ * Parse and extract confidence level from AI response
+ * Looks for [[CONFIDENCE:HIGH]], [[CONFIDENCE:MEDIUM]], or [[CONFIDENCE:LOW]]
+ */
+function parseConfidence(content: string | null): { cleanContent: string; confidence: ConfidenceLevel } {
+    if (!content) return { cleanContent: '', confidence: null };
+
+    const confidenceRegex = /\[\[CONFIDENCE:(HIGH|MEDIUM|LOW)\]\]/i;
+    const match = content.match(confidenceRegex);
+
+    if (match) {
+        const confidence = match[1].toLowerCase() as ConfidenceLevel;
+        // Remove the confidence tag from the content
+        const cleanContent = content.replace(confidenceRegex, '').trim();
+        return { cleanContent, confidence };
+    }
+
+    return { cleanContent: content, confidence: null };
 }
 
 /**
@@ -184,9 +207,13 @@ export class AIService {
             // Log Usage
             AIUsageService.getInstance().logUsage(model, inputTokens, outputTokens, { type: 'text' });
 
+            // Parse confidence from response
+            const { cleanContent, confidence } = parseConfidence(content);
+
             return {
-                content: content,
-                usage: { prompt_tokens: inputTokens, completion_tokens: outputTokens, total_tokens: inputTokens + outputTokens }
+                content: cleanContent,
+                usage: { prompt_tokens: inputTokens, completion_tokens: outputTokens, total_tokens: inputTokens + outputTokens },
+                confidence
             };
 
         } catch (error: any) {
@@ -450,9 +477,13 @@ export class AIService {
                     );
                 }
 
+                // Parse confidence from tool response
+                const { cleanContent: toolCleanContent, confidence: toolConfidence } = parseConfidence(secondResponse.choices[0].message.content);
+
                 return {
-                    content: secondResponse.choices[0].message.content,
-                    usage: secondResponse.usage
+                    content: toolCleanContent,
+                    usage: secondResponse.usage,
+                    confidence: toolConfidence
                 };
             }
 
@@ -465,9 +496,13 @@ export class AIService {
                 );
             }
 
+            // Parse confidence from direct response
+            const { cleanContent: directCleanContent, confidence: directConfidence } = parseConfidence(responseMessage.content);
+
             return {
-                content: responseMessage.content,
-                usage: response.usage
+                content: directCleanContent,
+                usage: response.usage,
+                confidence: directConfidence
             };
 
         } catch (error: any) {
@@ -586,9 +621,13 @@ export class AIService {
             const finalContent = response.text();
             console.log(`[AIService] Gemini Final Content (length): ${finalContent.length}`);
 
+            // Parse confidence from Gemini response
+            const { cleanContent: geminiCleanContent, confidence: geminiConfidence } = parseConfidence(finalContent);
+
             return {
-                content: finalContent || 'Lo siento, obtuve los datos pero no pude generar un resumen detallado. ¿Deseas que intente algo específico?',
-                usage: undefined
+                content: geminiCleanContent || 'Lo siento, obtuve los datos pero no pude generar un resumen detallado. ¿Deseas que intente algo específico?',
+                usage: undefined,
+                confidence: geminiConfidence
             };
 
         } catch (error: any) {

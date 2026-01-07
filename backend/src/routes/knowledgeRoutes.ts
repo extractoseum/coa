@@ -1,7 +1,7 @@
 
 import express from 'express';
 import { requireAuth, requireRole } from '../middleware/authMiddleware';
-import { listKnowledgeFiles, readKnowledgeFile, saveKnowledgeFile, uploadKnowledgeFile, deleteKnowledgeFile, setActiveAgent, createNewAgent, markAsInstructive, getToolsRegistry, getAgentsMetadata } from '../controllers/knowledgeController';
+import { listKnowledgeFiles, readKnowledgeFile, saveKnowledgeFile, uploadKnowledgeFile, deleteKnowledgeFile, setActiveAgent, createNewAgent, markAsInstructive, getToolsRegistry, getAgentsMetadata, getKnowledgeSnaps, updateSnapNotes, regenerateSnap, regenerateAllSnaps, moveKnowledgeFile, updateSnapEnhancedFields } from '../controllers/knowledgeController';
 import multer from 'multer';
 
 const router = express.Router();
@@ -41,5 +41,15 @@ router.get('/agents-metadata', getAgentsMetadata);
 
 // Delete file
 router.delete('/:folder/file', deleteKnowledgeFile);
+
+// Knowledge Snaps (Auto-instructivo system)
+router.get('/:folder/:agentName/snaps', getKnowledgeSnaps);
+router.post('/:folder/:agentName/snaps/notes', updateSnapNotes);
+router.post('/:folder/:agentName/snaps/regenerate', regenerateSnap);
+router.post('/:folder/:agentName/snaps/regenerate-all', regenerateAllSnaps);
+router.post('/:folder/:agentName/snaps/enhanced', updateSnapEnhancedFields);
+
+// Move file (Drag-and-Drop)
+router.post('/move', moveKnowledgeFile);
 
 export default router;
