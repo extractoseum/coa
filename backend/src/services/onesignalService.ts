@@ -32,7 +32,23 @@ const getTrackingCopy = (status: string, orderNumber: string, details?: string) 
     const hour = (now.getUTCHours() - 6 + 24) % 24;
     const isLate = hour >= 19 || hour < 8; // Between 7 PM and 8 AM
 
-    let customDetails = details ? `\n📍 Detalle: ${details}` : '';
+    // BUG FIX: Don't show inconsistent details (e.g., "En tránsito" when status is "delivered")
+    // Only show details if they are meaningful and consistent with the current status
+    let customDetails = '';
+    if (details) {
+        const lowerDetails = details.toLowerCase();
+        const lowerStatus = status.toLowerCase();
+
+        // Skip generic/inconsistent details
+        const isGenericDetail = lowerDetails === 'en tránsito' || lowerDetails === 'in_transit';
+        const isInconsistent =
+            (lowerStatus === 'delivered' && !lowerDetails.includes('entregado')) ||
+            (lowerStatus === 'out_for_delivery' && lowerDetails === 'en tránsito');
+
+        if (!isGenericDetail && !isInconsistent) {
+            customDetails = `\n📍 Detalle: ${details}`;
+        }
+    }
 
     switch (status) {
         case 'in_transit':
