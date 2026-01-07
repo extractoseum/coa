@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { notifyTrackingUpdate, notifyDeliveryAttemptFailed, notifyPackageAtOffice, notifyDeliveryDelay } from './onesignalService';
+import { notifyTrackingUpdate, notifyDeliveryAttemptFailed, notifyPackageAtOffice, notifyDeliveryDelay, notifyOrderShipped } from './onesignalService';
 import { logSystemEvent } from './loggerService';
 import { supabase } from '../config/supabase';
 
@@ -78,15 +78,31 @@ export const updateOrderTracking = async (orderId: string) => {
                         const latestEvent = result.history && result.history.length > 0 ? result.history[0].details : undefined;
                         const currentLocation = result.history && result.history.length > 0 ? result.history[0].location : undefined;
 
-                        // Notify user of update
-                        await notifyTrackingUpdate(
-                            tracking.orders.client_id,
-                            tracking.orders.order_number,
-                            result.status,
-                            latestEvent,
-                            undefined,
-                            currentLocation
-                        );
+                        // SMART NOTIFICATION: First movement = package was picked up by carrier
+                        // Send the "actually in transit" notification instead of generic tracking update
+                        if (isInitialTransit) {
+                            console.log(`[Tracking] First movement detected for ${trackingNum} - sending PICKED UP notification`);
+                            await notifyOrderShipped(
+                                tracking.orders.client_id,
+                                tracking.orders.order_number,
+                                carrier,
+                                trackingNum,
+                                undefined, // clientData
+                                result.estimatedDelivery,
+                                result.serviceType,
+                                true // isPickedUp = true - package is actually moving now
+                            );
+                        } else {
+                            // Regular tracking update (out_for_delivery, delivered, etc.)
+                            await notifyTrackingUpdate(
+                                tracking.orders.client_id,
+                                tracking.orders.order_number,
+                                result.status,
+                                latestEvent,
+                                undefined,
+                                currentLocation
+                            );
+                        }
                     }
 
                     // NEW: Proactive Detection of problematic statuses in history

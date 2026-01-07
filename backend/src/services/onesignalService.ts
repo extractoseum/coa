@@ -1211,6 +1211,10 @@ export const notifyOrderCreated = async (clientId: string, orderNumber: string, 
 
 /**
  * Notify user of order shipment
+ * SMART NOTIFICATION: Distinguishes between "guide created" vs "actually picked up"
+ *
+ * @param isPickedUp - true if carrier has physically received the package (from tracking API)
+ *                     false/undefined means guide was just created in Shopify
  */
 export const notifyOrderShipped = async (
     clientId: string,
@@ -1219,7 +1223,8 @@ export const notifyOrderShipped = async (
     trackingNumbers: string | string[],
     clientData?: any,
     estimatedDelivery?: string,
-    serviceType?: string
+    serviceType?: string,
+    isPickedUp: boolean = false
 ) => {
     const guides = Array.isArray(trackingNumbers) ? trackingNumbers : [trackingNumbers];
     const trackingString = guides.join(', ');
@@ -1227,13 +1232,14 @@ export const notifyOrderShipped = async (
 
     // --- DEDUPLICATION with atomic lock ---
     // Insert lock record FIRST to prevent race conditions with concurrent webhooks
+    const eventType = isPickedUp ? 'order_in_transit_sent' : 'order_shipped_sent';
     try {
         const { error: lockError } = await supabase
             .from('system_logs')
             .insert({
-                event_type: 'order_shipped_sent',
+                event_type: eventType,
                 client_id: clientId,
-                payload: { orderNumber, carrier, tracking_numbers: guides, status: 'sending' }
+                payload: { orderNumber, carrier, tracking_numbers: guides, status: 'sending', isPickedUp }
             });
 
         if (lockError) {
@@ -1242,7 +1248,7 @@ export const notifyOrderShipped = async (
             const { data: existing } = await supabase
                 .from('system_logs')
                 .select('id, payload')
-                .eq('event_type', 'order_shipped_sent')
+                .eq('event_type', eventType)
                 .eq('client_id', clientId)
                 .gte('created_at', sixtyMinsAgo);
 
@@ -1257,7 +1263,7 @@ export const notifyOrderShipped = async (
                 });
 
                 if (isDuplicate) {
-                    console.log(`[OneSignal] Skipping duplicate SHIPPED notification for ${orderNumber} (${trackingString}) - lock exists`);
+                    console.log(`[OneSignal] Skipping duplicate ${eventType} notification for ${orderNumber} (${trackingString}) - lock exists`);
                     return;
                 }
             }
@@ -1271,10 +1277,24 @@ export const notifyOrderShipped = async (
     const greeting = firstName ? `Hola ${firstName}! ` : '';
 
     const carrierAndService = serviceType ? `${carrier} (${serviceType})` : carrier;
-    const title = '📦 ¡Tu pedido va en camino!';
-    let message = isPlural
-        ? `${greeting}Tu pedido ${orderNumber} ha sido enviado por ${carrierAndService}. Guías: ${trackingString}`
-        : `${greeting}Tu pedido ${orderNumber} ha sido enviado por ${carrierAndService}. Guía: ${guides[0]}`;
+
+    // SMART TITLE & MESSAGE based on actual package status
+    let title: string;
+    let message: string;
+
+    if (isPickedUp) {
+        // Package has been physically picked up by carrier - it's actually moving
+        title = '🚚 ¡Tu pedido va en camino!';
+        message = isPlural
+            ? `${greeting}Tu pedido ${orderNumber} ya fue recolectado por ${carrierAndService} y está en camino. Guías: ${trackingString}`
+            : `${greeting}Tu pedido ${orderNumber} ya fue recolectado por ${carrierAndService} y está en camino. Guía: ${guides[0]}`;
+    } else {
+        // Guide was just created - package is awaiting pickup
+        title = '📦 ¡Tu guía ha sido generada!';
+        message = isPlural
+            ? `${greeting}Tu pedido ${orderNumber} está listo para envío con ${carrierAndService}. Guías: ${trackingString}\n\n⏳ Pendiente de recolección por la paquetería.`
+            : `${greeting}Tu pedido ${orderNumber} está listo para envío con ${carrierAndService}. Guía: ${guides[0]}\n\n⏳ Pendiente de recolección por la paquetería.`;
+    }
 
     if (estimatedDelivery) {
         try {
@@ -1286,7 +1306,7 @@ export const notifyOrderShipped = async (
         }
     }
 
-    console.log(`[OneSignal] notifyOrderShipped for ${orderNumber}, guides: ${trackingString}`);
+    console.log(`[OneSignal] notifyOrderShipped for ${orderNumber}, guides: ${trackingString}, isPickedUp: ${isPickedUp}`);
 
     // Send Push
     await sendNotification({
