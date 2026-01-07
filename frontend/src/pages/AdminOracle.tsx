@@ -218,7 +218,13 @@ const AdminOracle: React.FC = () => {
                                 <div className="text-center py-12 opacity-50">Cargando oráculo...</div>
                             ) : predictions.length === 0 ? (
                                 <div className="text-center py-12 border border-dashed border-white/10 rounded-xl">
-                                    <p className="opacity-50">No hay predicciones próximas</p>
+                                    <Brain size={48} className="mx-auto text-gray-600 mb-4" />
+                                    <h3 className="text-lg font-bold text-gray-400">Sin predicciones actuales</h3>
+                                    <p className="text-sm text-gray-500 max-w-sm mx-auto mt-2">
+                                        El Oráculo no detectó patrones de reorden claros en este momento. Revisa que los
+                                        <span className="text-purple-400 font-bold cursor-pointer" onClick={() => setActiveTab('profiles')}> Perfiles de Consumo </span>
+                                        estén configurados correctamente.
+                                    </p>
                                 </div>
                             ) : (
                                 predictions.map((pred) => (
