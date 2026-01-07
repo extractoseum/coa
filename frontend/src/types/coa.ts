@@ -75,6 +75,8 @@ export interface COA {
     short_description?: string;
     long_description?: string;
     is_hidden?: boolean;
+    visibility_mode?: 'public' | 'hidden' | 'tag_restricted';
+    required_tags?: string[];
 
     // Phase 7: Chemist/signer
     chemist_id?: string;

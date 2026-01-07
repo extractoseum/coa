@@ -457,7 +457,7 @@ export const reExtractCOA = async (req: Request, res: Response) => {
 // Update COA visibility (for super admins)
 export const updateCOAVisibility = async (req: Request, res: Response) => {
     const { token } = req.params;
-    const { is_hidden } = req.body;
+    const { is_hidden, visibility_mode, required_tags } = req.body;
     const client = (req as any).client;
 
     try {
@@ -477,10 +477,23 @@ export const updateCOAVisibility = async (req: Request, res: Response) => {
             return res.status(404).json({ success: false, error: 'COA no encontrado' });
         }
 
+        // Build update object
+        const updateData: any = {
+            is_hidden: is_hidden === true
+        };
+
+        // Add new visibility fields if provided
+        if (visibility_mode && ['public', 'hidden', 'tag_restricted'].includes(visibility_mode)) {
+            updateData.visibility_mode = visibility_mode;
+        }
+        if (Array.isArray(required_tags)) {
+            updateData.required_tags = required_tags;
+        }
+
         // Update visibility
         const { error: updateError } = await supabase
             .from('coas')
-            .update({ is_hidden: is_hidden === true })
+            .update(updateData)
             .eq('id', coa.id);
 
         if (updateError) {
@@ -493,14 +506,26 @@ export const updateCOAVisibility = async (req: Request, res: Response) => {
             eventType: 'COA_VISIBILITY_CHANGED',
             entityId: coa.id,
             entityType: 'coas',
-            payload: { is_hidden: is_hidden === true },
+            payload: {
+                is_hidden: is_hidden === true,
+                visibility_mode: visibility_mode || (is_hidden ? 'hidden' : 'public'),
+                required_tags: required_tags || []
+            },
             createdBy: (req as any).clientId
         });
+
+        const messages: Record<string, string> = {
+            public: 'COA marcado como público',
+            hidden: 'COA marcado como oculto',
+            tag_restricted: `COA restringido a tags: ${(required_tags || []).join(', ')}`
+        };
 
         res.json({
             success: true,
             is_hidden: is_hidden === true,
-            message: is_hidden ? 'COA marcado como oculto' : 'COA marcado como público'
+            visibility_mode: visibility_mode || (is_hidden ? 'hidden' : 'public'),
+            required_tags: required_tags || [],
+            message: messages[visibility_mode] || messages['public']
         });
 
     } catch (err) {
