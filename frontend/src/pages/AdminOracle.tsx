@@ -70,10 +70,11 @@ const AdminOracle: React.FC = () => {
         setIsLoading(true);
         try {
             // Parallel fetch
+            const token = localStorage.getItem('accessToken');
             const [statsRes, predsRes, alertsRes] = await Promise.all([
-                fetch('/api/v1/oracle/stats', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }),
-                fetch('/api/v1/oracle/predictions/due-soon', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }),
-                fetch('/api/v1/oracle/alerts/low-stock', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
+                fetch('/api/v1/oracle/stats', { headers: { Authorization: `Bearer ${token}` } }),
+                fetch('/api/v1/oracle/predictions/due-soon', { headers: { Authorization: `Bearer ${token}` } }),
+                fetch('/api/v1/oracle/alerts/low-stock', { headers: { Authorization: `Bearer ${token}` } })
             ]);
 
             const statsData = await statsRes.json();
@@ -99,7 +100,7 @@ const AdminOracle: React.FC = () => {
         try {
             const res = await fetch(`/api/v1/oracle/trigger/${type}`, {
                 method: 'POST',
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+                headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
             });
             const data = await res.json();
             if (data.success) {
