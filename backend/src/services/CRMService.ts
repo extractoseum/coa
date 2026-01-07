@@ -648,8 +648,12 @@ export class CRMService {
                 } else {
                     // 4. Operational Brain Config
                     const agentId = conversation.agent_override_id || column.assigned_agent_id || 'sales_ara';
-                    const model = conversation.model_override || 'gpt-4o';
+                    // Model resolution: conversation override > column config > default
+                    const columnModel = (column as any).config?.model;
+                    const model = conversation.model_override || columnModel || 'gpt-4o';
                     const objectives = column.objectives || null;
+
+                    console.log(`[CRMService] Model Resolution: conv_override=${conversation.model_override || 'null'}, column_config=${columnModel || 'null'}, final=${model}`);
 
                     // Resolve Tools Whitelist based on Policy
                     let toolsWhitelist: string[] = [];
