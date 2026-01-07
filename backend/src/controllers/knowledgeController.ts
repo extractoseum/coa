@@ -739,7 +739,10 @@ export const regenerateSnap = async (req: Request, res: Response): Promise<void>
 
 /**
  * REGENERATE ALL SNAPS FOR AN AGENT
- * Scans all .md files and generates snaps for each
+ * Scans all .md files from:
+ * 1. Agent's own folder (local knowledge)
+ * 2. Global folders: instructions, information, products, core
+ * This creates a complete knowledge map that the agent can navigate
  */
 export const regenerateAllSnaps = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -756,11 +759,14 @@ export const regenerateAllSnaps = async (req: Request, res: Response): Promise<v
             return;
         }
 
-        console.log(`[KnowledgeController] Regenerating all snaps for ${folder}/${agentName}`);
+        console.log(`[KnowledgeController] 🔄 Regenerating ALL snaps for ${folder}/${agentName}`);
+        console.log(`[KnowledgeController] 📂 Including global folders: instructions, information, products, core`);
 
-        // Get all .md files recursively
+        // Helper: Get all .md files recursively from a directory
         const getAllMdFiles = (dir: string, baseDir: string = dir): string[] => {
             const files: string[] = [];
+            if (!fs.existsSync(dir)) return files;
+
             const items = fs.readdirSync(dir);
 
             for (const item of items) {
@@ -770,7 +776,6 @@ export const regenerateAllSnaps = async (req: Request, res: Response): Promise<v
                 if (stat.isDirectory() && item !== 'node_modules') {
                     files.push(...getAllMdFiles(fullPath, baseDir));
                 } else if (item.endsWith('.md')) {
-                    // Get relative path from agent dir
                     const relativePath = path.relative(baseDir, fullPath);
                     files.push(relativePath);
                 }
@@ -779,53 +784,107 @@ export const regenerateAllSnaps = async (req: Request, res: Response): Promise<v
             return files;
         };
 
-        const mdFiles = getAllMdFiles(agentDir);
-        console.log(`[KnowledgeController] Found ${mdFiles.length} .md files to process`);
-
-        const results = { success: 0, failed: 0, errors: [] as string[] };
+        const results = {
+            success: 0,
+            failed: 0,
+            errors: [] as string[],
+            breakdown: {
+                agentLocal: 0,
+                instructions: 0,
+                information: 0,
+                products: 0,
+                core: 0
+            }
+        };
         const intelligenceService = IntelligenceService.getInstance();
 
-        for (const relPath of mdFiles) {
-            try {
-                const fullPath = path.join(agentDir, relPath);
-                const content = fs.readFileSync(fullPath, 'utf-8');
-                const fileName = relPath; // Use relative path as fileName
+        // Helper to process files from a source
+        const processFiles = async (
+            sourceDir: string,
+            files: string[],
+            isGlobal: boolean,
+            sourceLabel: string
+        ) => {
+            for (const relPath of files) {
+                try {
+                    const fullPath = path.join(sourceDir, relPath);
+                    const content = fs.readFileSync(fullPath, 'utf-8');
 
-                // Clear existing hash to force regeneration
-                const metadataPath = path.join(agentDir, 'metadata.json');
-                if (fs.existsSync(metadataPath)) {
-                    try {
-                        const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf-8'));
-                        if (!metadata.knowledgeSnaps) metadata.knowledgeSnaps = [];
-                        const snap = metadata.knowledgeSnaps.find((s: any) => s.fileName === fileName);
-                        if (snap) {
-                            snap.contentHash = ''; // Force regeneration
-                            fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
-                        }
-                    } catch (e) { }
-                }
+                    // For global files, prefix with source folder for clarity
+                    const fileName = isGlobal ? `[GLOBAL:${sourceLabel}] ${relPath}` : relPath;
 
-                const snap = await intelligenceService.createKnowledgeSnap(agentDir, fileName, content, false);
+                    // Clear existing hash to force regeneration
+                    const metadataPath = path.join(agentDir, 'metadata.json');
+                    if (fs.existsSync(metadataPath)) {
+                        try {
+                            const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf-8'));
+                            if (!metadata.knowledgeSnaps) metadata.knowledgeSnaps = [];
+                            const snap = metadata.knowledgeSnaps.find((s: any) => s.fileName === fileName);
+                            if (snap) {
+                                snap.contentHash = ''; // Force regeneration
+                                fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
+                            }
+                        } catch (e) { }
+                    }
 
-                if (snap) {
-                    results.success++;
-                    console.log(`[KnowledgeController] ✅ Snap created for ${fileName}`);
-                } else {
+                    const snap = await intelligenceService.createKnowledgeSnap(agentDir, fileName, content, isGlobal);
+
+                    if (snap) {
+                        results.success++;
+                        if (sourceLabel === 'LOCAL') results.breakdown.agentLocal++;
+                        else if (sourceLabel === 'INSTRUCCIONES') results.breakdown.instructions++;
+                        else if (sourceLabel === 'BASE_DATOS') results.breakdown.information++;
+                        else if (sourceLabel === 'PRODUCTOS') results.breakdown.products++;
+                        else if (sourceLabel === 'CORE') results.breakdown.core++;
+
+                        console.log(`[KnowledgeController] ✅ ${sourceLabel}: ${relPath}`);
+                    } else {
+                        results.failed++;
+                        results.errors.push(`${fileName}: Failed to create snap`);
+                    }
+
+                    // Small delay to avoid rate limiting
+                    await new Promise(resolve => setTimeout(resolve, 300));
+
+                } catch (err: any) {
                     results.failed++;
-                    results.errors.push(`${fileName}: Failed to create snap`);
+                    results.errors.push(`${relPath}: ${err.message}`);
+                    console.error(`[KnowledgeController] ❌ Error processing ${relPath}:`, err.message);
                 }
+            }
+        };
 
-                // Small delay to avoid rate limiting
-                await new Promise(resolve => setTimeout(resolve, 500));
+        // 1. Process agent's LOCAL files
+        console.log(`[KnowledgeController] 📁 Processing agent local files...`);
+        const agentFiles = getAllMdFiles(agentDir);
+        await processFiles(agentDir, agentFiles, false, 'LOCAL');
 
-            } catch (err: any) {
-                results.failed++;
-                results.errors.push(`${relPath}: ${err.message}`);
-                console.error(`[KnowledgeController] ❌ Error processing ${relPath}:`, err.message);
+        // 2. Process GLOBAL folders
+        const globalFolders = [
+            { name: 'instructions', label: 'INSTRUCCIONES' },
+            { name: 'information', label: 'BASE_DATOS' },
+            { name: 'products', label: 'PRODUCTOS' },
+            { name: 'core', label: 'CORE' }
+        ];
+
+        for (const globalFolder of globalFolders) {
+            const globalDir = path.join(KNOWLEDGE_BASE_DIR, globalFolder.name);
+            if (fs.existsSync(globalDir)) {
+                console.log(`[KnowledgeController] 🌐 Processing ${globalFolder.label}...`);
+                const globalFiles = getAllMdFiles(globalDir);
+                await processFiles(globalDir, globalFiles, true, globalFolder.label);
             }
         }
 
-        console.log(`[KnowledgeController] Regeneration complete: ${results.success} success, ${results.failed} failed`);
+        console.log(`[KnowledgeController] ✨ Regeneration complete!`);
+        console.log(`[KnowledgeController] 📊 Breakdown:
+   - Agent Local: ${results.breakdown.agentLocal}
+   - Instrucciones Globales: ${results.breakdown.instructions}
+   - Base de Datos: ${results.breakdown.information}
+   - Productos: ${results.breakdown.products}
+   - Core: ${results.breakdown.core}
+   - Total Success: ${results.success}, Failed: ${results.failed}`);
+
         res.json({ success: true, results });
 
     } catch (error: any) {

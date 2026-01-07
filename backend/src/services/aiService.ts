@@ -299,54 +299,135 @@ export class AIService {
                 systemPrompt = fs.readFileSync(identityPath, 'utf8') + '\n\n';
             }
 
-            // Read Knowledge Snaps for smart contextual knowledge loading
+            // ═══════════════════════════════════════════════════════════════════════════
+            // KNOWLEDGE SNAPS NAVIGATION SYSTEM
+            // The agent sees its instructivo with all snaps embedded as a navigation map.
+            // This works like vector search - snaps guide the agent to relevant knowledge.
+            // ═══════════════════════════════════════════════════════════════════════════
             try {
                 const intelligenceService = IntelligenceService.getInstance();
                 const metadata = intelligenceService.getMetadata(agentFolderPath);
                 const snaps = metadata.knowledgeSnaps || [];
 
-                // Find relevant snaps based on the user's message
+                // Find relevant snaps based on the user's message (vector-like trigger matching)
                 const relevantSnaps = intelligenceService.findRelevantSnaps(agentFolderPath, message);
 
-                // Build the Knowledge Catalog with snap intelligence
+                // Build KNOWLEDGE NAVIGATION MAP - embedded in instructivo
                 if (snaps.length > 0) {
-                    systemPrompt += `\n### 📚 CATÁLOGO DE CONOCIMIENTO DISPONIBLE:\n`;
-                    systemPrompt += `Tienes acceso a los siguientes archivos de conocimiento. Cada uno tiene triggers (palabras clave) que indican cuándo usarlo.\n\n`;
+                    // Separate LOCAL (agent-specific) from GLOBAL snaps
+                    const localSnaps = snaps.filter(s => !s.isGlobal);
+                    const globalSnaps = snaps.filter(s => s.isGlobal);
 
-                    // Sort snaps by priority (higher priority first)
-                    const sortedSnaps = [...snaps].sort((a, b) => (b.priority || 5) - (a.priority || 5));
+                    systemPrompt += `\n\n╔═══════════════════════════════════════════════════════════════════╗
+║               🗺️ MAPA DE NAVEGACIÓN DE CONOCIMIENTO                ║
+║  Usa este mapa para encontrar la información que necesitas.        ║
+║  Los TRIGGERS te indican cuándo consultar cada fuente.            ║
+╚═══════════════════════════════════════════════════════════════════╝\n`;
 
-                    for (const snap of sortedSnaps) {
-                        const priorityBadge = snap.priority >= 8 ? '🔴' : snap.priority >= 5 ? '🟡' : '⚪';
-                        const categoryBadge = snap.category ? `[${snap.category.toUpperCase()}]` : '';
-                        systemPrompt += `${priorityBadge} **${snap.fileName}** ${categoryBadge}\n`;
-                        systemPrompt += `   📝 ${snap.summary}\n`;
-                        systemPrompt += `   🎯 USO: ${snap.usage}\n`;
-                        if (snap.triggers && snap.triggers.length > 0) {
-                            systemPrompt += `   🔑 TRIGGERS: ${snap.triggers.join(', ')}\n`;
+                    // ─────── AGENT LOCAL KNOWLEDGE ───────
+                    if (localSnaps.length > 0) {
+                        systemPrompt += `\n### 📁 CONOCIMIENTO LOCAL DEL AGENTE (${localSnaps.length} archivos):\n`;
+                        const sortedLocal = [...localSnaps].sort((a, b) => (b.priority || 5) - (a.priority || 5));
+
+                        for (const snap of sortedLocal) {
+                            const priorityBadge = snap.priority >= 8 ? '🔴' : snap.priority >= 5 ? '🟡' : '⚪';
+                            const categoryEmoji = {
+                                product: '📦', policy: '📋', faq: '❓', procedure: '📝',
+                                reference: '📚', pricing: '💰', general: '📄'
+                            }[snap.category] || '📄';
+
+                            systemPrompt += `\n${priorityBadge} **${snap.fileName}** ${categoryEmoji}\n`;
+                            systemPrompt += `   → ${snap.summary}\n`;
+                            systemPrompt += `   🎯 USO: ${snap.usage}\n`;
+                            if (snap.triggers && snap.triggers.length > 0) {
+                                systemPrompt += `   🔑 TRIGGERS: ${snap.triggers.join(', ')}\n`;
+                            }
                         }
-                        systemPrompt += `\n`;
                     }
+
+                    // ─────── GLOBAL KNOWLEDGE SECTIONS ───────
+                    const globalCategories = [
+                        { prefix: '[GLOBAL:INSTRUCCIONES]', label: '📜 INSTRUCCIONES GLOBALES', icon: '🌐' },
+                        { prefix: '[GLOBAL:BASE_DATOS]', label: '🗄️ BASE DE DATOS (CONTEXTO)', icon: '🌐' },
+                        { prefix: '[GLOBAL:PRODUCTOS]', label: '🛒 PRODUCTOS (CATÁLOGO)', icon: '🌐' },
+                        { prefix: '[GLOBAL:CORE]', label: '⚙️ CORE (SISTEMA)', icon: '🌐' }
+                    ];
+
+                    for (const cat of globalCategories) {
+                        const categorySnaps = globalSnaps.filter(s => s.fileName.startsWith(cat.prefix));
+                        if (categorySnaps.length > 0) {
+                            systemPrompt += `\n### ${cat.icon} ${cat.label} (${categorySnaps.length} archivos):\n`;
+
+                            const sortedCategory = [...categorySnaps].sort((a, b) => (b.priority || 5) - (a.priority || 5));
+
+                            for (const snap of sortedCategory) {
+                                const cleanName = snap.fileName.replace(cat.prefix + ' ', '');
+                                const priorityBadge = snap.priority >= 8 ? '🔴' : snap.priority >= 5 ? '🟡' : '⚪';
+
+                                systemPrompt += `\n${priorityBadge} **${cleanName}**\n`;
+                                systemPrompt += `   → ${snap.summary}\n`;
+                                if (snap.triggers && snap.triggers.length > 0) {
+                                    systemPrompt += `   🔑 TRIGGERS: ${snap.triggers.join(', ')}\n`;
+                                }
+                            }
+                        }
+                    }
+
+                    systemPrompt += `\n═══════════════════════════════════════════════════════════════════\n`;
                 }
 
-                // AUTO-LOAD relevant knowledge based on message triggers
+                // ─────── AUTO-LOAD RELEVANT KNOWLEDGE ───────
+                // Based on trigger matching (vector-like search), load the most relevant files
                 if (relevantSnaps.length > 0) {
-                    systemPrompt += `\n### 🎯 CONOCIMIENTO RELEVANTE PARA ESTA CONVERSACIÓN:\n`;
-                    systemPrompt += `Los siguientes archivos coinciden con el tema del mensaje del cliente y han sido cargados automáticamente:\n\n`;
+                    systemPrompt += `\n╔═══════════════════════════════════════════════════════════════════╗
+║           🎯 CONOCIMIENTO RELEVANTE CARGADO AUTOMÁTICAMENTE        ║
+║  Basado en el mensaje del cliente, se cargó esta información:     ║
+╚═══════════════════════════════════════════════════════════════════╝\n`;
+
+                    const loadedFiles: string[] = [];
 
                     for (const snap of relevantSnaps.slice(0, 3)) { // Limit to top 3 most relevant
-                        const filePath = path.join(agentFolderPath, snap.fileName);
-                        if (fs.existsSync(filePath)) {
+                        // Determine the actual file path based on whether it's global or local
+                        let filePath = '';
+                        if (snap.isGlobal && snap.fileName.startsWith('[GLOBAL:')) {
+                            // Parse global path: "[GLOBAL:INSTRUCCIONES] filename.md" -> "instructions/filename.md"
+                            const match = snap.fileName.match(/\[GLOBAL:(\w+)\] (.+)/);
+                            if (match) {
+                                const folderMap: Record<string, string> = {
+                                    'INSTRUCCIONES': 'instructions',
+                                    'BASE_DATOS': 'information',
+                                    'PRODUCTOS': 'products',
+                                    'CORE': 'core'
+                                };
+                                const globalFolder = folderMap[match[1]] || 'information';
+                                filePath = path.join(path.dirname(agentFolderPath), '..', globalFolder, match[2]);
+                            }
+                        } else {
+                            filePath = path.join(agentFolderPath, snap.fileName);
+                        }
+
+                        if (filePath && fs.existsSync(filePath)) {
                             try {
                                 const content = fs.readFileSync(filePath, 'utf8');
-                                systemPrompt += `---\n#### 📄 ${snap.fileName}\n${content}\n---\n\n`;
+                                const displayName = snap.fileName.replace(/\[GLOBAL:\w+\] /, '');
+                                const sourceLabel = snap.isGlobal ? '🌐 GLOBAL' : '📁 LOCAL';
 
-                                // Track usage for analytics (fire and forget)
-                                intelligenceService.recordSnapUsage(agentFolderPath, [snap.fileName]).catch(() => {});
+                                systemPrompt += `\n┌─────────────────────────────────────────────────────────────────┐
+│ ${sourceLabel}: ${displayName}
+└─────────────────────────────────────────────────────────────────┘
+${content}
+───────────────────────────────────────────────────────────────────\n`;
+
+                                loadedFiles.push(snap.fileName);
                             } catch (readErr) {
                                 console.warn(`[AIService] Failed to read relevant file ${snap.fileName}:`, readErr);
                             }
                         }
+                    }
+
+                    // Track usage for analytics (fire and forget)
+                    if (loadedFiles.length > 0) {
+                        intelligenceService.recordSnapUsage(agentFolderPath, loadedFiles).catch(() => {});
                     }
                 }
 

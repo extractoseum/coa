@@ -504,7 +504,7 @@ const AdminAIKnowledge = () => {
 
     const handleRegenerateAllSnaps = async () => {
         if (!selectedAgentForSnaps) return;
-        if (!confirm(`¿Regenerar todos los snaps para ${selectedAgentForSnaps.name}? Esto puede tomar varios minutos.`)) return;
+        if (!confirm(`¿Regenerar todos los snaps para ${selectedAgentForSnaps.name}?\n\nEsto incluirá:\n• Archivos locales del agente\n• Instrucciones Globales\n• Base de Datos (Contexto)\n• Productos (Catálogo)\n• Core\n\nEsto puede tomar varios minutos.`)) return;
 
         setRegeneratingAll(true);
         try {
@@ -514,7 +514,17 @@ const AdminAIKnowledge = () => {
             });
             const data = await res.json();
             if (data.success) {
-                setSuccessMsg(`Snaps regenerados: ${data.results.success} exitosos, ${data.results.failed} fallidos`);
+                // Show detailed breakdown
+                const breakdown = data.results.breakdown || {};
+                const breakdownText = [
+                    breakdown.agentLocal > 0 ? `📁 Local: ${breakdown.agentLocal}` : null,
+                    breakdown.instructions > 0 ? `📜 Instrucciones: ${breakdown.instructions}` : null,
+                    breakdown.information > 0 ? `🗄️ Base Datos: ${breakdown.information}` : null,
+                    breakdown.products > 0 ? `🛒 Productos: ${breakdown.products}` : null,
+                    breakdown.core > 0 ? `⚙️ Core: ${breakdown.core}` : null
+                ].filter(Boolean).join(' | ');
+
+                setSuccessMsg(`✅ ${data.results.success} snaps regenerados${data.results.failed > 0 ? `, ${data.results.failed} fallidos` : ''}\n${breakdownText}`);
                 await fetchAgentSnaps(selectedAgentForSnaps.folder, selectedAgentForSnaps.name);
             } else {
                 setError(data.error);
@@ -1202,7 +1212,50 @@ const AdminAIKnowledge = () => {
                                             <p className="text-xs mt-1 opacity-60">Haz clic en "Regenerar Todos" para generar los snaps.</p>
                                         </div>
                                     ) : (
-                                        selectedAgentSnaps.map(snap => {
+                                        <>
+                                        {/* Snaps Summary Banner */}
+                                        {(() => {
+                                            const localSnaps = selectedAgentSnaps.filter(s => !s.isGlobal);
+                                            const globalSnaps = selectedAgentSnaps.filter(s => s.isGlobal);
+                                            const instruccionesSnaps = globalSnaps.filter(s => s.fileName.includes('[GLOBAL:INSTRUCCIONES]'));
+                                            const baseDatosSnaps = globalSnaps.filter(s => s.fileName.includes('[GLOBAL:BASE_DATOS]'));
+                                            const productosSnaps = globalSnaps.filter(s => s.fileName.includes('[GLOBAL:PRODUCTOS]'));
+                                            const coreSnaps = globalSnaps.filter(s => s.fileName.includes('[GLOBAL:CORE]'));
+
+                                            return (
+                                                <div className="p-3 rounded-xl mb-4" style={{ backgroundColor: `${theme.accent}10`, border: `1px solid ${theme.accent}30` }}>
+                                                    <p className="text-[10px] font-bold mb-2" style={{ color: theme.accent }}>🗺️ MAPA DE CONOCIMIENTO:</p>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {localSnaps.length > 0 && (
+                                                            <span className="px-2 py-1 rounded text-[10px] flex items-center gap-1" style={{ backgroundColor: `${theme.accent}20`, color: theme.accent }}>
+                                                                <Folder size={10} /> Local: {localSnaps.length}
+                                                            </span>
+                                                        )}
+                                                        {instruccionesSnaps.length > 0 && (
+                                                            <span className="px-2 py-1 rounded text-[10px] flex items-center gap-1" style={{ backgroundColor: 'rgba(147, 51, 234, 0.2)', color: '#a855f7' }}>
+                                                                <BookOpen size={10} /> Instrucciones: {instruccionesSnaps.length}
+                                                            </span>
+                                                        )}
+                                                        {baseDatosSnaps.length > 0 && (
+                                                            <span className="px-2 py-1 rounded text-[10px] flex items-center gap-1" style={{ backgroundColor: 'rgba(59, 130, 246, 0.2)', color: '#3b82f6' }}>
+                                                                <Database size={10} /> Base Datos: {baseDatosSnaps.length}
+                                                            </span>
+                                                        )}
+                                                        {productosSnaps.length > 0 && (
+                                                            <span className="px-2 py-1 rounded text-[10px] flex items-center gap-1" style={{ backgroundColor: 'rgba(16, 185, 129, 0.2)', color: '#10b981' }}>
+                                                                <ShoppingBag size={10} /> Productos: {productosSnaps.length}
+                                                            </span>
+                                                        )}
+                                                        {coreSnaps.length > 0 && (
+                                                            <span className="px-2 py-1 rounded text-[10px] flex items-center gap-1" style={{ backgroundColor: 'rgba(245, 158, 11, 0.2)', color: '#f59e0b' }}>
+                                                                <Zap size={10} /> Core: {coreSnaps.length}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
+                                        {selectedAgentSnaps.map(snap => {
                                             const categoryLabels: Record<string, { label: string; color: string }> = {
                                                 product: { label: 'Producto', color: '#10b981' },
                                                 policy: { label: 'Política', color: '#6366f1' },
@@ -1414,7 +1467,8 @@ const AdminAIKnowledge = () => {
                                                 </p>
                                             </div>
                                         );
-                                        })
+                                        })}
+                                        </>
                                     )}
                                 </div>
 
