@@ -681,10 +681,20 @@ const AdminAIKnowledge = () => {
             return;
         }
 
+        // OPTIMIZATION: Only update state if it changed to prevent render thrashing
+        if (dropTarget?.folder === folder && dropTarget?.agentName === agentName) {
+            return;
+        }
+
         setDropTarget({ folder, agentName });
     };
 
-    const handleDragLeave = () => {
+    const handleDragLeave = (e: React.DragEvent) => {
+        // PREVENT FLICKER: specific check to ensure we actually left the container
+        // and didn't just enter a child element (like text or icon)
+        if (e.currentTarget.contains(e.relatedTarget as Node)) {
+            return;
+        }
         setDropTarget(null);
     };
 
@@ -825,7 +835,13 @@ const AdminAIKnowledge = () => {
 
                             <div className="flex-1 overflow-y-auto p-2 space-y-4 scrollbar-thin scrollbar-thumb-white/5">
                                 {Object.keys(structure).filter(k => !k.endsWith('_config')).map(folder => (
-                                    <div key={folder} className="mb-4">
+                                    <div
+                                        key={folder}
+                                        className="mb-4"
+                                        onDragOver={!AGENT_FOLDERS.includes(folder) ? (e) => handleDragOver(e, folder) : undefined}
+                                        onDragLeave={!AGENT_FOLDERS.includes(folder) ? handleDragLeave : undefined}
+                                        onDrop={!AGENT_FOLDERS.includes(folder) ? (e) => handleDrop(e, folder) : undefined}
+                                    >
                                         <div className="px-3 py-1 flex items-center justify-between mb-1">
                                             <span className="text-[9px] font-black uppercase tracking-tighter flex items-center gap-1.5" style={{ color: theme.textMuted }}>
                                                 {getFolderIcon(folder)}
@@ -901,64 +917,64 @@ const AdminAIKnowledge = () => {
                                                                     const subFolder = file.name.includes('/') ? file.name.split('/').slice(0, -1).join('/') : null;
 
                                                                     return (
-                                                                    <div
-                                                                        key={file.path}
-                                                                        className={`group flex items-center gap-1 py-1 px-1 rounded-lg transition-all duration-200 cursor-grab active:cursor-grabbing select-none ${isBeingDragged ? 'opacity-30 scale-95 bg-pink-500/10' : ''} ${isChecked ? 'bg-blue-500/10 ring-1 ring-blue-500/30' : isSelected ? 'bg-white/10 ring-1 ring-pink-500/30' : 'hover:bg-white/5'}`}
-                                                                        draggable={true}
-                                                                        onMouseDown={handleFileMouseDown}
-                                                                        onDragStart={(e) => handleDragStart(e, filePath, folder, file.name, agent.name)}
-                                                                        onDragEnd={handleDragEnd}
-                                                                        onClick={(e) => handleFileRowClick(e, folder, `${agent.name}/${file.name}`)}
-                                                                        title={`${file.name}${file.summary ? '\n\n' + file.summary : ''}`}
-                                                                    >
-                                                                        {/* Multi-select Checkbox */}
-                                                                        {(isMultiSelectMode || selectedFiles.size > 0) && (
-                                                                            <button
-                                                                                onClick={(e) => toggleFileSelection(filePath, e)}
-                                                                                onMouseDown={(e) => e.stopPropagation()}
-                                                                                className={`p-0.5 rounded transition-all ${isChecked ? 'text-blue-400' : 'text-gray-500 opacity-40 hover:opacity-100'}`}
-                                                                            >
-                                                                                {isChecked ? <CheckSquare size={12} /> : <Square size={12} />}
-                                                                            </button>
-                                                                        )}
-                                                                        {/* Drag Handle - visual indicator only, whole row is draggable */}
-                                                                        <div className="p-1 rounded hover:bg-white/10 transition-colors pointer-events-none">
-                                                                            <GripVertical size={12} className="opacity-30 group-hover:opacity-70 transition-opacity text-pink-400" />
-                                                                        </div>
-
-                                                                        {/* File Info - pointer-events-none to allow drag through */}
-                                                                        <FileText size={12} className={`flex-shrink-0 pointer-events-none ${isSelected ? 'text-pink-400' : 'opacity-40'}`} />
-                                                                        <div className="flex flex-col flex-1 min-w-0 pointer-events-none">
-                                                                            {subFolder && (
-                                                                                <span className="text-[8px] opacity-30 font-mono">{subFolder}/</span>
+                                                                        <div
+                                                                            key={file.path}
+                                                                            className={`group flex items-center gap-1 py-1 px-1 rounded-lg transition-all duration-200 cursor-grab active:cursor-grabbing select-none ${isBeingDragged ? 'opacity-30 scale-95 bg-pink-500/10' : ''} ${isChecked ? 'bg-blue-500/10 ring-1 ring-blue-500/30' : isSelected ? 'bg-white/10 ring-1 ring-pink-500/30' : 'hover:bg-white/5'}`}
+                                                                            draggable={true}
+                                                                            onMouseDown={handleFileMouseDown}
+                                                                            onDragStart={(e) => handleDragStart(e, filePath, folder, file.name, agent.name)}
+                                                                            onDragEnd={handleDragEnd}
+                                                                            onClick={(e) => handleFileRowClick(e, folder, `${agent.name}/${file.name}`)}
+                                                                            title={`${file.name}${file.summary ? '\n\n' + file.summary : ''}`}
+                                                                        >
+                                                                            {/* Multi-select Checkbox */}
+                                                                            {(isMultiSelectMode || selectedFiles.size > 0) && (
+                                                                                <button
+                                                                                    onClick={(e) => toggleFileSelection(filePath, e)}
+                                                                                    onMouseDown={(e) => e.stopPropagation()}
+                                                                                    className={`p-0.5 rounded transition-all ${isChecked ? 'text-blue-400' : 'text-gray-500 opacity-40 hover:opacity-100'}`}
+                                                                                >
+                                                                                    {isChecked ? <CheckSquare size={12} /> : <Square size={12} />}
+                                                                                </button>
                                                                             )}
-                                                                            <span
-                                                                                className={`text-[11px] truncate ${isSelected ? 'font-medium' : ''}`}
-                                                                                style={{ color: isSelected ? theme.accent : theme.textMuted }}
-                                                                            >
-                                                                                {displayName}
-                                                                            </span>
-                                                                            {file.summary && (
-                                                                                <span className="text-[9px] opacity-40 truncate font-light line-clamp-1">
-                                                                                    {file.summary}
+                                                                            {/* Drag Handle - visual indicator only, whole row is draggable */}
+                                                                            <div className="p-1 rounded hover:bg-white/10 transition-colors pointer-events-none">
+                                                                                <GripVertical size={12} className="opacity-30 group-hover:opacity-70 transition-opacity text-pink-400" />
+                                                                            </div>
+
+                                                                            {/* File Info - pointer-events-none to allow drag through */}
+                                                                            <FileText size={12} className={`flex-shrink-0 pointer-events-none ${isSelected ? 'text-pink-400' : 'opacity-40'}`} />
+                                                                            <div className="flex flex-col flex-1 min-w-0 pointer-events-none">
+                                                                                {subFolder && (
+                                                                                    <span className="text-[8px] opacity-30 font-mono">{subFolder}/</span>
+                                                                                )}
+                                                                                <span
+                                                                                    className={`text-[11px] truncate ${isSelected ? 'font-medium' : ''}`}
+                                                                                    style={{ color: isSelected ? theme.accent : theme.textMuted }}
+                                                                                >
+                                                                                    {displayName}
                                                                                 </span>
-                                                                            )}
-                                                                        </div>
+                                                                                {file.summary && (
+                                                                                    <span className="text-[9px] opacity-40 truncate font-light line-clamp-1">
+                                                                                        {file.summary}
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
 
-                                                                        {/* Actions */}
-                                                                        <div className="flex opacity-0 group-hover:opacity-100 transition-all flex-shrink-0">
-                                                                            <button onClick={(e) => { e.stopPropagation(); handleMarkAsInstructive(folder, `${agent.name}/${file.name}`); }}
-                                                                                className={`p-1 rounded transition-colors ${file.isInstructive ? 'text-yellow-400' : 'hover:text-yellow-400 hover:bg-yellow-400/10'}`}
-                                                                                title={file.isInstructive ? 'Instructivo Principal (Activo)' : 'Marcar como Instructivo'}>
-                                                                                <Star size={10} fill={file.isInstructive ? 'currentColor' : 'none'} />
-                                                                            </button>
-                                                                            <button onClick={(e) => { e.stopPropagation(); handleDeleteFile(folder, `${agent.name}/${file.name}`); }}
-                                                                                className="p-1 rounded hover:text-red-500 hover:bg-red-500/10 transition-colors">
-                                                                                <Trash2 size={10} />
-                                                                            </button>
+                                                                            {/* Actions */}
+                                                                            <div className="flex opacity-0 group-hover:opacity-100 transition-all flex-shrink-0">
+                                                                                <button onClick={(e) => { e.stopPropagation(); handleMarkAsInstructive(folder, `${agent.name}/${file.name}`); }}
+                                                                                    className={`p-1 rounded transition-colors ${file.isInstructive ? 'text-yellow-400' : 'hover:text-yellow-400 hover:bg-yellow-400/10'}`}
+                                                                                    title={file.isInstructive ? 'Instructivo Principal (Activo)' : 'Marcar como Instructivo'}>
+                                                                                    <Star size={10} fill={file.isInstructive ? 'currentColor' : 'none'} />
+                                                                                </button>
+                                                                                <button onClick={(e) => { e.stopPropagation(); handleDeleteFile(folder, `${agent.name}/${file.name}`); }}
+                                                                                    className="p-1 rounded hover:text-red-500 hover:bg-red-500/10 transition-colors">
+                                                                                    <Trash2 size={10} />
+                                                                                </button>
+                                                                            </div>
                                                                         </div>
-                                                                    </div>
-                                                                );
+                                                                    );
                                                                 })}
                                                                 <button onClick={() => handleAddNewFile(folder, agent.name)} className="px-2 py-1 text-[9px] opacity-40 hover:opacity-100 transition-all hover:text-green-500">+ Nuevo MD</button>
                                                             </div>
@@ -969,9 +985,6 @@ const AdminAIKnowledge = () => {
                                         ) : (
                                             <div
                                                 className={`space-y-1 mt-1 rounded-lg p-1.5 transition-all ${dropTarget?.folder === folder && !dropTarget?.agentName ? 'bg-green-500/20 border-2 border-green-500 border-dashed shadow-[inset_0_0_10px_rgba(34,197,94,0.2)]' : ''}`}
-                                                onDragOver={(e) => handleDragOver(e, folder)}
-                                                onDragLeave={handleDragLeave}
-                                                onDrop={(e) => handleDrop(e, folder)}
                                             >
                                                 {(structure[folder] as FileItem[]).map(file => {
                                                     const filePath = `${folder}/${file.name}`;
@@ -980,55 +993,55 @@ const AdminAIKnowledge = () => {
                                                     const isChecked = selectedFiles.has(filePath);
 
                                                     return (
-                                                    <div
-                                                        key={file.path}
-                                                        className={`group flex items-center gap-1 py-1 px-1 rounded-lg transition-all duration-200 cursor-grab active:cursor-grabbing select-none ${isBeingDragged ? 'opacity-30 scale-95 bg-pink-500/10' : ''} ${isChecked ? 'bg-blue-500/10 ring-1 ring-blue-500/30' : isSelected ? 'bg-white/10 ring-1 ring-pink-500/30' : 'hover:bg-white/5'}`}
-                                                        draggable={true}
-                                                        onMouseDown={handleFileMouseDown}
-                                                        onDragStart={(e) => handleDragStart(e, filePath, folder, file.name)}
-                                                        onDragEnd={handleDragEnd}
-                                                        onClick={(e) => handleFileRowClick(e, folder, file.name)}
-                                                        title={`${file.name}${file.summary ? '\n\n' + file.summary : ''}`}
-                                                    >
-                                                        {/* Multi-select Checkbox */}
-                                                        {(isMultiSelectMode || selectedFiles.size > 0) && (
-                                                            <button
-                                                                onClick={(e) => toggleFileSelection(filePath, e)}
-                                                                onMouseDown={(e) => e.stopPropagation()}
-                                                                className={`p-0.5 rounded transition-all ${isChecked ? 'text-blue-400' : 'text-gray-500 opacity-40 hover:opacity-100'}`}
-                                                            >
-                                                                {isChecked ? <CheckSquare size={12} /> : <Square size={12} />}
-                                                            </button>
-                                                        )}
-                                                        {/* Drag Handle - visual indicator only, whole row is draggable */}
-                                                        <div className="p-1 rounded hover:bg-white/10 transition-colors pointer-events-none">
-                                                            <GripVertical size={12} className="opacity-30 group-hover:opacity-70 transition-opacity text-pink-400" />
-                                                        </div>
-
-                                                        {/* File Info - pointer-events-none to allow drag through */}
-                                                        <FileText size={12} className={`flex-shrink-0 pointer-events-none ${isSelected ? 'text-pink-400' : 'opacity-40'}`} />
-                                                        <div className="flex flex-col flex-1 min-w-0 pointer-events-none">
-                                                            <span
-                                                                className={`text-[11px] truncate ${isSelected ? 'font-medium' : ''}`}
-                                                                style={{ color: isSelected ? theme.accent : theme.textMuted }}
-                                                            >
-                                                                {file.name}
-                                                            </span>
-                                                            {file.summary && (
-                                                                <span className="text-[9px] opacity-40 truncate font-light line-clamp-1">
-                                                                    {file.summary}
-                                                                </span>
+                                                        <div
+                                                            key={file.path}
+                                                            className={`group flex items-center gap-1 py-1 px-1 rounded-lg transition-all duration-200 cursor-grab active:cursor-grabbing select-none ${isBeingDragged ? 'opacity-30 scale-95 bg-pink-500/10' : ''} ${isChecked ? 'bg-blue-500/10 ring-1 ring-blue-500/30' : isSelected ? 'bg-white/10 ring-1 ring-pink-500/30' : 'hover:bg-white/5'}`}
+                                                            draggable={true}
+                                                            onMouseDown={handleFileMouseDown}
+                                                            onDragStart={(e) => handleDragStart(e, filePath, folder, file.name)}
+                                                            onDragEnd={handleDragEnd}
+                                                            onClick={(e) => handleFileRowClick(e, folder, file.name)}
+                                                            title={`${file.name}${file.summary ? '\n\n' + file.summary : ''}`}
+                                                        >
+                                                            {/* Multi-select Checkbox */}
+                                                            {(isMultiSelectMode || selectedFiles.size > 0) && (
+                                                                <button
+                                                                    onClick={(e) => toggleFileSelection(filePath, e)}
+                                                                    onMouseDown={(e) => e.stopPropagation()}
+                                                                    className={`p-0.5 rounded transition-all ${isChecked ? 'text-blue-400' : 'text-gray-500 opacity-40 hover:opacity-100'}`}
+                                                                >
+                                                                    {isChecked ? <CheckSquare size={12} /> : <Square size={12} />}
+                                                                </button>
                                                             )}
-                                                        </div>
+                                                            {/* Drag Handle - visual indicator only, whole row is draggable */}
+                                                            <div className="p-1 rounded hover:bg-white/10 transition-colors pointer-events-none">
+                                                                <GripVertical size={12} className="opacity-30 group-hover:opacity-70 transition-opacity text-pink-400" />
+                                                            </div>
 
-                                                        {/* Delete Button */}
-                                                        <button
-                                                            onClick={(e) => { e.stopPropagation(); handleDeleteFile(folder, file.name); }}
-                                                            className="p-1 rounded opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:bg-red-500/10 transition-all text-red-500 flex-shrink-0">
-                                                            <Trash2 size={10} />
-                                                        </button>
-                                                    </div>
-                                                );
+                                                            {/* File Info - pointer-events-none to allow drag through */}
+                                                            <FileText size={12} className={`flex-shrink-0 pointer-events-none ${isSelected ? 'text-pink-400' : 'opacity-40'}`} />
+                                                            <div className="flex flex-col flex-1 min-w-0 pointer-events-none">
+                                                                <span
+                                                                    className={`text-[11px] truncate ${isSelected ? 'font-medium' : ''}`}
+                                                                    style={{ color: isSelected ? theme.accent : theme.textMuted }}
+                                                                >
+                                                                    {file.name}
+                                                                </span>
+                                                                {file.summary && (
+                                                                    <span className="text-[9px] opacity-40 truncate font-light line-clamp-1">
+                                                                        {file.summary}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+
+                                                            {/* Delete Button */}
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); handleDeleteFile(folder, file.name); }}
+                                                                className="p-1 rounded opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:bg-red-500/10 transition-all text-red-500 flex-shrink-0">
+                                                                <Trash2 size={10} />
+                                                            </button>
+                                                        </div>
+                                                    );
                                                 })}
                                             </div>
                                         )}
@@ -1256,261 +1269,261 @@ const AdminAIKnowledge = () => {
                                         </div>
                                     ) : (
                                         <>
-                                        {/* Snaps Summary Banner */}
-                                        {(() => {
-                                            const localSnaps = selectedAgentSnaps.filter(s => !s.isGlobal);
-                                            const globalSnaps = selectedAgentSnaps.filter(s => s.isGlobal);
-                                            const instruccionesSnaps = globalSnaps.filter(s => s.fileName.includes('[GLOBAL:INSTRUCCIONES]'));
-                                            const baseDatosSnaps = globalSnaps.filter(s => s.fileName.includes('[GLOBAL:BASE_DATOS]'));
-                                            const productosSnaps = globalSnaps.filter(s => s.fileName.includes('[GLOBAL:PRODUCTOS]'));
-                                            const coreSnaps = globalSnaps.filter(s => s.fileName.includes('[GLOBAL:CORE]'));
+                                            {/* Snaps Summary Banner */}
+                                            {(() => {
+                                                const localSnaps = selectedAgentSnaps.filter(s => !s.isGlobal);
+                                                const globalSnaps = selectedAgentSnaps.filter(s => s.isGlobal);
+                                                const instruccionesSnaps = globalSnaps.filter(s => s.fileName.includes('[GLOBAL:INSTRUCCIONES]'));
+                                                const baseDatosSnaps = globalSnaps.filter(s => s.fileName.includes('[GLOBAL:BASE_DATOS]'));
+                                                const productosSnaps = globalSnaps.filter(s => s.fileName.includes('[GLOBAL:PRODUCTOS]'));
+                                                const coreSnaps = globalSnaps.filter(s => s.fileName.includes('[GLOBAL:CORE]'));
 
-                                            return (
-                                                <div className="p-3 rounded-xl mb-4" style={{ backgroundColor: `${theme.accent}10`, border: `1px solid ${theme.accent}30` }}>
-                                                    <p className="text-[10px] font-bold mb-2" style={{ color: theme.accent }}>🗺️ MAPA DE CONOCIMIENTO:</p>
-                                                    <div className="flex flex-wrap gap-2">
-                                                        {localSnaps.length > 0 && (
-                                                            <span className="px-2 py-1 rounded text-[10px] flex items-center gap-1" style={{ backgroundColor: `${theme.accent}20`, color: theme.accent }}>
-                                                                <Folder size={10} /> Local: {localSnaps.length}
-                                                            </span>
-                                                        )}
-                                                        {instruccionesSnaps.length > 0 && (
-                                                            <span className="px-2 py-1 rounded text-[10px] flex items-center gap-1" style={{ backgroundColor: 'rgba(147, 51, 234, 0.2)', color: '#a855f7' }}>
-                                                                <BookOpen size={10} /> Instrucciones: {instruccionesSnaps.length}
-                                                            </span>
-                                                        )}
-                                                        {baseDatosSnaps.length > 0 && (
-                                                            <span className="px-2 py-1 rounded text-[10px] flex items-center gap-1" style={{ backgroundColor: 'rgba(59, 130, 246, 0.2)', color: '#3b82f6' }}>
-                                                                <Database size={10} /> Base Datos: {baseDatosSnaps.length}
-                                                            </span>
-                                                        )}
-                                                        {productosSnaps.length > 0 && (
-                                                            <span className="px-2 py-1 rounded text-[10px] flex items-center gap-1" style={{ backgroundColor: 'rgba(16, 185, 129, 0.2)', color: '#10b981' }}>
-                                                                <ShoppingBag size={10} /> Productos: {productosSnaps.length}
-                                                            </span>
-                                                        )}
-                                                        {coreSnaps.length > 0 && (
-                                                            <span className="px-2 py-1 rounded text-[10px] flex items-center gap-1" style={{ backgroundColor: 'rgba(245, 158, 11, 0.2)', color: '#f59e0b' }}>
-                                                                <Zap size={10} /> Core: {coreSnaps.length}
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            );
-                                        })()}
-                                        {selectedAgentSnaps.map(snap => {
-                                            const categoryLabels: Record<string, { label: string; color: string }> = {
-                                                product: { label: 'Producto', color: '#10b981' },
-                                                policy: { label: 'Política', color: '#6366f1' },
-                                                faq: { label: 'FAQ', color: '#8b5cf6' },
-                                                procedure: { label: 'Procedimiento', color: '#f59e0b' },
-                                                reference: { label: 'Referencia', color: '#64748b' },
-                                                pricing: { label: 'Precios', color: '#ef4444' },
-                                                general: { label: 'General', color: '#94a3b8' }
-                                            };
-                                            const catInfo = categoryLabels[snap.category] || categoryLabels.general;
-                                            const priorityColor = snap.priority >= 8 ? '#ef4444' : snap.priority >= 5 ? '#f59e0b' : '#10b981';
-                                            const effectivenessColor = snap.effectivenessScore >= 70 ? '#10b981' : snap.effectivenessScore >= 40 ? '#f59e0b' : '#ef4444';
-
-                                            return (
-                                            <div key={snap.fileName} className="p-4 rounded-xl" style={{ backgroundColor: `${theme.cardBg2}`, border: `1px solid ${theme.border}` }}>
-                                                {/* Header */}
-                                                <div className="flex items-start justify-between mb-2">
-                                                    <div className="flex items-center gap-2 flex-wrap">
-                                                        <FileText size={14} style={{ color: snap.isGlobal ? '#3b82f6' : theme.accent }} />
-                                                        <span className="font-medium text-sm" style={{ color: theme.text }}>{snap.fileName}</span>
-                                                        {snap.isGlobal && (
-                                                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/20 text-blue-400">GLOBAL</span>
-                                                        )}
-                                                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold" style={{ backgroundColor: `${catInfo.color}20`, color: catInfo.color }}>
-                                                            {catInfo.label}
-                                                        </span>
-                                                    </div>
-                                                    <div className="flex gap-1">
-                                                        <button
-                                                            onClick={() => handleRegenerateSnap(snap.fileName)}
-                                                            disabled={regeneratingSnap === snap.fileName}
-                                                            className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
-                                                            title="Regenerar snap"
-                                                        >
-                                                            <RefreshCw size={12} className={regeneratingSnap === snap.fileName ? 'animate-spin' : ''} style={{ color: theme.textMuted }} />
-                                                        </button>
-                                                    </div>
-                                                </div>
-
-                                                {/* Stats Row */}
-                                                <div className="flex gap-3 mb-3 text-[9px]">
-                                                    <div className="flex items-center gap-1" title="Prioridad">
-                                                        <span style={{ color: priorityColor }}>●</span>
-                                                        <span style={{ color: theme.textMuted }}>P{snap.priority || 5}</span>
-                                                    </div>
-                                                    <div className="flex items-center gap-1" title="Efectividad">
-                                                        <span style={{ color: effectivenessColor }}>●</span>
-                                                        <span style={{ color: theme.textMuted }}>{snap.effectivenessScore ?? 50}%</span>
-                                                    </div>
-                                                    <div className="flex items-center gap-1" title="Usos">
-                                                        <span style={{ color: theme.textMuted }}>×{snap.usageCount || 0}</span>
-                                                    </div>
-                                                    {snap.lastUsed && (
-                                                        <div className="flex items-center gap-1" title="Último uso">
-                                                            <span style={{ color: theme.textMuted }}>Usado: {new Date(snap.lastUsed).toLocaleDateString('es-MX')}</span>
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                <p className="text-xs mb-2" style={{ color: theme.textMuted }}>{snap.summary}</p>
-
-                                                <div className="p-2 rounded-lg mb-2" style={{ backgroundColor: `${theme.accent}10` }}>
-                                                    <p className="text-[10px] font-bold mb-1" style={{ color: theme.accent }}>USO:</p>
-                                                    <p className="text-xs" style={{ color: theme.text }}>{snap.usage}</p>
-                                                </div>
-
-                                                {/* Triggers & Enhanced Fields */}
-                                                {editingSnapEnhanced === snap.fileName ? (
-                                                    <div className="mt-3 p-3 rounded-lg space-y-3" style={{ backgroundColor: 'rgba(99, 102, 241, 0.05)', border: '1px solid rgba(99, 102, 241, 0.2)' }}>
-                                                        <div>
-                                                            <label className="text-[10px] font-bold mb-1 block" style={{ color: '#6366f1' }}>TRIGGERS (separados por coma):</label>
-                                                            <input
-                                                                type="text"
-                                                                value={enhancedFormData.triggers}
-                                                                onChange={(e) => setEnhancedFormData(prev => ({ ...prev, triggers: e.target.value }))}
-                                                                className="w-full p-2 rounded-lg text-xs"
-                                                                style={{ backgroundColor: theme.cardBg, color: theme.text, border: `1px solid ${theme.border}` }}
-                                                                placeholder="precio, costo, cuánto vale..."
-                                                            />
-                                                        </div>
-                                                        <div className="flex gap-3">
-                                                            <div className="flex-1">
-                                                                <label className="text-[10px] font-bold mb-1 block" style={{ color: '#6366f1' }}>PRIORIDAD:</label>
-                                                                <input
-                                                                    type="range"
-                                                                    min="1"
-                                                                    max="10"
-                                                                    value={enhancedFormData.priority}
-                                                                    onChange={(e) => setEnhancedFormData(prev => ({ ...prev, priority: parseInt(e.target.value) }))}
-                                                                    className="w-full"
-                                                                />
-                                                                <div className="flex justify-between text-[9px]" style={{ color: theme.textMuted }}>
-                                                                    <span>Baja</span>
-                                                                    <span className="font-bold">{enhancedFormData.priority}</span>
-                                                                    <span>Alta</span>
-                                                                </div>
-                                                            </div>
-                                                            <div className="flex-1">
-                                                                <label className="text-[10px] font-bold mb-1 block" style={{ color: '#6366f1' }}>CATEGORÍA:</label>
-                                                                <select
-                                                                    value={enhancedFormData.category}
-                                                                    onChange={(e) => setEnhancedFormData(prev => ({ ...prev, category: e.target.value as SnapCategory }))}
-                                                                    className="w-full p-2 rounded-lg text-xs"
-                                                                    style={{ backgroundColor: theme.cardBg, color: theme.text, border: `1px solid ${theme.border}` }}
-                                                                >
-                                                                    <option value="product">Producto</option>
-                                                                    <option value="pricing">Precios</option>
-                                                                    <option value="policy">Política</option>
-                                                                    <option value="faq">FAQ</option>
-                                                                    <option value="procedure">Procedimiento</option>
-                                                                    <option value="reference">Referencia</option>
-                                                                    <option value="general">General</option>
-                                                                </select>
-                                                            </div>
-                                                        </div>
-                                                        <div className="flex gap-2">
-                                                            <button
-                                                                onClick={() => saveEnhancedFields(snap.fileName)}
-                                                                disabled={savingEnhanced}
-                                                                className="px-3 py-1 rounded-lg text-[10px] font-bold text-white"
-                                                                style={{ backgroundColor: '#6366f1' }}
-                                                            >
-                                                                {savingEnhanced ? 'Guardando...' : 'Guardar'}
-                                                            </button>
-                                                            <button
-                                                                onClick={() => setEditingSnapEnhanced(null)}
-                                                                className="px-3 py-1 rounded-lg text-[10px]"
-                                                                style={{ color: theme.textMuted }}
-                                                            >
-                                                                Cancelar
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                ) : (
-                                                    <div
-                                                        onClick={() => startEditingEnhanced(snap)}
-                                                        className="mt-3 p-2 rounded-lg cursor-pointer hover:bg-white/5 transition-colors"
-                                                        style={{ backgroundColor: 'rgba(99, 102, 241, 0.05)', border: '1px dashed rgba(99, 102, 241, 0.2)' }}
-                                                    >
-                                                        <div className="flex items-center gap-2 mb-1">
-                                                            <Settings size={12} style={{ color: '#6366f1' }} />
-                                                            <span className="text-[10px] font-bold" style={{ color: '#6366f1' }}>TRIGGERS:</span>
-                                                        </div>
-                                                        {snap.triggers && snap.triggers.length > 0 ? (
-                                                            <div className="flex flex-wrap gap-1">
-                                                                {snap.triggers.map((t, i) => (
-                                                                    <span key={i} className="px-1.5 py-0.5 rounded text-[9px]" style={{ backgroundColor: `${theme.accent}20`, color: theme.accent }}>
-                                                                        {t}
-                                                                    </span>
-                                                                ))}
-                                                            </div>
-                                                        ) : (
-                                                            <p className="text-xs opacity-40" style={{ color: theme.textMuted }}>Click para configurar triggers...</p>
-                                                        )}
-                                                    </div>
-                                                )}
-
-                                                {/* Admin Notes */}
-                                                <div className="mt-3">
-                                                    <div className="flex items-center gap-2 mb-1">
-                                                        <StickyNote size={12} style={{ color: '#f59e0b' }} />
-                                                        <span className="text-[10px] font-bold" style={{ color: '#f59e0b' }}>NOTAS ADMIN:</span>
-                                                    </div>
-                                                    {editingSnapNotes === snap.fileName ? (
-                                                        <div className="space-y-2">
-                                                            <textarea
-                                                                value={snapNotesValue}
-                                                                onChange={(e) => setSnapNotesValue(e.target.value)}
-                                                                className="w-full p-2 rounded-lg text-xs resize-none"
-                                                                style={{ backgroundColor: theme.cardBg, color: theme.text, border: `1px solid ${theme.border}` }}
-                                                                rows={3}
-                                                                placeholder="Agrega instrucciones específicas para este conocimiento..."
-                                                            />
-                                                            <div className="flex gap-2">
-                                                                <button
-                                                                    onClick={() => saveSnapNotes(snap.fileName)}
-                                                                    disabled={savingSnapNotes}
-                                                                    className="px-3 py-1 rounded-lg text-[10px] font-bold text-white"
-                                                                    style={{ backgroundColor: theme.accent }}
-                                                                >
-                                                                    {savingSnapNotes ? 'Guardando...' : 'Guardar'}
-                                                                </button>
-                                                                <button
-                                                                    onClick={() => setEditingSnapNotes(null)}
-                                                                    className="px-3 py-1 rounded-lg text-[10px]"
-                                                                    style={{ color: theme.textMuted }}
-                                                                >
-                                                                    Cancelar
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                    ) : (
-                                                        <div
-                                                            onClick={() => { setEditingSnapNotes(snap.fileName); setSnapNotesValue(snap.adminNotes || ''); }}
-                                                            className="p-2 rounded-lg cursor-pointer hover:bg-white/5 transition-colors min-h-[40px]"
-                                                            style={{ backgroundColor: 'rgba(245, 158, 11, 0.05)', border: '1px dashed rgba(245, 158, 11, 0.2)' }}
-                                                        >
-                                                            {snap.adminNotes ? (
-                                                                <p className="text-xs" style={{ color: theme.text }}>{snap.adminNotes}</p>
-                                                            ) : (
-                                                                <p className="text-xs opacity-40" style={{ color: theme.textMuted }}>Click para agregar notas...</p>
+                                                return (
+                                                    <div className="p-3 rounded-xl mb-4" style={{ backgroundColor: `${theme.accent}10`, border: `1px solid ${theme.accent}30` }}>
+                                                        <p className="text-[10px] font-bold mb-2" style={{ color: theme.accent }}>🗺️ MAPA DE CONOCIMIENTO:</p>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {localSnaps.length > 0 && (
+                                                                <span className="px-2 py-1 rounded text-[10px] flex items-center gap-1" style={{ backgroundColor: `${theme.accent}20`, color: theme.accent }}>
+                                                                    <Folder size={10} /> Local: {localSnaps.length}
+                                                                </span>
+                                                            )}
+                                                            {instruccionesSnaps.length > 0 && (
+                                                                <span className="px-2 py-1 rounded text-[10px] flex items-center gap-1" style={{ backgroundColor: 'rgba(147, 51, 234, 0.2)', color: '#a855f7' }}>
+                                                                    <BookOpen size={10} /> Instrucciones: {instruccionesSnaps.length}
+                                                                </span>
+                                                            )}
+                                                            {baseDatosSnaps.length > 0 && (
+                                                                <span className="px-2 py-1 rounded text-[10px] flex items-center gap-1" style={{ backgroundColor: 'rgba(59, 130, 246, 0.2)', color: '#3b82f6' }}>
+                                                                    <Database size={10} /> Base Datos: {baseDatosSnaps.length}
+                                                                </span>
+                                                            )}
+                                                            {productosSnaps.length > 0 && (
+                                                                <span className="px-2 py-1 rounded text-[10px] flex items-center gap-1" style={{ backgroundColor: 'rgba(16, 185, 129, 0.2)', color: '#10b981' }}>
+                                                                    <ShoppingBag size={10} /> Productos: {productosSnaps.length}
+                                                                </span>
+                                                            )}
+                                                            {coreSnaps.length > 0 && (
+                                                                <span className="px-2 py-1 rounded text-[10px] flex items-center gap-1" style={{ backgroundColor: 'rgba(245, 158, 11, 0.2)', color: '#f59e0b' }}>
+                                                                    <Zap size={10} /> Core: {coreSnaps.length}
+                                                                </span>
                                                             )}
                                                         </div>
-                                                    )}
-                                                </div>
+                                                    </div>
+                                                );
+                                            })()}
+                                            {selectedAgentSnaps.map(snap => {
+                                                const categoryLabels: Record<string, { label: string; color: string }> = {
+                                                    product: { label: 'Producto', color: '#10b981' },
+                                                    policy: { label: 'Política', color: '#6366f1' },
+                                                    faq: { label: 'FAQ', color: '#8b5cf6' },
+                                                    procedure: { label: 'Procedimiento', color: '#f59e0b' },
+                                                    reference: { label: 'Referencia', color: '#64748b' },
+                                                    pricing: { label: 'Precios', color: '#ef4444' },
+                                                    general: { label: 'General', color: '#94a3b8' }
+                                                };
+                                                const catInfo = categoryLabels[snap.category] || categoryLabels.general;
+                                                const priorityColor = snap.priority >= 8 ? '#ef4444' : snap.priority >= 5 ? '#f59e0b' : '#10b981';
+                                                const effectivenessColor = snap.effectivenessScore >= 70 ? '#10b981' : snap.effectivenessScore >= 40 ? '#f59e0b' : '#ef4444';
 
-                                                <p className="text-[9px] mt-2 opacity-40" style={{ color: theme.textMuted }}>
-                                                    Actualizado: {new Date(snap.lastUpdated).toLocaleDateString('es-MX')}
-                                                </p>
-                                            </div>
-                                        );
-                                        })}
+                                                return (
+                                                    <div key={snap.fileName} className="p-4 rounded-xl" style={{ backgroundColor: `${theme.cardBg2}`, border: `1px solid ${theme.border}` }}>
+                                                        {/* Header */}
+                                                        <div className="flex items-start justify-between mb-2">
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                <FileText size={14} style={{ color: snap.isGlobal ? '#3b82f6' : theme.accent }} />
+                                                                <span className="font-medium text-sm" style={{ color: theme.text }}>{snap.fileName}</span>
+                                                                {snap.isGlobal && (
+                                                                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/20 text-blue-400">GLOBAL</span>
+                                                                )}
+                                                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold" style={{ backgroundColor: `${catInfo.color}20`, color: catInfo.color }}>
+                                                                    {catInfo.label}
+                                                                </span>
+                                                            </div>
+                                                            <div className="flex gap-1">
+                                                                <button
+                                                                    onClick={() => handleRegenerateSnap(snap.fileName)}
+                                                                    disabled={regeneratingSnap === snap.fileName}
+                                                                    className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
+                                                                    title="Regenerar snap"
+                                                                >
+                                                                    <RefreshCw size={12} className={regeneratingSnap === snap.fileName ? 'animate-spin' : ''} style={{ color: theme.textMuted }} />
+                                                                </button>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Stats Row */}
+                                                        <div className="flex gap-3 mb-3 text-[9px]">
+                                                            <div className="flex items-center gap-1" title="Prioridad">
+                                                                <span style={{ color: priorityColor }}>●</span>
+                                                                <span style={{ color: theme.textMuted }}>P{snap.priority || 5}</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-1" title="Efectividad">
+                                                                <span style={{ color: effectivenessColor }}>●</span>
+                                                                <span style={{ color: theme.textMuted }}>{snap.effectivenessScore ?? 50}%</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-1" title="Usos">
+                                                                <span style={{ color: theme.textMuted }}>×{snap.usageCount || 0}</span>
+                                                            </div>
+                                                            {snap.lastUsed && (
+                                                                <div className="flex items-center gap-1" title="Último uso">
+                                                                    <span style={{ color: theme.textMuted }}>Usado: {new Date(snap.lastUsed).toLocaleDateString('es-MX')}</span>
+                                                                </div>
+                                                            )}
+                                                        </div>
+
+                                                        <p className="text-xs mb-2" style={{ color: theme.textMuted }}>{snap.summary}</p>
+
+                                                        <div className="p-2 rounded-lg mb-2" style={{ backgroundColor: `${theme.accent}10` }}>
+                                                            <p className="text-[10px] font-bold mb-1" style={{ color: theme.accent }}>USO:</p>
+                                                            <p className="text-xs" style={{ color: theme.text }}>{snap.usage}</p>
+                                                        </div>
+
+                                                        {/* Triggers & Enhanced Fields */}
+                                                        {editingSnapEnhanced === snap.fileName ? (
+                                                            <div className="mt-3 p-3 rounded-lg space-y-3" style={{ backgroundColor: 'rgba(99, 102, 241, 0.05)', border: '1px solid rgba(99, 102, 241, 0.2)' }}>
+                                                                <div>
+                                                                    <label className="text-[10px] font-bold mb-1 block" style={{ color: '#6366f1' }}>TRIGGERS (separados por coma):</label>
+                                                                    <input
+                                                                        type="text"
+                                                                        value={enhancedFormData.triggers}
+                                                                        onChange={(e) => setEnhancedFormData(prev => ({ ...prev, triggers: e.target.value }))}
+                                                                        className="w-full p-2 rounded-lg text-xs"
+                                                                        style={{ backgroundColor: theme.cardBg, color: theme.text, border: `1px solid ${theme.border}` }}
+                                                                        placeholder="precio, costo, cuánto vale..."
+                                                                    />
+                                                                </div>
+                                                                <div className="flex gap-3">
+                                                                    <div className="flex-1">
+                                                                        <label className="text-[10px] font-bold mb-1 block" style={{ color: '#6366f1' }}>PRIORIDAD:</label>
+                                                                        <input
+                                                                            type="range"
+                                                                            min="1"
+                                                                            max="10"
+                                                                            value={enhancedFormData.priority}
+                                                                            onChange={(e) => setEnhancedFormData(prev => ({ ...prev, priority: parseInt(e.target.value) }))}
+                                                                            className="w-full"
+                                                                        />
+                                                                        <div className="flex justify-between text-[9px]" style={{ color: theme.textMuted }}>
+                                                                            <span>Baja</span>
+                                                                            <span className="font-bold">{enhancedFormData.priority}</span>
+                                                                            <span>Alta</span>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="flex-1">
+                                                                        <label className="text-[10px] font-bold mb-1 block" style={{ color: '#6366f1' }}>CATEGORÍA:</label>
+                                                                        <select
+                                                                            value={enhancedFormData.category}
+                                                                            onChange={(e) => setEnhancedFormData(prev => ({ ...prev, category: e.target.value as SnapCategory }))}
+                                                                            className="w-full p-2 rounded-lg text-xs"
+                                                                            style={{ backgroundColor: theme.cardBg, color: theme.text, border: `1px solid ${theme.border}` }}
+                                                                        >
+                                                                            <option value="product">Producto</option>
+                                                                            <option value="pricing">Precios</option>
+                                                                            <option value="policy">Política</option>
+                                                                            <option value="faq">FAQ</option>
+                                                                            <option value="procedure">Procedimiento</option>
+                                                                            <option value="reference">Referencia</option>
+                                                                            <option value="general">General</option>
+                                                                        </select>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex gap-2">
+                                                                    <button
+                                                                        onClick={() => saveEnhancedFields(snap.fileName)}
+                                                                        disabled={savingEnhanced}
+                                                                        className="px-3 py-1 rounded-lg text-[10px] font-bold text-white"
+                                                                        style={{ backgroundColor: '#6366f1' }}
+                                                                    >
+                                                                        {savingEnhanced ? 'Guardando...' : 'Guardar'}
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => setEditingSnapEnhanced(null)}
+                                                                        className="px-3 py-1 rounded-lg text-[10px]"
+                                                                        style={{ color: theme.textMuted }}
+                                                                    >
+                                                                        Cancelar
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <div
+                                                                onClick={() => startEditingEnhanced(snap)}
+                                                                className="mt-3 p-2 rounded-lg cursor-pointer hover:bg-white/5 transition-colors"
+                                                                style={{ backgroundColor: 'rgba(99, 102, 241, 0.05)', border: '1px dashed rgba(99, 102, 241, 0.2)' }}
+                                                            >
+                                                                <div className="flex items-center gap-2 mb-1">
+                                                                    <Settings size={12} style={{ color: '#6366f1' }} />
+                                                                    <span className="text-[10px] font-bold" style={{ color: '#6366f1' }}>TRIGGERS:</span>
+                                                                </div>
+                                                                {snap.triggers && snap.triggers.length > 0 ? (
+                                                                    <div className="flex flex-wrap gap-1">
+                                                                        {snap.triggers.map((t, i) => (
+                                                                            <span key={i} className="px-1.5 py-0.5 rounded text-[9px]" style={{ backgroundColor: `${theme.accent}20`, color: theme.accent }}>
+                                                                                {t}
+                                                                            </span>
+                                                                        ))}
+                                                                    </div>
+                                                                ) : (
+                                                                    <p className="text-xs opacity-40" style={{ color: theme.textMuted }}>Click para configurar triggers...</p>
+                                                                )}
+                                                            </div>
+                                                        )}
+
+                                                        {/* Admin Notes */}
+                                                        <div className="mt-3">
+                                                            <div className="flex items-center gap-2 mb-1">
+                                                                <StickyNote size={12} style={{ color: '#f59e0b' }} />
+                                                                <span className="text-[10px] font-bold" style={{ color: '#f59e0b' }}>NOTAS ADMIN:</span>
+                                                            </div>
+                                                            {editingSnapNotes === snap.fileName ? (
+                                                                <div className="space-y-2">
+                                                                    <textarea
+                                                                        value={snapNotesValue}
+                                                                        onChange={(e) => setSnapNotesValue(e.target.value)}
+                                                                        className="w-full p-2 rounded-lg text-xs resize-none"
+                                                                        style={{ backgroundColor: theme.cardBg, color: theme.text, border: `1px solid ${theme.border}` }}
+                                                                        rows={3}
+                                                                        placeholder="Agrega instrucciones específicas para este conocimiento..."
+                                                                    />
+                                                                    <div className="flex gap-2">
+                                                                        <button
+                                                                            onClick={() => saveSnapNotes(snap.fileName)}
+                                                                            disabled={savingSnapNotes}
+                                                                            className="px-3 py-1 rounded-lg text-[10px] font-bold text-white"
+                                                                            style={{ backgroundColor: theme.accent }}
+                                                                        >
+                                                                            {savingSnapNotes ? 'Guardando...' : 'Guardar'}
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => setEditingSnapNotes(null)}
+                                                                            className="px-3 py-1 rounded-lg text-[10px]"
+                                                                            style={{ color: theme.textMuted }}
+                                                                        >
+                                                                            Cancelar
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
+                                                                <div
+                                                                    onClick={() => { setEditingSnapNotes(snap.fileName); setSnapNotesValue(snap.adminNotes || ''); }}
+                                                                    className="p-2 rounded-lg cursor-pointer hover:bg-white/5 transition-colors min-h-[40px]"
+                                                                    style={{ backgroundColor: 'rgba(245, 158, 11, 0.05)', border: '1px dashed rgba(245, 158, 11, 0.2)' }}
+                                                                >
+                                                                    {snap.adminNotes ? (
+                                                                        <p className="text-xs" style={{ color: theme.text }}>{snap.adminNotes}</p>
+                                                                    ) : (
+                                                                        <p className="text-xs opacity-40" style={{ color: theme.textMuted }}>Click para agregar notas...</p>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        </div>
+
+                                                        <p className="text-[9px] mt-2 opacity-40" style={{ color: theme.textMuted }}>
+                                                            Actualizado: {new Date(snap.lastUpdated).toLocaleDateString('es-MX')}
+                                                        </p>
+                                                    </div>
+                                                );
+                                            })}
                                         </>
                                     )}
                                 </div>
