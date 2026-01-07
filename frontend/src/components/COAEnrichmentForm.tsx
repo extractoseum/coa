@@ -423,7 +423,6 @@ export default function COAEnrichmentForm({ coaToken, coa, onComplete, themeMode
             const res = await authFetch(`/api/v1/coas/${coaToken}/visibility`, {
                 method: 'PATCH',
                 body: JSON.stringify({
-                    is_hidden: visibilityMode === 'hidden',
                     visibility_mode: visibilityMode,
                     required_tags: visibilityMode === 'tag_restricted' ? requiredTags : []
                 })

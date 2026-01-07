@@ -457,7 +457,7 @@ export const reExtractCOA = async (req: Request, res: Response) => {
 // Update COA visibility (for super admins)
 export const updateCOAVisibility = async (req: Request, res: Response) => {
     const { token } = req.params;
-    const { is_hidden, visibility_mode, required_tags } = req.body;
+    const { visibility_mode, required_tags } = req.body;
     const client = (req as any).client;
 
     try {
@@ -477,17 +477,19 @@ export const updateCOAVisibility = async (req: Request, res: Response) => {
             return res.status(404).json({ success: false, error: 'COA no encontrado' });
         }
 
-        // Build update object
-        const updateData: any = {
-            is_hidden: is_hidden === true
-        };
+        // Build update object - only use visibility_mode and required_tags
+        const updateData: any = {};
 
-        // Add new visibility fields if provided
         if (visibility_mode && ['public', 'hidden', 'tag_restricted'].includes(visibility_mode)) {
             updateData.visibility_mode = visibility_mode;
+        } else {
+            updateData.visibility_mode = 'public';
         }
+
         if (Array.isArray(required_tags)) {
             updateData.required_tags = required_tags;
+        } else {
+            updateData.required_tags = [];
         }
 
         // Update visibility
@@ -498,7 +500,7 @@ export const updateCOAVisibility = async (req: Request, res: Response) => {
 
         if (updateError) {
             console.error('[Update Visibility] Error:', updateError);
-            return res.status(500).json({ success: false, error: 'Error al actualizar visibilidad' });
+            return res.status(500).json({ success: false, error: 'Error al actualizar visibilidad: ' + updateError.message });
         }
 
         // Record in Integrity Ledger
@@ -507,9 +509,8 @@ export const updateCOAVisibility = async (req: Request, res: Response) => {
             entityId: coa.id,
             entityType: 'coas',
             payload: {
-                is_hidden: is_hidden === true,
-                visibility_mode: visibility_mode || (is_hidden ? 'hidden' : 'public'),
-                required_tags: required_tags || []
+                visibility_mode: updateData.visibility_mode,
+                required_tags: updateData.required_tags
             },
             createdBy: (req as any).clientId
         });
@@ -517,20 +518,19 @@ export const updateCOAVisibility = async (req: Request, res: Response) => {
         const messages: Record<string, string> = {
             public: 'COA marcado como público',
             hidden: 'COA marcado como oculto',
-            tag_restricted: `COA restringido a tags: ${(required_tags || []).join(', ')}`
+            tag_restricted: `COA restringido a tags: ${updateData.required_tags.join(', ')}`
         };
 
         res.json({
             success: true,
-            is_hidden: is_hidden === true,
-            visibility_mode: visibility_mode || (is_hidden ? 'hidden' : 'public'),
-            required_tags: required_tags || [],
-            message: messages[visibility_mode] || messages['public']
+            visibility_mode: updateData.visibility_mode,
+            required_tags: updateData.required_tags,
+            message: messages[updateData.visibility_mode] || messages['public']
         });
 
-    } catch (err) {
+    } catch (err: any) {
         console.error('[Update Visibility] Error:', err);
-        res.status(500).json({ success: false, error: 'Error del servidor' });
+        res.status(500).json({ success: false, error: 'Error del servidor: ' + err.message });
     }
 };
 
