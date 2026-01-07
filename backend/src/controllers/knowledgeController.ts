@@ -319,28 +319,22 @@ export const saveKnowledgeFile = async (req: Request, res: Response) => {
         fs.writeFileSync(safePath, content, 'utf-8');
 
         // BACKGROUND: Trigger Smart Analysis & Knowledge Snap
+        // Only create snaps for files directly in agent folders
+        // Global files (instructions, information, products, core) are handled via "Regenerate All Snaps"
         if (AGENT_CATEGORIES.includes(folder)) {
             const intelligenceService = IntelligenceService.getInstance();
             // Legacy analysis
             intelligenceService.analyzeFile(parentDir, path.basename(safePath), content).catch(err => {
                 console.error(`[KnowledgeController] Analysis hook failed:`, err);
             });
-            // New: Create knowledge snap for agent
+            // Create knowledge snap for agent's LOCAL file only
             intelligenceService.createKnowledgeSnap(parentDir, path.basename(safePath), content, false).catch(err => {
                 console.error(`[KnowledgeController] Knowledge snap failed:`, err);
             });
-        } else if (['instructions', 'information'].includes(folder)) {
-            // Global knowledge - sync to all agents
-            const intelligenceService = IntelligenceService.getInstance();
-            const globalDir = path.join(KNOWLEDGE_BASE_DIR, folder);
-
-            // Sync to all agent categories
-            for (const category of AGENT_CATEGORIES) {
-                intelligenceService.syncGlobalKnowledgeToAgents(globalDir, category).catch(err => {
-                    console.error(`[KnowledgeController] Global sync failed for ${category}:`, err);
-                });
-            }
         }
+        // NOTE: Global folders (instructions, information, products, core) do NOT auto-sync
+        // Agents must use "Regenerate All Snaps" to get global snaps with [GLOBAL:...] prefix
+        // This prevents file duplication - snaps are references, not copies
 
         res.json({ success: true, message: 'Saved' });
 
