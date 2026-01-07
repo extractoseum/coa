@@ -4,6 +4,7 @@ import type { PurchaseLink, COA, Badge } from '../types/coa';
 import { authFetch, useAuth } from '../contexts/AuthContext';
 import type { ThemeMode } from '../contexts/ThemeContext';
 import StepUpModal from './StepUpModal';
+import ShopifyTagSelector from './ShopifyTagSelector';
 
 
 interface Template {
@@ -146,15 +147,6 @@ export default function COAEnrichmentForm({ coaToken, coa, onComplete, themeMode
     const [savingVisibility, setSavingVisibility] = useState(false);
     const [visibilityMode, setVisibilityMode] = useState<'public' | 'hidden' | 'tag_restricted'>('public');
     const [requiredTags, setRequiredTags] = useState<string[]>([]);
-
-    // Available Shopify tags for visibility restriction
-    const AVAILABLE_TAGS = [
-        { value: 'Club_partner', label: 'Club Partner', color: '#4F46E5' },
-        { value: 'Club_user', label: 'Club User', color: '#6366F1' },
-        { value: 'Gold_member', label: 'Gold Member', color: '#D4AF37' },
-        { value: 'Platino_member', label: 'Platino Member', color: '#A0A5AB' },
-        { value: 'Black_member', label: 'Black Member', color: '#1a1a1a' }
-    ];
 
     // Templates
     const [templates, setTemplates] = useState<Template[]>([]);
@@ -1075,34 +1067,10 @@ export default function COAEnrichmentForm({ coaToken, coa, onComplete, themeMode
                         <p className="text-xs mb-3" style={{ color: theme.textMuted }}>
                             Solo los clientes con al menos uno de estos tags podrán ver este COA
                         </p>
-                        <div className="flex flex-wrap gap-2">
-                            {AVAILABLE_TAGS.map(tag => {
-                                const isSelected = requiredTags.includes(tag.value);
-                                return (
-                                    <button
-                                        key={tag.value}
-                                        type="button"
-                                        onClick={() => {
-                                            if (isSelected) {
-                                                setRequiredTags(requiredTags.filter(t => t !== tag.value));
-                                            } else {
-                                                setRequiredTags([...requiredTags, tag.value]);
-                                            }
-                                        }}
-                                        className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${isSelected
-                                            ? 'ring-2 ring-offset-2 ring-offset-black'
-                                            : 'opacity-60 hover:opacity-100'
-                                            }`}
-                                        style={{
-                                            backgroundColor: isSelected ? tag.color : `${tag.color}30`,
-                                            color: isSelected ? '#fff' : tag.color
-                                        }}
-                                    >
-                                        {tag.label}
-                                    </button>
-                                );
-                            })}
-                        </div>
+                        <ShopifyTagSelector
+                            selectedTags={requiredTags}
+                            onChange={setRequiredTags}
+                        />
                         {requiredTags.length === 0 && (
                             <p className="text-xs mt-2 text-amber-500">
                                 Selecciona al menos un tag para restringir el acceso
