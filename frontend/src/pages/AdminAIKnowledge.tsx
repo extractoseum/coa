@@ -1,12 +1,13 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import {
     ArrowLeft, Save, Folder, FileText, Brain, ChevronRight, Check,
     ChevronDown, Plus, Trash2, Star, CheckSquare, Square, Search, Settings,
     Wrench, MessageCircle, Mail, Globe, Database, FileBox, Activity, Layout as LayoutIcon,
-    ShoppingBag, ShoppingCart, Bell, Truck, Zap, RefreshCw, BookOpen, StickyNote, X, GripVertical
+    ShoppingBag, ShoppingCart, Bell, Truck, Zap, RefreshCw, BookOpen, StickyNote, X, GripVertical,
+    Move, FolderInput
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
@@ -83,9 +84,47 @@ const AdminAIKnowledge = () => {
     const [savingEnhanced, setSavingEnhanced] = useState(false);
 
     // Drag and Drop State
-    const [draggedFile, setDraggedFile] = useState<{ path: string; folder: string; agentName?: string } | null>(null);
+    const [draggedFile, setDraggedFile] = useState<{ path: string; folder: string; agentName?: string; fileName: string } | null>(null);
     const [dropTarget, setDropTarget] = useState<{ folder: string; agentName?: string } | null>(null);
     const [isMovingFile, setIsMovingFile] = useState(false);
+    const [isDragging, setIsDragging] = useState(false);
+
+    // Resizable Panel State
+    const [structurePanelWidth, setStructurePanelWidth] = useState(320);
+    const [isResizing, setIsResizing] = useState(false);
+    const resizeRef = useRef<HTMLDivElement>(null);
+
+    // Handle panel resize
+    const handleMouseDown = useCallback((e: React.MouseEvent) => {
+        e.preventDefault();
+        setIsResizing(true);
+    }, []);
+
+    useEffect(() => {
+        const handleMouseMove = (e: MouseEvent) => {
+            if (!isResizing) return;
+            const newWidth = Math.min(Math.max(250, e.clientX - 24), 500);
+            setStructurePanelWidth(newWidth);
+        };
+
+        const handleMouseUp = () => {
+            setIsResizing(false);
+        };
+
+        if (isResizing) {
+            document.addEventListener('mousemove', handleMouseMove);
+            document.addEventListener('mouseup', handleMouseUp);
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+        }
+
+        return () => {
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        };
+    }, [isResizing]);
 
     // Simulator State
     const [chatMessage, setChatMessage] = useState('');
@@ -490,14 +529,27 @@ const AdminAIKnowledge = () => {
     };
 
     // Drag and Drop Functions
-    const handleDragStart = (e: React.DragEvent, path: string, folder: string, agentName?: string) => {
+    const handleDragStart = (e: React.DragEvent, path: string, folder: string, fileName: string, agentName?: string) => {
         e.dataTransfer.effectAllowed = 'move';
-        setDraggedFile({ path, folder, agentName });
+        e.dataTransfer.setData('text/plain', path);
+        setDraggedFile({ path, folder, agentName, fileName });
+        setIsDragging(true);
+
+        // Create custom drag image
+        const dragEl = document.createElement('div');
+        dragEl.className = 'fixed bg-pink-500/90 text-white px-3 py-2 rounded-lg text-xs font-medium shadow-xl z-[9999] pointer-events-none';
+        dragEl.innerHTML = `<span>📄 ${fileName}</span>`;
+        dragEl.style.position = 'absolute';
+        dragEl.style.top = '-1000px';
+        document.body.appendChild(dragEl);
+        e.dataTransfer.setDragImage(dragEl, 0, 0);
+        setTimeout(() => document.body.removeChild(dragEl), 0);
     };
 
     const handleDragEnd = () => {
         setDraggedFile(null);
         setDropTarget(null);
+        setIsDragging(false);
     };
 
     const handleDragOver = (e: React.DragEvent, folder: string, agentName?: string) => {
@@ -602,15 +654,28 @@ const AdminAIKnowledge = () => {
                         </div>
                     </div>
 
-                    <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6 h-[calc(100vh-180px)]">
-                        {/* Structure Explorer */}
-                        <div className="lg:col-span-3 flex flex-col rounded-3xl overflow-hidden border"
-                            style={{ backgroundColor: theme.cardBg, borderColor: theme.border }}>
-                            <div className="p-4 border-b shrink-0" style={{ borderColor: theme.border }}>
+                    <div className="max-w-7xl mx-auto flex gap-0 h-[calc(100vh-180px)]">
+                        {/* Structure Explorer - Resizable */}
+                        <div
+                            className="flex flex-col rounded-l-3xl overflow-hidden border-y border-l relative"
+                            style={{
+                                backgroundColor: theme.cardBg,
+                                borderColor: theme.border,
+                                width: structurePanelWidth,
+                                minWidth: 250,
+                                maxWidth: 500,
+                                flexShrink: 0
+                            }}>
+                            <div className="p-4 border-b shrink-0 flex items-center justify-between" style={{ borderColor: theme.border }}>
                                 <h2 className="text-[10px] font-bold uppercase tracking-widest flex items-center gap-2"
                                     style={{ color: theme.textMuted }}>
                                     <Folder size={14} /> Estructura
                                 </h2>
+                                {isDragging && (
+                                    <span className="text-[9px] px-2 py-0.5 rounded-full bg-pink-500/20 text-pink-400 animate-pulse">
+                                        Arrastrando...
+                                    </span>
+                                )}
                             </div>
 
                             <div className="flex-1 overflow-y-auto p-2 space-y-4 scrollbar-thin scrollbar-thumb-white/5">
@@ -663,46 +728,76 @@ const AdminAIKnowledge = () => {
 
                                                         {expandedAgents[agent.name] && (
                                                             <div
-                                                                className={`ml-6 space-y-0.5 border-l-2 pl-2 transition-all rounded-r ${dropTarget?.folder === folder && dropTarget?.agentName === agent.name ? 'border-green-500 bg-green-500/20 shadow-[inset_0_0_10px_rgba(34,197,94,0.2)]' : 'border-white/10'}`}
+                                                                className={`ml-4 space-y-1 border-l-2 pl-2 py-1 transition-all duration-200 rounded-r ${dropTarget?.folder === folder && dropTarget?.agentName === agent.name ? 'border-green-500 bg-green-500/10 shadow-[0_0_20px_rgba(34,197,94,0.15)]' : 'border-white/5'}`}
                                                                 onDragOver={(e) => handleDragOver(e, folder, agent.name)}
                                                                 onDragLeave={handleDragLeave}
                                                                 onDrop={(e) => handleDrop(e, folder, agent.name)}
                                                             >
-                                                                {agent.files.map(file => (
+                                                                {/* Drop indicator when dragging */}
+                                                                {isDragging && dropTarget?.folder === folder && dropTarget?.agentName === agent.name && (
+                                                                    <div className="flex items-center gap-2 p-2 rounded-lg bg-green-500/20 border border-green-500/40 mb-2 animate-pulse">
+                                                                        <FolderInput size={14} className="text-green-400" />
+                                                                        <span className="text-[10px] text-green-400 font-medium">Soltar aquí para mover a {agent.name}</span>
+                                                                    </div>
+                                                                )}
+                                                                {agent.files.map(file => {
+                                                                    const isBeingDragged = draggedFile?.path === `${folder}/${agent.name}/${file.name}`;
+                                                                    const isSelected = selectedFile === `${agent.name}/${file.name}` && selectedFolder === folder;
+                                                                    // Smart file name display - show subfolder if exists
+                                                                    const displayName = file.name.includes('/') ? file.name.split('/').pop() : file.name;
+                                                                    const subFolder = file.name.includes('/') ? file.name.split('/').slice(0, -1).join('/') : null;
+
+                                                                    return (
                                                                     <div
                                                                         key={file.path}
-                                                                        className={`group flex items-center justify-between cursor-grab active:cursor-grabbing ${draggedFile?.path === `${folder}/${agent.name}/${file.name}` ? 'opacity-50 scale-95' : 'hover:bg-white/5'}`}
+                                                                        className={`group flex items-center gap-1 py-1 px-1 rounded-lg transition-all duration-200 ${isBeingDragged ? 'opacity-30 scale-95 bg-pink-500/10' : ''} ${isSelected ? 'bg-white/10 ring-1 ring-pink-500/30' : 'hover:bg-white/5'}`}
                                                                         draggable
-                                                                        onDragStart={(e) => handleDragStart(e, `${folder}/${agent.name}/${file.name}`, folder, agent.name)}
+                                                                        onDragStart={(e) => handleDragStart(e, `${folder}/${agent.name}/${file.name}`, folder, file.name, agent.name)}
                                                                         onDragEnd={handleDragEnd}
+                                                                        title={`${file.name}${file.summary ? '\n\n' + file.summary : ''}`}
                                                                     >
-                                                                        <GripVertical size={10} className="opacity-20 group-hover:opacity-60 transition-opacity flex-shrink-0" />
+                                                                        {/* Drag Handle */}
+                                                                        <div className="cursor-grab active:cursor-grabbing p-1 rounded hover:bg-white/10 transition-colors">
+                                                                            <GripVertical size={12} className="opacity-30 group-hover:opacity-70 transition-opacity text-pink-400" />
+                                                                        </div>
+
+                                                                        {/* File Button */}
                                                                         <button onClick={() => handleFileClick(folder, `${agent.name}/${file.name}`)}
-                                                                            className={`flex-1 text-left px-2 py-1 rounded text-[11px] flex items-center gap-2 transition-colors ${selectedFile === `${agent.name}/${file.name}` && selectedFolder === folder ? 'bg-white/10' : 'hover:bg-white/5'}`}
-                                                                            style={{ color: selectedFile === `${agent.name}/${file.name}` && selectedFolder === folder ? theme.accent : theme.textMuted }}>
-                                                                            <FileText size={11} className="opacity-50" />
+                                                                            className="flex-1 text-left flex items-center gap-2 min-w-0 py-0.5">
+                                                                            <FileText size={12} className={`flex-shrink-0 ${isSelected ? 'text-pink-400' : 'opacity-40'}`} />
                                                                             <div className="flex flex-col flex-1 min-w-0">
-                                                                                <span className="truncate">{file.name}</span>
+                                                                                {subFolder && (
+                                                                                    <span className="text-[8px] opacity-30 font-mono">{subFolder}/</span>
+                                                                                )}
+                                                                                <span
+                                                                                    className={`text-[11px] truncate ${isSelected ? 'font-medium' : ''}`}
+                                                                                    style={{ color: isSelected ? theme.accent : theme.textMuted }}
+                                                                                >
+                                                                                    {displayName}
+                                                                                </span>
                                                                                 {file.summary && (
-                                                                                    <span className="text-[9px] opacity-40 truncate font-light" title={file.summary}>
+                                                                                    <span className="text-[9px] opacity-40 truncate font-light line-clamp-1">
                                                                                         {file.summary}
                                                                                     </span>
                                                                                 )}
                                                                             </div>
                                                                         </button>
-                                                                        <div className="flex opacity-0 group-hover:opacity-100 transition-all">
+
+                                                                        {/* Actions */}
+                                                                        <div className="flex opacity-0 group-hover:opacity-100 transition-all flex-shrink-0">
                                                                             <button onClick={(e) => { e.stopPropagation(); handleMarkAsInstructive(folder, `${agent.name}/${file.name}`); }}
-                                                                                className={`p-1 transition-colors ${file.isInstructive ? 'text-yellow-400' : 'hover:text-yellow-400'}`}
+                                                                                className={`p-1 rounded transition-colors ${file.isInstructive ? 'text-yellow-400' : 'hover:text-yellow-400 hover:bg-yellow-400/10'}`}
                                                                                 title={file.isInstructive ? 'Instructivo Principal (Activo)' : 'Marcar como Instructivo'}>
-                                                                                <Star size={10} fill={file.isInstructive ? theme.accent : 'none'} fillOpacity={file.isInstructive ? 0.4 : 0} />
+                                                                                <Star size={10} fill={file.isInstructive ? 'currentColor' : 'none'} />
                                                                             </button>
                                                                             <button onClick={(e) => { e.stopPropagation(); handleDeleteFile(folder, `${agent.name}/${file.name}`); }}
-                                                                                className="p-1 hover:text-red-500 transition-colors">
+                                                                                className="p-1 rounded hover:text-red-500 hover:bg-red-500/10 transition-colors">
                                                                                 <Trash2 size={10} />
                                                                             </button>
                                                                         </div>
                                                                     </div>
-                                                                ))}
+                                                                );
+                                                                })}
                                                                 <button onClick={() => handleAddNewFile(folder, agent.name)} className="px-2 py-1 text-[9px] opacity-40 hover:opacity-100 transition-all hover:text-green-500">+ Nuevo MD</button>
                                                             </div>
                                                         )}
@@ -711,48 +806,75 @@ const AdminAIKnowledge = () => {
                                             </div>
                                         ) : (
                                             <div
-                                                className={`space-y-0.5 mt-1 rounded-lg p-1 transition-all ${dropTarget?.folder === folder && !dropTarget?.agentName ? 'bg-green-500/20 border-2 border-green-500 border-dashed shadow-[inset_0_0_10px_rgba(34,197,94,0.2)]' : ''}`}
+                                                className={`space-y-1 mt-1 rounded-lg p-1.5 transition-all ${dropTarget?.folder === folder && !dropTarget?.agentName ? 'bg-green-500/20 border-2 border-green-500 border-dashed shadow-[inset_0_0_10px_rgba(34,197,94,0.2)]' : ''}`}
                                                 onDragOver={(e) => handleDragOver(e, folder)}
                                                 onDragLeave={handleDragLeave}
                                                 onDrop={(e) => handleDrop(e, folder)}
                                             >
-                                                {(structure[folder] as FileItem[]).map(file => (
+                                                {(structure[folder] as FileItem[]).map(file => {
+                                                    const isBeingDragged = draggedFile?.path === `${folder}/${file.name}`;
+                                                    const isSelected = selectedFile === file.name && selectedFolder === folder;
+
+                                                    return (
                                                     <div
                                                         key={file.path}
-                                                        className={`group flex items-center justify-between cursor-grab active:cursor-grabbing ${draggedFile?.path === `${folder}/${file.name}` ? 'opacity-50 scale-95' : 'hover:bg-white/5'}`}
+                                                        className={`group flex items-center gap-1 py-1 px-1 rounded-lg transition-all duration-200 ${isBeingDragged ? 'opacity-30 scale-95 bg-pink-500/10' : ''} ${isSelected ? 'bg-white/10 ring-1 ring-pink-500/30' : 'hover:bg-white/5'}`}
                                                         draggable
-                                                        onDragStart={(e) => handleDragStart(e, `${folder}/${file.name}`, folder)}
+                                                        onDragStart={(e) => handleDragStart(e, `${folder}/${file.name}`, folder, file.name)}
                                                         onDragEnd={handleDragEnd}
+                                                        title={`${file.name}${file.summary ? '\n\n' + file.summary : ''}`}
                                                     >
-                                                        <GripVertical size={10} className="opacity-20 group-hover:opacity-60 transition-opacity flex-shrink-0" />
+                                                        {/* Drag Handle */}
+                                                        <div className="cursor-grab active:cursor-grabbing p-1 rounded hover:bg-white/10 transition-colors">
+                                                            <GripVertical size={12} className="opacity-30 group-hover:opacity-70 transition-opacity text-pink-400" />
+                                                        </div>
+
+                                                        {/* File Button */}
                                                         <button onClick={() => handleFileClick(folder, file.name)}
-                                                            className={`flex-1 text-left px-2 py-1.5 rounded text-xs flex items-center gap-2 transition-colors ${selectedFile === file.name && selectedFolder === folder ? 'bg-white/10' : 'hover:bg-white/5'}`}
-                                                            style={{ color: selectedFile === file.name && selectedFolder === folder ? theme.accent : theme.textMuted }}>
-                                                            <FileText size={12} className="opacity-50" />
+                                                            className="flex-1 text-left flex items-center gap-2 min-w-0 py-0.5">
+                                                            <FileText size={12} className={`flex-shrink-0 ${isSelected ? 'text-pink-400' : 'opacity-40'}`} />
                                                             <div className="flex flex-col flex-1 min-w-0">
-                                                                <span className="truncate">{file.name}</span>
+                                                                <span
+                                                                    className={`text-[11px] truncate ${isSelected ? 'font-medium' : ''}`}
+                                                                    style={{ color: isSelected ? theme.accent : theme.textMuted }}
+                                                                >
+                                                                    {file.name}
+                                                                </span>
                                                                 {file.summary && (
-                                                                    <span className="text-[9px] opacity-40 truncate font-light" title={file.summary}>
+                                                                    <span className="text-[9px] opacity-40 truncate font-light line-clamp-1">
                                                                         {file.summary}
                                                                     </span>
                                                                 )}
                                                             </div>
                                                         </button>
+
+                                                        {/* Delete Button */}
                                                         <button onClick={(e) => { e.stopPropagation(); handleDeleteFile(folder, file.name); }}
-                                                            className="p-1 opacity-0 group-hover:opacity-40 hover:!opacity-100 transition-all text-red-500">
+                                                            className="p-1 rounded opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:bg-red-500/10 transition-all text-red-500 flex-shrink-0">
                                                             <Trash2 size={10} />
                                                         </button>
                                                     </div>
-                                                ))}
+                                                );
+                                                })}
                                             </div>
                                         )}
                                     </div>
                                 ))}
                             </div>
+
+                            {/* Resize Handle */}
+                            <div
+                                ref={resizeRef}
+                                onMouseDown={handleMouseDown}
+                                className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-pink-500/30 transition-colors group z-10"
+                                style={{ backgroundColor: isResizing ? 'rgba(236, 72, 153, 0.3)' : 'transparent' }}
+                            >
+                                <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-12 rounded-full bg-white/10 group-hover:bg-pink-500/50 transition-colors" />
+                            </div>
                         </div>
 
                         {/* Editor Area */}
-                        <div className="lg:col-span-6 flex flex-col rounded-3xl overflow-hidden border"
+                        <div className="flex-1 flex flex-col overflow-hidden border-y"
                             style={{ backgroundColor: theme.cardBg, borderColor: theme.border }}>
                             {selectedFile ? (
                                 <>
@@ -849,7 +971,7 @@ const AdminAIKnowledge = () => {
                         </div>
 
                         {/* Simulator Area */}
-                        <div className="lg:col-span-3 flex flex-col rounded-3xl overflow-hidden border"
+                        <div className="w-80 flex flex-col rounded-r-3xl overflow-hidden border-y border-r flex-shrink-0"
                             style={{ backgroundColor: theme.cardBg, borderColor: theme.border }}>
                             <div className="p-4 border-b shrink-0" style={{ borderColor: theme.border }}>
                                 <h2 className="text-[10px] font-bold uppercase tracking-widest flex items-center gap-2"
