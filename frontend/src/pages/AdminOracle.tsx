@@ -97,8 +97,15 @@ const AdminOracle: React.FC = () => {
         }
     };
 
-    const handleManualTrigger = async (type: 'predictions' | 'notifications') => {
-        if (!confirm(`¿Estás seguro de ejecutar el proceso manual de ${type}?`)) return;
+    const handleManualTrigger = async (type: 'predictions' | 'notifications' | 'sync-profiles') => {
+        const typeLabels: Record<string, string> = {
+            'predictions': 'Predicciones',
+            'notifications': 'Notificaciones',
+            'sync-profiles': 'Sincronización de Perfiles'
+        };
+        const label = typeLabels[type] || type;
+
+        if (!confirm(`¿Estás seguro de ejecutar el proceso manual de ${label}?`)) return;
 
         setIsRefreshing(true);
         try {
@@ -186,25 +193,37 @@ const AdminOracle: React.FC = () => {
                     ))}
                 </div>
 
-                {/* Main Content Tabs */}
-                <div className="flex items-center gap-1 mb-6 p-1 bg-white/5 rounded-xl w-fit">
-                    {[
-                        { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={16} /> },
-                        { id: 'profiles', label: 'Perfiles de Consumo', icon: <Users size={16} /> },
-                        { id: 'inventory', label: 'Inventario', icon: <Package size={16} /> }
-                    ].map(tab => (
+                <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-1 p-1 bg-white/5 rounded-xl w-fit">
+                        {[
+                            { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={16} /> },
+                            { id: 'profiles', label: 'Perfiles de Consumo', icon: <Users size={16} /> },
+                            { id: 'inventory', label: 'Inventario', icon: <Package size={16} /> }
+                        ].map(tab => (
+                            <button
+                                key={tab.id}
+                                onClick={() => setActiveTab(tab.id as any)}
+                                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === tab.id
+                                    ? 'bg-purple-600 text-white shadow-lg shadow-purple-900/20'
+                                    : 'text-gray-400 hover:text-white hover:bg-white/5'
+                                    }`}
+                            >
+                                {tab.icon}
+                                {tab.label}
+                            </button>
+                        ))}
+                    </div>
+
+                    {activeTab === 'profiles' && (
                         <button
-                            key={tab.id}
-                            onClick={() => setActiveTab(tab.id as any)}
-                            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === tab.id
-                                ? 'bg-purple-600 text-white shadow-lg shadow-purple-900/20'
-                                : 'text-gray-400 hover:text-white hover:bg-white/5'
-                                }`}
+                            onClick={() => handleManualTrigger('sync-profiles')}
+                            disabled={isRefreshing}
+                            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 text-emerald-400 text-sm font-medium transition-all"
                         >
-                            {tab.icon}
-                            {tab.label}
+                            <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />
+                            Sincronizar Productos
                         </button>
-                    ))}
+                    )}
                 </div>
 
                 {activeTab === 'dashboard' && (

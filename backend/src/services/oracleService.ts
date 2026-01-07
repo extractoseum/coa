@@ -252,6 +252,82 @@ export const getConsumptionProfile = async (
 };
 
 /**
+ * Sync profiles from products table
+ * Removes dummy data and creates profiles for real products
+ */
+export const syncProfilesFromProducts = async (): Promise<{ created: number; removed: number }> => {
+    let created = 0;
+    let removed = 0;
+
+    try {
+        console.log('[Oracle] Syncing profiles from products table...');
+
+        // 1. Remove dummy profiles (those with no shopify_product_id)
+        const { error: deleteError, count } = await supabase
+            .from('product_consumption_profiles')
+            .delete({ count: 'exact' })
+            .is('shopify_product_id', null);
+
+        if (deleteError) {
+            console.error('[Oracle] Error deleting dummy profiles:', deleteError);
+        } else {
+            removed = count || 0;
+        }
+
+        // 2. Get all real products
+        const { data: products, error: productsError } = await supabase
+            .from('products')
+            .select('id, title, product_type');
+
+        if (productsError || !products) {
+            throw new Error('Could not fetch products');
+        }
+
+        // 3. Create profiles for each product if not exists
+        for (const product of products) {
+            // Check if profile exists
+            const { data: existing } = await supabase
+                .from('product_consumption_profiles')
+                .select('id')
+                .eq('shopify_product_id', product.id)
+                .single();
+
+            if (!existing) {
+                // Determine default category/days based on product type
+                const type = (product.product_type || '').toLowerCase();
+                let days = 30;
+                let category = 'other';
+
+                for (const [cat, defaultDays] of Object.entries(ORACLE_CONFIG.CATEGORY_DEFAULTS)) {
+                    if (type.includes(cat) || product.title.toLowerCase().includes(cat)) {
+                        days = defaultDays;
+                        category = cat;
+                        break;
+                    }
+                }
+
+                await supabase.from('product_consumption_profiles').insert({
+                    shopify_product_id: product.id,
+                    product_title: product.title,
+                    category: category,
+                    estimated_days_supply: days,
+                    updated_at: new Date().toISOString()
+                });
+                created++;
+            }
+        }
+
+        console.log(`[Oracle] Sync complete. Removed: ${removed}, Created: ${created}`);
+        return { created, removed };
+
+    } catch (error) {
+        console.error('[Oracle] Error syncing profiles:', error);
+        return { created, removed };
+    }
+};
+
+
+/**
  * Calculate predicted restock date for a customer/product
  */
 export const calculateRestockPrediction = async (

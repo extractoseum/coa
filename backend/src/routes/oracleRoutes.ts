@@ -18,7 +18,8 @@ import {
     processRestockNotifications,
     aggregateDailySales,
     generateInventoryForecast,
-    markPredictionConverted
+    markPredictionConverted,
+    syncProfilesFromProducts
 } from '../services/oracleService';
 
 const router = Router();
@@ -378,6 +379,21 @@ router.post('/trigger/forecast', requireAuth, requireSuperAdmin, async (_req: Re
         res.json({ success: true, ...result });
     } catch (error: any) {
         console.error('[Oracle] Error triggering forecast:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Manually trigger profile sync
+ * POST /api/v1/oracle/trigger/sync-profiles
+ */
+router.post('/trigger/sync-profiles', requireAuth, requireSuperAdmin, async (_req: Request, res: Response) => {
+    try {
+        console.log('[Oracle] Manual trigger: syncing profiles...');
+        const result = await syncProfilesFromProducts();
+        res.json({ success: true, ...result });
+    } catch (error: any) {
+        console.error('[Oracle] Error syncing profiles:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
