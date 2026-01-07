@@ -89,26 +89,41 @@ const AdminAIKnowledge = () => {
     const [isMovingFile, setIsMovingFile] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
 
+    // Multi-select State for Bulk Operations
+    const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+    const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
+
     // Resizable Panel State
     const [structurePanelWidth, setStructurePanelWidth] = useState(320);
     const [isResizing, setIsResizing] = useState(false);
     const resizeRef = useRef<HTMLDivElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const startXRef = useRef<number>(0);
+    const startWidthRef = useRef<number>(320);
 
-    // Handle panel resize
+    // Handle panel resize - Fixed version
     const handleMouseDown = useCallback((e: React.MouseEvent) => {
         e.preventDefault();
+        e.stopPropagation();
+        startXRef.current = e.clientX;
+        startWidthRef.current = structurePanelWidth;
         setIsResizing(true);
-    }, []);
+    }, [structurePanelWidth]);
 
     useEffect(() => {
         const handleMouseMove = (e: MouseEvent) => {
             if (!isResizing) return;
-            const newWidth = Math.min(Math.max(250, e.clientX - 24), 500);
+            const deltaX = e.clientX - startXRef.current;
+            const newWidth = Math.min(Math.max(250, startWidthRef.current + deltaX), 600);
             setStructurePanelWidth(newWidth);
         };
 
         const handleMouseUp = () => {
-            setIsResizing(false);
+            if (isResizing) {
+                setIsResizing(false);
+                // Persist to localStorage
+                localStorage.setItem('aiKnowledge_panelWidth', String(structurePanelWidth));
+            }
         };
 
         if (isResizing) {
@@ -124,7 +139,18 @@ const AdminAIKnowledge = () => {
             document.body.style.cursor = '';
             document.body.style.userSelect = '';
         };
-    }, [isResizing]);
+    }, [isResizing, structurePanelWidth]);
+
+    // Load saved panel width on mount
+    useEffect(() => {
+        const savedWidth = localStorage.getItem('aiKnowledge_panelWidth');
+        if (savedWidth) {
+            const width = parseInt(savedWidth, 10);
+            if (!isNaN(width) && width >= 250 && width <= 600) {
+                setStructurePanelWidth(width);
+            }
+        }
+    }, []);
 
     // Simulator State
     const [chatMessage, setChatMessage] = useState('');
@@ -528,17 +554,49 @@ const AdminAIKnowledge = () => {
         }
     };
 
+    // Toggle file selection for multi-select
+    const toggleFileSelection = (filePath: string, e?: React.MouseEvent) => {
+        if (e) {
+            e.stopPropagation();
+        }
+        setSelectedFiles(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(filePath)) {
+                newSet.delete(filePath);
+            } else {
+                newSet.add(filePath);
+            }
+            return newSet;
+        });
+    };
+
+    const clearFileSelection = () => {
+        setSelectedFiles(new Set());
+        setIsMultiSelectMode(false);
+    };
+
     // Drag and Drop Functions
     const handleDragStart = (e: React.DragEvent, path: string, folder: string, fileName: string, agentName?: string) => {
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', path);
+
+        // Check if this file is part of a multi-selection
+        const isPartOfSelection = selectedFiles.has(path);
+        const filesToDrag = isPartOfSelection && selectedFiles.size > 1
+            ? Array.from(selectedFiles)
+            : [path];
+
         setDraggedFile({ path, folder, agentName, fileName });
         setIsDragging(true);
 
-        // Create custom drag image
+        // Create custom drag image showing count
         const dragEl = document.createElement('div');
         dragEl.className = 'fixed bg-pink-500/90 text-white px-3 py-2 rounded-lg text-xs font-medium shadow-xl z-[9999] pointer-events-none';
-        dragEl.innerHTML = `<span>📄 ${fileName}</span>`;
+        if (filesToDrag.length > 1) {
+            dragEl.innerHTML = `<span>📦 ${filesToDrag.length} archivos</span>`;
+        } else {
+            dragEl.innerHTML = `<span>📄 ${fileName}</span>`;
+        }
         dragEl.style.position = 'absolute';
         dragEl.style.top = '-1000px';
         document.body.appendChild(dragEl);
@@ -580,35 +638,42 @@ const AdminAIKnowledge = () => {
             return;
         }
 
+        // Determine files to move (bulk or single)
+        const isPartOfSelection = selectedFiles.has(draggedFile.path);
+        const filesToMove = isPartOfSelection && selectedFiles.size > 1
+            ? Array.from(selectedFiles)
+            : [draggedFile.path];
+
         setIsMovingFile(true);
 
         try {
-            const res = await fetch('/api/v1/admin/knowledge/move', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                body: JSON.stringify({
-                    sourcePath: draggedFile.path,
-                    destinationFolder,
-                    destinationAgent
-                })
-            });
-
-            const data = await res.json();
-
-            if (data.success) {
-                setSuccessMsg(`Archivo movido exitosamente`);
-                await fetchStructure();
-
-                // Update selection if the moved file was selected
-                if (selectedFile && selectedFolder === draggedFile.folder) {
-                    setSelectedFolder(destinationFolder);
-                    setSelectedFile(data.data.newPath.replace(`${destinationFolder}/`, ''));
+            // Move files sequentially
+            let successCount = 0;
+            for (const sourcePath of filesToMove) {
+                const res = await fetch('/api/v1/admin/knowledge/move', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({
+                        sourcePath,
+                        destinationFolder,
+                        destinationAgent
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    successCount++;
                 }
+            }
+
+            if (successCount > 0) {
+                setSuccessMsg(`${successCount} archivo${successCount > 1 ? 's' : ''} movido${successCount > 1 ? 's' : ''}`);
+                await fetchStructure();
+                clearFileSelection();
             } else {
-                setError(data.error || 'Error al mover archivo');
+                setError('Error al mover archivos');
             }
         } catch (err) {
-            setError('Error de conexión al mover archivo');
+            setError('Error de conexión al mover archivos');
         } finally {
             setIsMovingFile(false);
             setDraggedFile(null);
@@ -671,11 +736,28 @@ const AdminAIKnowledge = () => {
                                     style={{ color: theme.textMuted }}>
                                     <Folder size={14} /> Estructura
                                 </h2>
-                                {isDragging && (
-                                    <span className="text-[9px] px-2 py-0.5 rounded-full bg-pink-500/20 text-pink-400 animate-pulse">
-                                        Arrastrando...
-                                    </span>
-                                )}
+                                <div className="flex items-center gap-2">
+                                    {selectedFiles.size > 0 && (
+                                        <span className="text-[9px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 flex items-center gap-1">
+                                            <CheckSquare size={10} /> {selectedFiles.size} seleccionados
+                                            <button onClick={clearFileSelection} className="ml-1 hover:text-red-400">
+                                                <X size={10} />
+                                            </button>
+                                        </span>
+                                    )}
+                                    {isDragging && (
+                                        <span className="text-[9px] px-2 py-0.5 rounded-full bg-pink-500/20 text-pink-400 animate-pulse">
+                                            {selectedFiles.size > 1 ? `📦 ${selectedFiles.size} archivos` : 'Arrastrando...'}
+                                        </span>
+                                    )}
+                                    <button
+                                        onClick={() => setIsMultiSelectMode(!isMultiSelectMode)}
+                                        className={`p-1 rounded transition-all ${isMultiSelectMode ? 'bg-blue-500/20 text-blue-400' : 'opacity-40 hover:opacity-100'}`}
+                                        title={isMultiSelectMode ? 'Desactivar selección múltiple' : 'Activar selección múltiple (bulk move)'}
+                                    >
+                                        <CheckSquare size={14} />
+                                    </button>
+                                </div>
                             </div>
 
                             <div className="flex-1 overflow-y-auto p-2 space-y-4 scrollbar-thin scrollbar-thumb-white/5">
@@ -741,8 +823,10 @@ const AdminAIKnowledge = () => {
                                                                     </div>
                                                                 )}
                                                                 {agent.files.map(file => {
-                                                                    const isBeingDragged = draggedFile?.path === `${folder}/${agent.name}/${file.name}`;
+                                                                    const filePath = `${folder}/${agent.name}/${file.name}`;
+                                                                    const isBeingDragged = draggedFile?.path === filePath;
                                                                     const isSelected = selectedFile === `${agent.name}/${file.name}` && selectedFolder === folder;
+                                                                    const isChecked = selectedFiles.has(filePath);
                                                                     // Smart file name display - show subfolder if exists
                                                                     const displayName = file.name.includes('/') ? file.name.split('/').pop() : file.name;
                                                                     const subFolder = file.name.includes('/') ? file.name.split('/').slice(0, -1).join('/') : null;
@@ -750,12 +834,21 @@ const AdminAIKnowledge = () => {
                                                                     return (
                                                                     <div
                                                                         key={file.path}
-                                                                        className={`group flex items-center gap-1 py-1 px-1 rounded-lg transition-all duration-200 ${isBeingDragged ? 'opacity-30 scale-95 bg-pink-500/10' : ''} ${isSelected ? 'bg-white/10 ring-1 ring-pink-500/30' : 'hover:bg-white/5'}`}
+                                                                        className={`group flex items-center gap-1 py-1 px-1 rounded-lg transition-all duration-200 ${isBeingDragged ? 'opacity-30 scale-95 bg-pink-500/10' : ''} ${isChecked ? 'bg-blue-500/10 ring-1 ring-blue-500/30' : isSelected ? 'bg-white/10 ring-1 ring-pink-500/30' : 'hover:bg-white/5'}`}
                                                                         draggable
-                                                                        onDragStart={(e) => handleDragStart(e, `${folder}/${agent.name}/${file.name}`, folder, file.name, agent.name)}
+                                                                        onDragStart={(e) => handleDragStart(e, filePath, folder, file.name, agent.name)}
                                                                         onDragEnd={handleDragEnd}
                                                                         title={`${file.name}${file.summary ? '\n\n' + file.summary : ''}`}
                                                                     >
+                                                                        {/* Multi-select Checkbox */}
+                                                                        {(isMultiSelectMode || selectedFiles.size > 0) && (
+                                                                            <button
+                                                                                onClick={(e) => toggleFileSelection(filePath, e)}
+                                                                                className={`p-0.5 rounded transition-all ${isChecked ? 'text-blue-400' : 'text-gray-500 opacity-40 hover:opacity-100'}`}
+                                                                            >
+                                                                                {isChecked ? <CheckSquare size={12} /> : <Square size={12} />}
+                                                                            </button>
+                                                                        )}
                                                                         {/* Drag Handle */}
                                                                         <div className="cursor-grab active:cursor-grabbing p-1 rounded hover:bg-white/10 transition-colors">
                                                                             <GripVertical size={12} className="opacity-30 group-hover:opacity-70 transition-opacity text-pink-400" />
@@ -812,18 +905,29 @@ const AdminAIKnowledge = () => {
                                                 onDrop={(e) => handleDrop(e, folder)}
                                             >
                                                 {(structure[folder] as FileItem[]).map(file => {
-                                                    const isBeingDragged = draggedFile?.path === `${folder}/${file.name}`;
+                                                    const filePath = `${folder}/${file.name}`;
+                                                    const isBeingDragged = draggedFile?.path === filePath;
                                                     const isSelected = selectedFile === file.name && selectedFolder === folder;
+                                                    const isChecked = selectedFiles.has(filePath);
 
                                                     return (
                                                     <div
                                                         key={file.path}
-                                                        className={`group flex items-center gap-1 py-1 px-1 rounded-lg transition-all duration-200 ${isBeingDragged ? 'opacity-30 scale-95 bg-pink-500/10' : ''} ${isSelected ? 'bg-white/10 ring-1 ring-pink-500/30' : 'hover:bg-white/5'}`}
+                                                        className={`group flex items-center gap-1 py-1 px-1 rounded-lg transition-all duration-200 ${isBeingDragged ? 'opacity-30 scale-95 bg-pink-500/10' : ''} ${isChecked ? 'bg-blue-500/10 ring-1 ring-blue-500/30' : isSelected ? 'bg-white/10 ring-1 ring-pink-500/30' : 'hover:bg-white/5'}`}
                                                         draggable
-                                                        onDragStart={(e) => handleDragStart(e, `${folder}/${file.name}`, folder, file.name)}
+                                                        onDragStart={(e) => handleDragStart(e, filePath, folder, file.name)}
                                                         onDragEnd={handleDragEnd}
                                                         title={`${file.name}${file.summary ? '\n\n' + file.summary : ''}`}
                                                     >
+                                                        {/* Multi-select Checkbox */}
+                                                        {(isMultiSelectMode || selectedFiles.size > 0) && (
+                                                            <button
+                                                                onClick={(e) => toggleFileSelection(filePath, e)}
+                                                                className={`p-0.5 rounded transition-all ${isChecked ? 'text-blue-400' : 'text-gray-500 opacity-40 hover:opacity-100'}`}
+                                                            >
+                                                                {isChecked ? <CheckSquare size={12} /> : <Square size={12} />}
+                                                            </button>
+                                                        )}
                                                         {/* Drag Handle */}
                                                         <div className="cursor-grab active:cursor-grabbing p-1 rounded hover:bg-white/10 transition-colors">
                                                             <GripVertical size={12} className="opacity-30 group-hover:opacity-70 transition-opacity text-pink-400" />
