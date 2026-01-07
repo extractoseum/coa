@@ -816,7 +816,12 @@ const AdminAIKnowledge = () => {
                                                 )}
                                                 {(structure[folder] as AgentFolder[]).map(agent => (
                                                     <div key={agent.name} className="space-y-0.5">
-                                                        <div className="flex items-center group/agent">
+                                                        <div
+                                                            className={`flex items-center group/agent rounded transition-all ${dropTarget?.folder === folder && dropTarget?.agentName === agent.name && !expandedAgents[agent.name] ? 'bg-green-500/20 ring-2 ring-green-500' : ''}`}
+                                                            onDragOver={(e) => handleDragOver(e, folder, agent.name)}
+                                                            onDragLeave={handleDragLeave}
+                                                            onDrop={(e) => handleDrop(e, folder, agent.name)}
+                                                        >
                                                             <button onClick={() => toggleAgentExpand(agent.name)}
                                                                 className="flex-1 flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/5 text-sm font-medium transition-colors"
                                                                 style={{ color: theme.text }}>
@@ -940,8 +945,8 @@ const AdminAIKnowledge = () => {
                                                     return (
                                                     <div
                                                         key={file.path}
-                                                        className={`group flex items-center gap-1 py-1 px-1 rounded-lg transition-all duration-200 ${isBeingDragged ? 'opacity-30 scale-95 bg-pink-500/10' : ''} ${isChecked ? 'bg-blue-500/10 ring-1 ring-blue-500/30' : isSelected ? 'bg-white/10 ring-1 ring-pink-500/30' : 'hover:bg-white/5'}`}
-                                                        draggable
+                                                        className={`group flex items-center gap-1 py-1 px-1 rounded-lg transition-all duration-200 cursor-grab active:cursor-grabbing ${isBeingDragged ? 'opacity-30 scale-95 bg-pink-500/10' : ''} ${isChecked ? 'bg-blue-500/10 ring-1 ring-blue-500/30' : isSelected ? 'bg-white/10 ring-1 ring-pink-500/30' : 'hover:bg-white/5'}`}
+                                                        draggable={true}
                                                         onDragStart={(e) => handleDragStart(e, filePath, folder, file.name)}
                                                         onDragEnd={handleDragEnd}
                                                         title={`${file.name}${file.summary ? '\n\n' + file.summary : ''}`}
@@ -950,19 +955,22 @@ const AdminAIKnowledge = () => {
                                                         {(isMultiSelectMode || selectedFiles.size > 0) && (
                                                             <button
                                                                 onClick={(e) => toggleFileSelection(filePath, e)}
+                                                                onMouseDown={(e) => e.stopPropagation()}
                                                                 className={`p-0.5 rounded transition-all ${isChecked ? 'text-blue-400' : 'text-gray-500 opacity-40 hover:opacity-100'}`}
                                                             >
                                                                 {isChecked ? <CheckSquare size={12} /> : <Square size={12} />}
                                                             </button>
                                                         )}
-                                                        {/* Drag Handle */}
-                                                        <div className="cursor-grab active:cursor-grabbing p-1 rounded hover:bg-white/10 transition-colors">
+                                                        {/* Drag Handle - visual indicator only, whole row is draggable */}
+                                                        <div className="p-1 rounded hover:bg-white/10 transition-colors pointer-events-none">
                                                             <GripVertical size={12} className="opacity-30 group-hover:opacity-70 transition-opacity text-pink-400" />
                                                         </div>
 
                                                         {/* File Button */}
-                                                        <button onClick={() => handleFileClick(folder, file.name)}
-                                                            className="flex-1 text-left flex items-center gap-2 min-w-0 py-0.5">
+                                                        <div
+                                                            onClick={() => handleFileClick(folder, file.name)}
+                                                            onMouseDown={(e) => e.stopPropagation()}
+                                                            className="flex-1 text-left flex items-center gap-2 min-w-0 py-0.5 cursor-pointer">
                                                             <FileText size={12} className={`flex-shrink-0 ${isSelected ? 'text-pink-400' : 'opacity-40'}`} />
                                                             <div className="flex flex-col flex-1 min-w-0">
                                                                 <span
@@ -977,10 +985,12 @@ const AdminAIKnowledge = () => {
                                                                     </span>
                                                                 )}
                                                             </div>
-                                                        </button>
+                                                        </div>
 
                                                         {/* Delete Button */}
-                                                        <button onClick={(e) => { e.stopPropagation(); handleDeleteFile(folder, file.name); }}
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); handleDeleteFile(folder, file.name); }}
+                                                            onMouseDown={(e) => e.stopPropagation()}
                                                             className="p-1 rounded opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:bg-red-500/10 transition-all text-red-500 flex-shrink-0">
                                                             <Trash2 size={10} />
                                                         </button>
