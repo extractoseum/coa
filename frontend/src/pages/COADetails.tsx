@@ -181,6 +181,11 @@ export default function COADetails() {
     };
 
     const [coa, setCoa] = useState<COA | null>(null);
+    // Restricted access state
+    const [restricted, setRestricted] = useState(false);
+    const [restrictionType, setRestrictionType] = useState<'tag_restricted' | 'hidden' | null>(null);
+    const [requiredTags, setRequiredTags] = useState<string[]>([]);
+    const [restrictedData, setRestrictedData] = useState<any>(null);
     // ... (rest of state)
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -216,13 +221,33 @@ export default function COADetails() {
     const qrRef = useRef<HTMLDivElement>(null);
 
     const loadCOA = () => {
-        fetch(`/api/v1/coas/${token}`)
+        // Include auth token if available to check tag-based access
+        const headers: Record<string, string> = {};
+        const accessToken = localStorage.getItem('accessToken');
+        if (accessToken) {
+            headers['Authorization'] = `Bearer ${accessToken}`;
+        }
+
+        fetch(`/api/v1/coas/${token}`, { headers })
             .then(res => {
                 if (!res.ok) throw new Error('COA not found');
                 return res.json();
             })
             .then(data => {
-                setCoa(data.data);
+                // Check if access is restricted
+                if (data.restricted) {
+                    setRestricted(true);
+                    setRestrictionType(data.restriction_type);
+                    setRequiredTags(data.required_tags || []);
+                    setRestrictedData(data.data);
+                    setCoa(null);
+                } else {
+                    setRestricted(false);
+                    setRestrictionType(null);
+                    setRequiredTags([]);
+                    setRestrictedData(null);
+                    setCoa(data.data);
+                }
                 setLoading(false);
             })
             .catch(err => {
@@ -611,6 +636,125 @@ export default function COADetails() {
             </div>
         </Layout>
     );
+
+    // Show restricted access page (similar to CVV verification page)
+    if (restricted && restrictedData) {
+        return (
+            <Layout>
+                <Screen id="COARestricted"><></></Screen>
+                <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-4">
+                    <div className="max-w-md w-full bg-gray-800 rounded-2xl shadow-xl overflow-hidden border border-gray-700">
+                        {/* Header with gradient */}
+                        <div className="bg-gradient-to-r from-amber-600 to-orange-500 p-6 text-center">
+                            <div className="mx-auto bg-white/20 w-16 h-16 rounded-full flex items-center justify-center mb-4 backdrop-blur-sm">
+                                <ShieldCheck className="w-8 h-8 text-white" />
+                            </div>
+                            <h1 className="text-xl font-bold tracking-wide">Producto Verificado</h1>
+                            <p className="text-amber-100 text-sm mt-1">Certificado de Análisis</p>
+                        </div>
+
+                        {/* Content */}
+                        <div className="p-6 space-y-6">
+                            {/* Product Image & Name */}
+                            <div className="flex items-center gap-4">
+                                {restrictedData.product_image_url ? (
+                                    <img
+                                        src={restrictedData.product_image_url}
+                                        alt={restrictedData.custom_name || 'Producto'}
+                                        className="w-20 h-20 rounded-lg object-cover border border-gray-600"
+                                    />
+                                ) : (
+                                    <div className="w-20 h-20 rounded-lg bg-gray-700 flex items-center justify-center border border-gray-600">
+                                        <FlaskConical className="w-8 h-8 text-gray-500" />
+                                    </div>
+                                )}
+                                <div className="flex-1">
+                                    <h2 className="text-lg font-semibold text-white">
+                                        {restrictedData.custom_name || 'Producto Analizado'}
+                                    </h2>
+                                    {restrictedData.batch_id && (
+                                        <p className="text-sm text-gray-400 mt-1">
+                                            Lote: {restrictedData.batch_id}
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Compliance Status Badge */}
+                            {restrictedData.compliance_status && (
+                                <div className={`px-4 py-2 rounded-lg text-center font-medium ${
+                                    restrictedData.compliance_status === 'pass'
+                                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                        : restrictedData.compliance_status === 'fail'
+                                            ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                                            : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
+                                }`}>
+                                    {restrictedData.compliance_status === 'pass' ? '✓ Producto Certificado' :
+                                        restrictedData.compliance_status === 'fail' ? '✗ No Cumple' : '⏳ Pendiente'}
+                                </div>
+                            )}
+
+                            {/* Divider */}
+                            <div className="border-t border-gray-700 pt-4">
+                                <div className="flex items-center gap-2 text-gray-300 mb-4">
+                                    <AlertTriangle className="w-5 h-5 text-amber-400" />
+                                    <span className="font-medium">Documento Restringido</span>
+                                </div>
+                                <p className="text-sm text-gray-400 mb-4">
+                                    {restrictionType === 'tag_restricted'
+                                        ? 'Este certificado de análisis está disponible únicamente para un segmento exclusivo de clientes.'
+                                        : 'Este certificado de análisis no está disponible públicamente.'
+                                    }
+                                </p>
+                            </div>
+
+                            {/* Login CTA if not authenticated */}
+                            {!isAuthenticated && (
+                                <div className="space-y-4">
+                                    <p className="text-sm text-gray-400">
+                                        Si eres parte de este segmento, inicia sesión para verificar tu acceso.
+                                    </p>
+                                    <Link
+                                        to="/login"
+                                        className="w-full bg-amber-600 hover:bg-amber-500 text-white font-medium py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
+                                    >
+                                        Iniciar Sesión
+                                    </Link>
+                                </div>
+                            )}
+
+                            {/* Already authenticated but no access */}
+                            {isAuthenticated && (
+                                <div className="space-y-4">
+                                    <div className="bg-gray-700/50 border border-gray-600 rounded-lg p-4">
+                                        <p className="text-sm text-gray-300">
+                                            Tu cuenta no tiene acceso a este documento.
+                                        </p>
+                                        <p className="text-xs text-gray-500 mt-2">
+                                            Si crees que esto es un error, contacta a soporte.
+                                        </p>
+                                    </div>
+                                    <a
+                                        href="https://wa.me/525583670741?text=Hola,%20necesito%20ayuda%20con%20acceso%20a%20un%20COA%20restringido"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
+                                    >
+                                        Contactar Soporte
+                                    </a>
+                                </div>
+                            )}
+
+                            {/* Info footer */}
+                            <p className="text-xs text-gray-500 text-center">
+                                El acceso a este documento está restringido por el propietario del producto.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </Layout>
+        );
+    }
 
     if (error || !coa) return (
         <Layout>

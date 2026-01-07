@@ -210,6 +210,119 @@ export const getCOAByToken = async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'COA not found' });
         }
 
+        // Check tag-based visibility restrictions
+        if (data.visibility_mode === 'tag_restricted' && data.required_tags && data.required_tags.length > 0) {
+            // Try to get the viewer's email from auth token (if logged in)
+            let viewerEmail: string | null = null;
+            const authHeader = req.headers.authorization;
+            if (authHeader && authHeader.startsWith('Bearer ')) {
+                try {
+                    const jwtToken = authHeader.split(' ')[1];
+                    const decoded = jwt.verify(jwtToken, process.env.JWT_SECRET || 'dev_secret_key_12345') as any;
+                    if (decoded.email) {
+                        viewerEmail = decoded.email;
+                    } else if (decoded.clientId) {
+                        // Get email from clients table
+                        const { data: clientData } = await supabase
+                            .from('clients')
+                            .select('email')
+                            .eq('id', decoded.clientId)
+                            .single();
+                        if (clientData?.email) {
+                            viewerEmail = clientData.email;
+                        }
+                    }
+                } catch (e) {
+                    // Invalid token or not logged in, continue as anonymous
+                }
+            }
+
+            // Check if this is the COA owner (owner always has access)
+            const isOwner = viewerEmail && data.owner_email && viewerEmail.toLowerCase() === data.owner_email.toLowerCase();
+
+            if (!isOwner) {
+                // Get viewer's Shopify tags
+                let viewerTags: string[] = [];
+                if (viewerEmail) {
+                    const { data: customer } = await supabase
+                        .from('shopify_customers_backup')
+                        .select('tags')
+                        .eq('email', viewerEmail.toLowerCase())
+                        .single();
+
+                    if (customer?.tags) {
+                        viewerTags = customer.tags.split(',').map((t: string) => t.trim()).filter(Boolean);
+                    }
+                }
+
+                // Check if viewer has any of the required tags
+                const hasAccess = data.required_tags.some((requiredTag: string) =>
+                    viewerTags.some(viewerTag => viewerTag.toLowerCase() === requiredTag.toLowerCase())
+                );
+
+                if (!hasAccess) {
+                    // Log the access attempt
+                    console.log(`[Tag Restricted] Access denied to COA ${token} for ${viewerEmail || 'anonymous'}. Required: ${data.required_tags.join(', ')}, Has: ${viewerTags.join(', ')}`);
+
+                    // Return restricted access response with limited COA info
+                    return res.json({
+                        success: true,
+                        restricted: true,
+                        restriction_type: 'tag_restricted',
+                        required_tags: data.required_tags,
+                        data: {
+                            public_token: data.public_token,
+                            product_image_url: data.product_image_url,
+                            custom_name: data.custom_name,
+                            batch_id: data.batch_id,
+                            compliance_status: data.compliance_status,
+                            // Don't include sensitive data like cannabinoids, PDF URLs, etc.
+                        }
+                    });
+                }
+            }
+        }
+
+        // Check if COA is hidden (only owner can see)
+        if (data.visibility_mode === 'hidden') {
+            let viewerEmail: string | null = null;
+            const authHeader = req.headers.authorization;
+            if (authHeader && authHeader.startsWith('Bearer ')) {
+                try {
+                    const jwtToken = authHeader.split(' ')[1];
+                    const decoded = jwt.verify(jwtToken, process.env.JWT_SECRET || 'dev_secret_key_12345') as any;
+                    if (decoded.email) {
+                        viewerEmail = decoded.email;
+                    } else if (decoded.clientId) {
+                        const { data: clientData } = await supabase
+                            .from('clients')
+                            .select('email')
+                            .eq('id', decoded.clientId)
+                            .single();
+                        if (clientData?.email) {
+                            viewerEmail = clientData.email;
+                        }
+                    }
+                } catch (e) {
+                    // Invalid token
+                }
+            }
+
+            const isOwner = viewerEmail && data.owner_email && viewerEmail.toLowerCase() === data.owner_email.toLowerCase();
+            if (!isOwner) {
+                return res.json({
+                    success: true,
+                    restricted: true,
+                    restriction_type: 'hidden',
+                    data: {
+                        public_token: data.public_token,
+                        product_image_url: data.product_image_url,
+                        custom_name: data.custom_name,
+                    }
+                });
+            }
+        }
+
         // Try to fetch badges if the tables exist
         // If they don't exist, just use an empty array
         let badges: any[] = [];
