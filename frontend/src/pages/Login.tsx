@@ -212,13 +212,7 @@ export default function Login() {
                                 Ingresa con tu cuenta EUM
                             </button>
 
-                            <div className="relative flex items-center gap-4 py-2">
-                                <div className="h-px flex-1 bg-gray-700"></div>
-                                <span className="text-gray-500 text-sm">O usa tu contraseña</span>
-                                <div className="h-px flex-1 bg-gray-700"></div>
-                            </div>
-
-                            <div className="flex justify-end mb-4">
+                            <div className="flex justify-center mt-4 mb-4">
                                 <button
                                     type="button"
                                     onClick={() => {
@@ -232,13 +226,7 @@ export default function Login() {
                                 </button>
                             </div>
 
-                            {!isAuthenticatorMode ? (
-                                <div className="text-center py-8 space-y-4">
-                                    <p style={{ color: theme.textMuted }}>
-                                        Selecciona el método de acceso seguro
-                                    </p>
-                                </div>
-                            ) : (
+                            {isAuthenticatorMode && (
                                 // Authenticator Login Form
                                 <form onSubmit={handleAuthenticatorLogin} className="space-y-4">
                                     <div>
@@ -308,14 +296,11 @@ export default function Login() {
                                 </form>
                             )}
 
-                            <div className="text-center space-y-2">
-                                <p className="text-xs text-gray-500">
-                                    La validación con Shopify no requiere contraseña.
-                                </p>
+                            <div className="text-center mt-4">
                                 <button
                                     type="button"
                                     onClick={() => navigate('/')}
-                                    className="text-sm transition-colors hover:opacity-80 block w-full"
+                                    className="text-sm transition-colors hover:opacity-80"
                                     style={{ color: theme.textMuted }}
                                 >
                                     Volver al inicio
