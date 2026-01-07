@@ -416,10 +416,25 @@ const AdminAIKnowledge = () => {
         agents_internal: 'AGENTS_INTERNAL',
         instructions: 'INSTRUCCIONES GLOBALES',
         information: 'BASE DE DATOS (CONTEXTO)',
+        products: 'PRODUCTOS (CATÁLOGO)',
         core: 'CORE'
     };
 
+    // Global folders that all agents can access (not agent-specific)
+    const GLOBAL_FOLDERS = ['instructions', 'information', 'products', 'core'];
+
     const AGENT_FOLDERS = ['agents_god_mode', 'agents_public', 'agents_internal'];
+
+    // Folder icons for visual distinction
+    const getFolderIcon = (folder: string) => {
+        switch (folder) {
+            case 'instructions': return <BookOpen size={12} className="text-purple-400" />;
+            case 'information': return <Database size={12} className="text-blue-400" />;
+            case 'products': return <ShoppingBag size={12} className="text-green-400" />;
+            case 'core': return <Zap size={12} className="text-yellow-400" />;
+            default: return <Folder size={12} />;
+        }
+    };
 
     // Knowledge Snaps Functions
     const fetchAgentSnaps = async (folder: string, agentName: string) => {
@@ -752,10 +767,11 @@ const AdminAIKnowledge = () => {
                                     )}
                                     <button
                                         onClick={() => setIsMultiSelectMode(!isMultiSelectMode)}
-                                        className={`p-1 rounded transition-all ${isMultiSelectMode ? 'bg-blue-500/20 text-blue-400' : 'opacity-40 hover:opacity-100'}`}
+                                        className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1.5 text-[9px] font-bold ${isMultiSelectMode ? 'bg-blue-500/20 text-blue-400 ring-1 ring-blue-500/40' : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-gray-200'}`}
                                         title={isMultiSelectMode ? 'Desactivar selección múltiple' : 'Activar selección múltiple (bulk move)'}
                                     >
-                                        <CheckSquare size={14} />
+                                        <CheckSquare size={12} />
+                                        {isMultiSelectMode ? 'Bulk ON' : 'Bulk'}
                                     </button>
                                 </div>
                             </div>
@@ -764,7 +780,8 @@ const AdminAIKnowledge = () => {
                                 {Object.keys(structure).filter(k => !k.endsWith('_config')).map(folder => (
                                     <div key={folder} className="mb-4">
                                         <div className="px-3 py-1 flex items-center justify-between mb-1">
-                                            <span className="text-[9px] font-black uppercase tracking-tighter" style={{ color: theme.textMuted }}>
+                                            <span className="text-[9px] font-black uppercase tracking-tighter flex items-center gap-1.5" style={{ color: theme.textMuted }}>
+                                                {getFolderIcon(folder)}
                                                 {folderNames[folder] || folder}
                                             </span>
                                             {!AGENT_FOLDERS.includes(folder) && (

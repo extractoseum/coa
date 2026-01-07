@@ -41,7 +41,7 @@ const syncKnowledgeBase = () => {
             // We want to ADD missing files, but maybe NOT overwrite identity.md if modified?
             // Safer approach for now: Sync standard folders.
 
-            const dirsToSync = ['agents_god_mode', 'agents_public', 'agents_internal', 'instructions', 'information'];
+            const dirsToSync = ['agents_god_mode', 'agents_public', 'agents_internal', 'instructions', 'information', 'products'];
             for (const dir of dirsToSync) {
                 const src = path.join(BUNDLED_PATH, dir);
                 const dest = path.join(PERSISTENT_PATH, dir);
@@ -68,7 +68,7 @@ const KNOWLEDGE_BASE_DIR = PERSISTENT_PATH;
 
 // Subdirectories allowed
 const AGENT_CATEGORIES = ['agents_god_mode', 'agents_public', 'agents_internal'];
-const STANDARD_FOLDERS = ['instructions', 'information', 'core'];
+const STANDARD_FOLDERS = ['instructions', 'information', 'products', 'core'];
 const ALLOWED_FOLDERS = [...AGENT_CATEGORIES, ...STANDARD_FOLDERS];
 
 // Helper to extract identifier from identity.md (e.g. "8740")
