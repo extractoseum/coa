@@ -36,6 +36,7 @@ import logsRoutes from './routes/logsRoutes'; // NEW: Telemetry Logs
 import sitemapRoutes from './routes/sitemapRoutes'; // NEW: Dynamic Sitemap
 import vapiRoutes from './routes/vapiRoutes'; // NEW: Vapi Real-Time Voice
 import driftRoutes from './routes/driftRoutes'; // NEW: Drift Bot Mission Control
+import oracleRoutes from './routes/oracleRoutes'; // NEW: Oracle Predictive Restocking
 
 import { initCronJobs } from './services/cronService';
 import { startEmailPolling } from './services/emailService';
@@ -167,6 +168,7 @@ app.use('/api/v1/admin/tools', toolsRoutes); // NEW: IDE Tools Editor
 app.use('/api/v1/behavior', behaviorRoutes); // NEW: Behavioral Intelligence Tracking
 app.use('/api/v1/vapi', vapiRoutes); // NEW: Vapi Voice Integration
 app.use('/api/v1/drift', driftRoutes); // NEW: Drift Bot
+app.use('/api/v1/oracle', oracleRoutes); // NEW: Oracle Predictive Restocking
 
 // Telemetry Logs Endpoint (Surgical Injection)
 app.use('/api/v1/logs', logsRoutes); // Telemetry Logs

@@ -3,6 +3,12 @@ import { refreshTagsCache, getCacheAge, syncProductsToLocalDB } from './shopifyS
 import { updateAllActiveTrackings } from './trackingService';
 import { AuditorService } from './AuditorService';
 import { logger } from '../utils/Logger';
+import {
+    generateRestockPredictions,
+    processRestockNotifications,
+    aggregateDailySales,
+    generateInventoryForecast
+} from './oracleService';
 
 /**
  * Initialize all cron jobs
@@ -90,6 +96,68 @@ export const initCronJobs = () => {
     logger.info('[Cron] Scheduled: Auditor (Forensics) every 6 hours');
 
     logger.info('[Cron] Scheduled: Abandoned recovery checks every 30 minutes');
+
+    // ========================================================================
+    // ORACLE - Predictive Restocking (Smart Option A)
+    // ========================================================================
+
+    // Aggregate daily sales at 1:00 AM (for yesterday's data)
+    cron.schedule('0 1 * * *', async () => {
+        console.log('[Cron] Starting Oracle daily sales aggregation...');
+        try {
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const count = await aggregateDailySales(yesterday);
+            console.log(`[Cron] Oracle sales aggregation complete: ${count} products processed`);
+        } catch (error: any) {
+            console.error('[Cron] Oracle sales aggregation failed:', error.message);
+        }
+    }, {
+        timezone: 'America/Mexico_City'
+    });
+    console.log('[Cron] Scheduled: Oracle sales aggregation daily at 1:00 AM');
+
+    // Generate restock predictions at 5:00 AM (after product sync)
+    cron.schedule('0 5 * * *', async () => {
+        console.log('[Cron] Starting Oracle restock predictions...');
+        try {
+            const result = await generateRestockPredictions();
+            console.log(`[Cron] Oracle predictions: ${result.created} created, ${result.updated} updated, ${result.errors} errors`);
+        } catch (error: any) {
+            console.error('[Cron] Oracle predictions failed:', error.message);
+        }
+    }, {
+        timezone: 'America/Mexico_City'
+    });
+    console.log('[Cron] Scheduled: Oracle restock predictions daily at 5:00 AM');
+
+    // Process restock notifications at 9:00 AM (good time for customer messages)
+    cron.schedule('0 9 * * *', async () => {
+        console.log('[Cron] Starting Oracle restock notifications...');
+        try {
+            const result = await processRestockNotifications();
+            console.log(`[Cron] Oracle notifications: ${result.processed} processed, ${result.notified} notified, ${result.errors} errors`);
+        } catch (error: any) {
+            console.error('[Cron] Oracle notifications failed:', error.message);
+        }
+    }, {
+        timezone: 'America/Mexico_City'
+    });
+    console.log('[Cron] Scheduled: Oracle restock notifications daily at 9:00 AM');
+
+    // Generate inventory forecast weekly on Monday at 6:00 AM
+    cron.schedule('0 6 * * 1', async () => {
+        console.log('[Cron] Starting Oracle inventory forecast...');
+        try {
+            const result = await generateInventoryForecast();
+            console.log(`[Cron] Oracle forecast: ${result.products} products, ${result.lowStockAlerts} low stock, ${result.stockoutRisks} stockout risks`);
+        } catch (error: any) {
+            console.error('[Cron] Oracle inventory forecast failed:', error.message);
+        }
+    }, {
+        timezone: 'America/Mexico_City'
+    });
+    console.log('[Cron] Scheduled: Oracle inventory forecast weekly on Mondays at 6:00 AM');
 
     // Check if cache needs initial population (on server start)
     checkAndRefreshCacheIfNeeded();
