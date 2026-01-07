@@ -12,8 +12,26 @@ import { normalizePhone } from '../utils/phoneUtils';
 const WHAPI_BASE_URL = process.env.WHAPI_BASE_URL || 'https://gate.whapi.cloud';
 const WHAPI_TOKEN = process.env.WHAPI_TOKEN;
 
-// Rate limit: 1 mensaje por segundo para evitar bloqueos de WhatsApp
-const MESSAGE_DELAY_MS = 1000;
+// Rate limiting configuration for bulk sends
+// WhatsApp can block accounts that send too many messages too fast
+// We use variable delays to simulate natural human behavior
+const BULK_CONFIG = {
+    // Minimum delay between messages (3 seconds)
+    MIN_DELAY_MS: 3000,
+    // Maximum delay between messages (8 seconds)
+    MAX_DELAY_MS: 8000,
+    // Pause every N messages to seem more natural
+    BATCH_SIZE: 10,
+    // Longer pause after each batch (15-30 seconds)
+    BATCH_PAUSE_MIN_MS: 15000,
+    BATCH_PAUSE_MAX_MS: 30000,
+    // Maximum messages per hour to stay safe (WhatsApp limits vary)
+    MAX_PER_HOUR: 200
+};
+
+// Track messages sent in current hour for rate limiting
+let hourlyMessageCount = 0;
+let hourlyResetTime = Date.now() + 3600000; // 1 hour from now
 
 const whapiApi = axios.create({
     baseURL: WHAPI_BASE_URL,
@@ -227,7 +245,31 @@ export const sendWhatsAppVoice = async (to: string, mediaUrl: string, customToke
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
- * Enviar mensajes en lote con rate limiting
+ * Get random delay within range to simulate natural behavior
+ */
+const getRandomDelay = (min: number, max: number): number => {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+};
+
+/**
+ * Check and update hourly rate limit
+ * Returns true if we can send more messages, false if limit reached
+ */
+const checkHourlyLimit = (): boolean => {
+    const now = Date.now();
+
+    // Reset counter if hour has passed
+    if (now >= hourlyResetTime) {
+        hourlyMessageCount = 0;
+        hourlyResetTime = now + 3600000; // Next hour
+    }
+
+    return hourlyMessageCount < BULK_CONFIG.MAX_PER_HOUR;
+};
+
+/**
+ * Enviar mensajes en lote con rate limiting inteligente
+ * Simula comportamiento humano natural para evitar bloqueos de WhatsApp
  */
 export const sendBulkWhatsApp = async (
     phones: string[],
@@ -235,18 +277,29 @@ export const sendBulkWhatsApp = async (
     notificationId: string
 ): Promise<BulkResult> => {
     console.log(`[Whapi] ========== sendBulkWhatsApp CALLED ==========`);
-    console.log(`[Whapi] Phones: ${JSON.stringify(phones)}`);
+    console.log(`[Whapi] Phones count: ${phones.length}`);
     console.log(`[Whapi] NotificationId: ${notificationId}`);
     console.log(`[Whapi] Body length: ${body.length}`);
+    console.log(`[Whapi] Rate limit config: ${BULK_CONFIG.MIN_DELAY_MS}-${BULK_CONFIG.MAX_DELAY_MS}ms between messages, batch pause every ${BULK_CONFIG.BATCH_SIZE} messages`);
 
     let sent = 0;
     let failed = 0;
     const errors: string[] = [];
+    let skippedDueToLimit = 0;
 
-    console.log(`[Whapi] Starting bulk send to ${phones.length} recipients...`);
+    console.log(`[Whapi] Starting bulk send to ${phones.length} recipients with natural pacing...`);
+
+    const startTime = Date.now();
 
     for (let i = 0; i < phones.length; i++) {
         const phone = phones[i];
+
+        // Check hourly limit
+        if (!checkHourlyLimit()) {
+            console.warn(`[Whapi] Hourly limit reached (${BULK_CONFIG.MAX_PER_HOUR} messages). Stopping bulk send.`);
+            skippedDueToLimit = phones.length - i;
+            break;
+        }
 
         try {
             const result = await sendWhatsAppMessage({ to: phone, body });
@@ -263,6 +316,7 @@ export const sendBulkWhatsApp = async (
 
             if (result.sent) {
                 sent++;
+                hourlyMessageCount++;
             } else {
                 failed++;
                 errors.push(`${phone}: ${result.error}`);
@@ -270,7 +324,9 @@ export const sendBulkWhatsApp = async (
 
             // Log progreso cada 10 mensajes
             if ((i + 1) % 10 === 0) {
-                console.log(`[Whapi] Progress: ${i + 1}/${phones.length} (${sent} sent, ${failed} failed)`);
+                const elapsed = Math.round((Date.now() - startTime) / 1000);
+                const rate = sent / (elapsed / 60); // messages per minute
+                console.log(`[Whapi] Progress: ${i + 1}/${phones.length} (${sent} sent, ${failed} failed) - ${rate.toFixed(1)} msg/min`);
             }
 
         } catch (error: any) {
@@ -287,13 +343,24 @@ export const sendBulkWhatsApp = async (
             });
         }
 
-        // Rate limit: esperar 1 segundo entre mensajes
+        // Smart rate limiting to simulate natural behavior
         if (i < phones.length - 1) {
-            await delay(MESSAGE_DELAY_MS);
+            // Check if we've completed a batch
+            if ((i + 1) % BULK_CONFIG.BATCH_SIZE === 0) {
+                // Longer pause after batch to seem more natural
+                const batchPause = getRandomDelay(BULK_CONFIG.BATCH_PAUSE_MIN_MS, BULK_CONFIG.BATCH_PAUSE_MAX_MS);
+                console.log(`[Whapi] Batch ${Math.floor((i + 1) / BULK_CONFIG.BATCH_SIZE)} complete. Pausing ${Math.round(batchPause / 1000)}s...`);
+                await delay(batchPause);
+            } else {
+                // Variable delay between messages (3-8 seconds)
+                const messageDelay = getRandomDelay(BULK_CONFIG.MIN_DELAY_MS, BULK_CONFIG.MAX_DELAY_MS);
+                await delay(messageDelay);
+            }
         }
     }
 
-    console.log(`[Whapi] Bulk send complete: ${sent} sent, ${failed} failed`);
+    const totalTime = Math.round((Date.now() - startTime) / 1000);
+    console.log(`[Whapi] Bulk send complete in ${totalTime}s: ${sent} sent, ${failed} failed${skippedDueToLimit > 0 ? `, ${skippedDueToLimit} skipped (hourly limit)` : ''}`);
 
     // Actualizar contadores en la notificación
     await supabase

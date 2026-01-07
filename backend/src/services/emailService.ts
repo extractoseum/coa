@@ -609,6 +609,237 @@ export const getAraEmailStatus = (): { configured: boolean; polling: boolean; em
 initAraTransporter();
 
 // ============================================================================
+// BULK EMAIL MARKETING
+// ============================================================================
+
+// Rate limiting for bulk emails
+const BULK_EMAIL_CONFIG = {
+    // Delay between emails (100ms - much faster than WhatsApp since email servers handle volume better)
+    MIN_DELAY_MS: 100,
+    MAX_DELAY_MS: 300,
+    // Batch size before longer pause
+    BATCH_SIZE: 50,
+    // Pause after each batch (2-5 seconds)
+    BATCH_PAUSE_MIN_MS: 2000,
+    BATCH_PAUSE_MAX_MS: 5000,
+    // Max emails per hour (most SMTP servers allow 500-1000/hour)
+    MAX_PER_HOUR: 500
+};
+
+let hourlyEmailCount = 0;
+let hourlyEmailResetTime = Date.now() + 3600000;
+
+const delayMs = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const getRandomDelayEmail = (min: number, max: number): number => Math.floor(Math.random() * (max - min + 1)) + min;
+
+/**
+ * Get marketing email template
+ */
+const getMarketingEmailTemplate = (title: string, message: string, imageUrl?: string): string => {
+    const imageHtml = imageUrl ? `
+        <div style="margin: 20px 0; text-align: center;">
+            <img src="${imageUrl}" alt="${title}" style="max-width: 100%; height: auto; border-radius: 8px;">
+        </div>
+    ` : '';
+
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background: #f4f4f4; }
+        .container { max-width: 600px; margin: 20px auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .header { background: linear-gradient(135deg, ${BRAND_COLOR} 0%, #7C3AED 100%); color: #fff; padding: 20px 30px; text-align: center; }
+        .logo { width: 160px; height: auto; margin-bottom: 10px; }
+        .content { padding: 30px; }
+        .title { color: #1a1a1a; font-size: 24px; font-weight: bold; margin-bottom: 15px; text-align: center; }
+        .message { font-size: 16px; color: #4a5568; line-height: 1.8; white-space: pre-wrap; }
+        .cta-button { display: inline-block; padding: 14px 28px; background: ${BRAND_COLOR}; color: #ffffff !important; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 20px; }
+        .footer { background: #f8fafc; padding: 20px 30px; text-align: center; font-size: 12px; color: #718096; border-top: 1px solid #e2e8f0; }
+        .footer a { color: #718096; }
+        .unsubscribe { margin-top: 15px; font-size: 11px; color: #a0aec0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <img src="${LOGO_URL}" alt="Extractos EUM" class="logo">
+        </div>
+        <div class="content">
+            <h1 class="title">${title}</h1>
+            ${imageHtml}
+            <div class="message">${message.replace(/\n/g, '<br>')}</div>
+            <div style="text-align: center;">
+                <a href="${APP_BASE_URL}" class="cta-button">Visitar Tienda</a>
+            </div>
+        </div>
+        <div class="footer">
+            <p>&copy; ${new Date().getFullYear()} EXTRACTOS EUM™. Todos los derechos reservados.</p>
+            <p>
+                <a href="${COMPANY_WEBSITE}">Sitio Web</a> ·
+                <a href="${APP_BASE_URL}/dashboard">Mi Dashboard</a>
+            </p>
+            <p class="unsubscribe">
+                Recibes este correo porque eres cliente de Extractos EUM.<br>
+                Para dejar de recibir correos promocionales, responde con "CANCELAR".
+            </p>
+        </div>
+    </div>
+</body>
+</html>
+`;
+};
+
+export interface BulkEmailResult {
+    sent: number;
+    failed: number;
+    errors: string[];
+    skippedDueToLimit?: number;
+}
+
+/**
+ * Send bulk marketing emails via Ara's email (ara@extractoseum.com)
+ * Uses rate limiting to avoid SMTP server issues
+ */
+export const sendBulkMarketingEmail = async (
+    emails: string[],
+    subject: string,
+    title: string,
+    message: string,
+    notificationId: string,
+    imageUrl?: string
+): Promise<BulkEmailResult> => {
+    if (!araTransporter) {
+        initAraTransporter();
+    }
+
+    if (!araTransporter) {
+        console.error('[BulkEmail] Ara transporter not configured');
+        return { sent: 0, failed: emails.length, errors: ['Email service not configured'] };
+    }
+
+    console.log(`[BulkEmail] ========== sendBulkMarketingEmail CALLED ==========`);
+    console.log(`[BulkEmail] Recipients count: ${emails.length}`);
+    console.log(`[BulkEmail] Subject: ${subject}`);
+    console.log(`[BulkEmail] NotificationId: ${notificationId}`);
+
+    let sent = 0;
+    let failed = 0;
+    const errors: string[] = [];
+    let skippedDueToLimit = 0;
+
+    const html = getMarketingEmailTemplate(title, message, imageUrl);
+    const textContent = `${title}\n\n${message}\n\n---\nVisita: ${APP_BASE_URL}\n\nExtractos EUM - ${COMPANY_WEBSITE}`;
+
+    const startTime = Date.now();
+
+    for (let i = 0; i < emails.length; i++) {
+        const email = emails[i];
+
+        // Check hourly limit
+        const now = Date.now();
+        if (now >= hourlyEmailResetTime) {
+            hourlyEmailCount = 0;
+            hourlyEmailResetTime = now + 3600000;
+        }
+
+        if (hourlyEmailCount >= BULK_EMAIL_CONFIG.MAX_PER_HOUR) {
+            console.warn(`[BulkEmail] Hourly limit reached (${BULK_EMAIL_CONFIG.MAX_PER_HOUR}). Stopping.`);
+            skippedDueToLimit = emails.length - i;
+            break;
+        }
+
+        try {
+            const result = await araTransporter.sendMail({
+                from: `"Ara - Extractos EUM" <${ARA_EMAIL_CONFIG.user}>`,
+                to: email,
+                subject: subject,
+                text: textContent,
+                html: html,
+                headers: {
+                    'X-Campaign-ID': notificationId,
+                    'List-Unsubscribe': `<mailto:${ARA_EMAIL_CONFIG.user}?subject=CANCELAR>`
+                }
+            });
+
+            sent++;
+            hourlyEmailCount++;
+
+            // Log to database
+            await supabase.from('system_logs').insert({
+                event_type: 'bulk_email_sent',
+                category: 'marketing',
+                metadata: {
+                    notification_id: notificationId,
+                    to: email,
+                    message_id: result.messageId,
+                    subject
+                }
+            });
+
+            // Log progress every 50 emails
+            if ((i + 1) % 50 === 0) {
+                const elapsed = Math.round((Date.now() - startTime) / 1000);
+                const rate = sent / (elapsed / 60);
+                console.log(`[BulkEmail] Progress: ${i + 1}/${emails.length} (${sent} sent, ${failed} failed) - ${rate.toFixed(1)} emails/min`);
+            }
+
+        } catch (error: any) {
+            failed++;
+            const errorMsg = error.message || 'Unknown error';
+            errors.push(`${email}: ${errorMsg}`);
+
+            // Log error
+            await supabase.from('system_logs').insert({
+                event_type: 'bulk_email_failed',
+                category: 'marketing',
+                metadata: {
+                    notification_id: notificationId,
+                    to: email,
+                    error: errorMsg,
+                    subject
+                }
+            });
+        }
+
+        // Rate limiting
+        if (i < emails.length - 1) {
+            if ((i + 1) % BULK_EMAIL_CONFIG.BATCH_SIZE === 0) {
+                const batchPause = getRandomDelayEmail(BULK_EMAIL_CONFIG.BATCH_PAUSE_MIN_MS, BULK_EMAIL_CONFIG.BATCH_PAUSE_MAX_MS);
+                console.log(`[BulkEmail] Batch ${Math.floor((i + 1) / BULK_EMAIL_CONFIG.BATCH_SIZE)} complete. Pausing ${Math.round(batchPause / 1000)}s...`);
+                await delayMs(batchPause);
+            } else {
+                const emailDelay = getRandomDelayEmail(BULK_EMAIL_CONFIG.MIN_DELAY_MS, BULK_EMAIL_CONFIG.MAX_DELAY_MS);
+                await delayMs(emailDelay);
+            }
+        }
+    }
+
+    const totalTime = Math.round((Date.now() - startTime) / 1000);
+    console.log(`[BulkEmail] Complete in ${totalTime}s: ${sent} sent, ${failed} failed${skippedDueToLimit > 0 ? `, ${skippedDueToLimit} skipped (hourly limit)` : ''}`);
+
+    // Update notification record
+    await supabase
+        .from('push_notifications')
+        .update({
+            email_sent_count: sent,
+            email_failed_count: failed
+        })
+        .eq('id', notificationId);
+
+    return { sent, failed, errors, skippedDueToLimit };
+};
+
+/**
+ * Check if bulk email is configured and ready
+ */
+export const isBulkEmailConfigured = (): boolean => {
+    return !!ARA_EMAIL_CONFIG.password && ARA_EMAIL_CONFIG.password.length > 0;
+};
+
+// ============================================================================
 // EDARKSTORE TICKET SYSTEM
 // ============================================================================
 
