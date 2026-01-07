@@ -79,17 +79,21 @@ export default function MyOrders() {
 
     const getStatusColor = (status: string) => {
         switch (status.toLowerCase()) {
-            case 'fulfilled':
             case 'delivered':
                 return { bg: 'rgba(34, 197, 94, 0.2)', color: '#22c55e' };
-            case 'paid':
             case 'in_transit':
             case 'out_for_delivery':
                 return { bg: 'rgba(59, 130, 246, 0.2)', color: '#3b82f6' };
+            case 'pending_pickup':
+            case 'fulfilled':
+                return { bg: 'rgba(168, 85, 247, 0.2)', color: '#a855f7' }; // Purple for "guide ready"
+            case 'paid':
             case 'created':
                 return { bg: 'rgba(234, 179, 8, 0.2)', color: '#eab308' };
             case 'cancelled':
                 return { bg: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' };
+            case 'pending':
+                return { bg: 'rgba(249, 115, 22, 0.2)', color: '#f97316' }; // Orange for pending
             default:
                 return { bg: 'rgba(156, 163, 175, 0.2)', color: '#9ca3af' };
         }
@@ -100,10 +104,12 @@ export default function MyOrders() {
             case 'created': return 'Recibido';
             case 'paid': return 'Confirmado';
             case 'fulfilled': return 'Empacado';
+            case 'pending_pickup': return 'Guía Generada';
             case 'in_transit': return 'En Camino';
             case 'out_for_delivery': return 'En Reparto';
             case 'delivered': return 'Entregado';
             case 'cancelled': return 'Cancelado';
+            case 'pending': return 'Pendiente Recolección';
             default: return status;
         }
     };
@@ -117,6 +123,16 @@ export default function MyOrders() {
             if (trackings.some(t => t.current_status === 'delivered')) return 'delivered';
             if (trackings.some(t => t.current_status === 'out_for_delivery')) return 'out_for_delivery';
             if (trackings.some(t => t.current_status === 'in_transit')) return 'in_transit';
+
+            // Guide exists but carrier hasn't picked up yet
+            // Check if tracking exists but status is pending/null (no movement from carrier)
+            const hasTrackingNumber = trackings.some(t => t.tracking_number);
+            const noCarrierMovement = trackings.every(t =>
+                !t.current_status || t.current_status === 'pending' || t.current_status === ''
+            );
+            if (hasTrackingNumber && noCarrierMovement) {
+                return 'pending_pickup';
+            }
         }
 
         return order.status;
@@ -370,27 +386,59 @@ export default function MyOrders() {
                                                             ))
                                                         ) : (
                                                             <>
-                                                                <div className="relative">
-                                                                    <div
-                                                                        className="absolute -left-8 top-1.5 w-6 h-6 rounded-full border-4 flex items-center justify-center z-10"
-                                                                        style={{ backgroundColor: theme.accent, borderColor: theme.cardBg }}
-                                                                    >
-                                                                        <div className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
-                                                                    </div>
-                                                                    <div className="flex flex-col">
-                                                                        <span className="font-bold text-lg" style={{ color: theme.text }}>{getStatusText(tracking.current_status)}</span>
-                                                                        <span className="text-sm" style={{ color: theme.textMuted }}>Sincronizado recientemente</span>
-                                                                    </div>
-                                                                </div>
-                                                                <div className="relative opacity-30">
-                                                                    <div
-                                                                        className="absolute -left-8 top-1.5 w-6 h-6 rounded-full border-4 flex items-center justify-center z-10"
-                                                                        style={{ backgroundColor: theme.border, borderColor: theme.cardBg }}
-                                                                    />
-                                                                    <div className="flex flex-col">
-                                                                        <span className="font-bold text-lg" style={{ color: theme.text }}>Pendiente de actualización</span>
-                                                                    </div>
-                                                                </div>
+                                                                {/* Check if pending pickup (guide created but no carrier movement) */}
+                                                                {(!tracking.current_status || tracking.current_status === 'pending') ? (
+                                                                    <>
+                                                                        <div className="relative">
+                                                                            <div
+                                                                                className="absolute -left-8 top-1.5 w-6 h-6 rounded-full border-4 flex items-center justify-center z-10"
+                                                                                style={{ backgroundColor: '#a855f7', borderColor: theme.cardBg }}
+                                                                            >
+                                                                                <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                                                                            </div>
+                                                                            <div className="flex flex-col">
+                                                                                <span className="font-bold text-lg" style={{ color: '#a855f7' }}>Guía Generada</span>
+                                                                                <span className="text-sm" style={{ color: theme.textMuted }}>
+                                                                                    ⏳ Pendiente de recolección por {tracking.carrier}
+                                                                                </span>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="relative opacity-30">
+                                                                            <div
+                                                                                className="absolute -left-8 top-1.5 w-6 h-6 rounded-full border-4 flex items-center justify-center z-10"
+                                                                                style={{ backgroundColor: theme.border, borderColor: theme.cardBg }}
+                                                                            />
+                                                                            <div className="flex flex-col">
+                                                                                <span className="font-bold text-lg" style={{ color: theme.text }}>En camino</span>
+                                                                                <span className="text-xs" style={{ color: theme.textMuted }}>Te notificaremos cuando sea recolectado</span>
+                                                                            </div>
+                                                                        </div>
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        <div className="relative">
+                                                                            <div
+                                                                                className="absolute -left-8 top-1.5 w-6 h-6 rounded-full border-4 flex items-center justify-center z-10"
+                                                                                style={{ backgroundColor: theme.accent, borderColor: theme.cardBg }}
+                                                                            >
+                                                                                <div className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+                                                                            </div>
+                                                                            <div className="flex flex-col">
+                                                                                <span className="font-bold text-lg" style={{ color: theme.text }}>{getStatusText(tracking.current_status)}</span>
+                                                                                <span className="text-sm" style={{ color: theme.textMuted }}>Sincronizado recientemente</span>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="relative opacity-30">
+                                                                            <div
+                                                                                className="absolute -left-8 top-1.5 w-6 h-6 rounded-full border-4 flex items-center justify-center z-10"
+                                                                                style={{ backgroundColor: theme.border, borderColor: theme.cardBg }}
+                                                                            />
+                                                                            <div className="flex flex-col">
+                                                                                <span className="font-bold text-lg" style={{ color: theme.text }}>Pendiente de actualización</span>
+                                                                            </div>
+                                                                        </div>
+                                                                    </>
+                                                                )}
                                                             </>
                                                         )}
                                                     </div>
