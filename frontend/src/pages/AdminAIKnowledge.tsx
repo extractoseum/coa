@@ -866,8 +866,8 @@ const AdminAIKnowledge = () => {
                                                                     return (
                                                                     <div
                                                                         key={file.path}
-                                                                        className={`group flex items-center gap-1 py-1 px-1 rounded-lg transition-all duration-200 ${isBeingDragged ? 'opacity-30 scale-95 bg-pink-500/10' : ''} ${isChecked ? 'bg-blue-500/10 ring-1 ring-blue-500/30' : isSelected ? 'bg-white/10 ring-1 ring-pink-500/30' : 'hover:bg-white/5'}`}
-                                                                        draggable
+                                                                        className={`group flex items-center gap-1 py-1 px-1 rounded-lg transition-all duration-200 cursor-grab active:cursor-grabbing ${isBeingDragged ? 'opacity-30 scale-95 bg-pink-500/10' : ''} ${isChecked ? 'bg-blue-500/10 ring-1 ring-blue-500/30' : isSelected ? 'bg-white/10 ring-1 ring-pink-500/30' : 'hover:bg-white/5'}`}
+                                                                        draggable={true}
                                                                         onDragStart={(e) => handleDragStart(e, filePath, folder, file.name, agent.name)}
                                                                         onDragEnd={handleDragEnd}
                                                                         title={`${file.name}${file.summary ? '\n\n' + file.summary : ''}`}
@@ -876,19 +876,22 @@ const AdminAIKnowledge = () => {
                                                                         {(isMultiSelectMode || selectedFiles.size > 0) && (
                                                                             <button
                                                                                 onClick={(e) => toggleFileSelection(filePath, e)}
+                                                                                onMouseDown={(e) => e.stopPropagation()}
                                                                                 className={`p-0.5 rounded transition-all ${isChecked ? 'text-blue-400' : 'text-gray-500 opacity-40 hover:opacity-100'}`}
                                                                             >
                                                                                 {isChecked ? <CheckSquare size={12} /> : <Square size={12} />}
                                                                             </button>
                                                                         )}
-                                                                        {/* Drag Handle */}
-                                                                        <div className="cursor-grab active:cursor-grabbing p-1 rounded hover:bg-white/10 transition-colors">
+                                                                        {/* Drag Handle - visual indicator only, whole row is draggable */}
+                                                                        <div className="p-1 rounded hover:bg-white/10 transition-colors pointer-events-none">
                                                                             <GripVertical size={12} className="opacity-30 group-hover:opacity-70 transition-opacity text-pink-400" />
                                                                         </div>
 
                                                                         {/* File Button */}
-                                                                        <button onClick={() => handleFileClick(folder, `${agent.name}/${file.name}`)}
-                                                                            className="flex-1 text-left flex items-center gap-2 min-w-0 py-0.5">
+                                                                        <div
+                                                                            onClick={() => handleFileClick(folder, `${agent.name}/${file.name}`)}
+                                                                            onMouseDown={(e) => e.stopPropagation()}
+                                                                            className="flex-1 text-left flex items-center gap-2 min-w-0 py-0.5 cursor-pointer">
                                                                             <FileText size={12} className={`flex-shrink-0 ${isSelected ? 'text-pink-400' : 'opacity-40'}`} />
                                                                             <div className="flex flex-col flex-1 min-w-0">
                                                                                 {subFolder && (
@@ -906,7 +909,7 @@ const AdminAIKnowledge = () => {
                                                                                     </span>
                                                                                 )}
                                                                             </div>
-                                                                        </button>
+                                                                        </div>
 
                                                                         {/* Actions */}
                                                                         <div className="flex opacity-0 group-hover:opacity-100 transition-all flex-shrink-0">
