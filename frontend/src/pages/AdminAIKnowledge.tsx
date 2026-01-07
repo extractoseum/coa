@@ -600,8 +600,13 @@ const AdminAIKnowledge = () => {
         setIsMultiSelectMode(false);
     };
 
+    // Track if drag started to prevent click after drag attempt
+    const dragStartedRef = useRef(false);
+
     // Drag and Drop Functions
     const handleDragStart = (e: React.DragEvent, path: string, folder: string, fileName: string, agentName?: string) => {
+        console.log('[DragStart] Starting drag for:', path);
+        dragStartedRef.current = true;
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', path);
 
@@ -630,9 +635,12 @@ const AdminAIKnowledge = () => {
     };
 
     const handleDragEnd = () => {
+        console.log('[DragEnd] Drag ended');
         setDraggedFile(null);
         setDropTarget(null);
         setIsDragging(false);
+        // Reset drag flag after a short delay to prevent click from firing
+        setTimeout(() => { dragStartedRef.current = false; }, 100);
     };
 
     const handleDragOver = (e: React.DragEvent, folder: string, agentName?: string) => {
@@ -866,10 +874,11 @@ const AdminAIKnowledge = () => {
                                                                     return (
                                                                     <div
                                                                         key={file.path}
-                                                                        className={`group flex items-center gap-1 py-1 px-1 rounded-lg transition-all duration-200 cursor-grab active:cursor-grabbing ${isBeingDragged ? 'opacity-30 scale-95 bg-pink-500/10' : ''} ${isChecked ? 'bg-blue-500/10 ring-1 ring-blue-500/30' : isSelected ? 'bg-white/10 ring-1 ring-pink-500/30' : 'hover:bg-white/5'}`}
+                                                                        className={`group flex items-center gap-1 py-1 px-1 rounded-lg transition-all duration-200 cursor-grab active:cursor-grabbing select-none ${isBeingDragged ? 'opacity-30 scale-95 bg-pink-500/10' : ''} ${isChecked ? 'bg-blue-500/10 ring-1 ring-blue-500/30' : isSelected ? 'bg-white/10 ring-1 ring-pink-500/30' : 'hover:bg-white/5'}`}
                                                                         draggable={true}
                                                                         onDragStart={(e) => handleDragStart(e, filePath, folder, file.name, agent.name)}
                                                                         onDragEnd={handleDragEnd}
+                                                                        onClick={() => { if (!dragStartedRef.current) handleFileClick(folder, `${agent.name}/${file.name}`); }}
                                                                         title={`${file.name}${file.summary ? '\n\n' + file.summary : ''}`}
                                                                     >
                                                                         {/* Multi-select Checkbox */}
@@ -887,27 +896,23 @@ const AdminAIKnowledge = () => {
                                                                             <GripVertical size={12} className="opacity-30 group-hover:opacity-70 transition-opacity text-pink-400" />
                                                                         </div>
 
-                                                                        {/* File Info - clicking opens file, dragging the row moves it */}
-                                                                        <div
-                                                                            onClick={() => handleFileClick(folder, `${agent.name}/${file.name}`)}
-                                                                            className="flex-1 text-left flex items-center gap-2 min-w-0 py-0.5 cursor-pointer">
-                                                                            <FileText size={12} className={`flex-shrink-0 ${isSelected ? 'text-pink-400' : 'opacity-40'}`} />
-                                                                            <div className="flex flex-col flex-1 min-w-0">
-                                                                                {subFolder && (
-                                                                                    <span className="text-[8px] opacity-30 font-mono">{subFolder}/</span>
-                                                                                )}
-                                                                                <span
-                                                                                    className={`text-[11px] truncate ${isSelected ? 'font-medium' : ''}`}
-                                                                                    style={{ color: isSelected ? theme.accent : theme.textMuted }}
-                                                                                >
-                                                                                    {displayName}
+                                                                        {/* File Info - inline, clicking row opens file */}
+                                                                        <FileText size={12} className={`flex-shrink-0 ${isSelected ? 'text-pink-400' : 'opacity-40'}`} />
+                                                                        <div className="flex flex-col flex-1 min-w-0">
+                                                                            {subFolder && (
+                                                                                <span className="text-[8px] opacity-30 font-mono">{subFolder}/</span>
+                                                                            )}
+                                                                            <span
+                                                                                className={`text-[11px] truncate ${isSelected ? 'font-medium' : ''}`}
+                                                                                style={{ color: isSelected ? theme.accent : theme.textMuted }}
+                                                                            >
+                                                                                {displayName}
+                                                                            </span>
+                                                                            {file.summary && (
+                                                                                <span className="text-[9px] opacity-40 truncate font-light line-clamp-1">
+                                                                                    {file.summary}
                                                                                 </span>
-                                                                                {file.summary && (
-                                                                                    <span className="text-[9px] opacity-40 truncate font-light line-clamp-1">
-                                                                                        {file.summary}
-                                                                                    </span>
-                                                                                )}
-                                                                            </div>
+                                                                            )}
                                                                         </div>
 
                                                                         {/* Actions */}
@@ -947,10 +952,11 @@ const AdminAIKnowledge = () => {
                                                     return (
                                                     <div
                                                         key={file.path}
-                                                        className={`group flex items-center gap-1 py-1 px-1 rounded-lg transition-all duration-200 cursor-grab active:cursor-grabbing ${isBeingDragged ? 'opacity-30 scale-95 bg-pink-500/10' : ''} ${isChecked ? 'bg-blue-500/10 ring-1 ring-blue-500/30' : isSelected ? 'bg-white/10 ring-1 ring-pink-500/30' : 'hover:bg-white/5'}`}
+                                                        className={`group flex items-center gap-1 py-1 px-1 rounded-lg transition-all duration-200 cursor-grab active:cursor-grabbing select-none ${isBeingDragged ? 'opacity-30 scale-95 bg-pink-500/10' : ''} ${isChecked ? 'bg-blue-500/10 ring-1 ring-blue-500/30' : isSelected ? 'bg-white/10 ring-1 ring-pink-500/30' : 'hover:bg-white/5'}`}
                                                         draggable={true}
                                                         onDragStart={(e) => handleDragStart(e, filePath, folder, file.name)}
                                                         onDragEnd={handleDragEnd}
+                                                        onClick={() => { if (!dragStartedRef.current) handleFileClick(folder, file.name); }}
                                                         title={`${file.name}${file.summary ? '\n\n' + file.summary : ''}`}
                                                     >
                                                         {/* Multi-select Checkbox */}
@@ -968,24 +974,20 @@ const AdminAIKnowledge = () => {
                                                             <GripVertical size={12} className="opacity-30 group-hover:opacity-70 transition-opacity text-pink-400" />
                                                         </div>
 
-                                                        {/* File Info - clicking opens file, dragging the row moves it */}
-                                                        <div
-                                                            onClick={() => handleFileClick(folder, file.name)}
-                                                            className="flex-1 text-left flex items-center gap-2 min-w-0 py-0.5 cursor-pointer">
-                                                            <FileText size={12} className={`flex-shrink-0 ${isSelected ? 'text-pink-400' : 'opacity-40'}`} />
-                                                            <div className="flex flex-col flex-1 min-w-0">
-                                                                <span
-                                                                    className={`text-[11px] truncate ${isSelected ? 'font-medium' : ''}`}
-                                                                    style={{ color: isSelected ? theme.accent : theme.textMuted }}
-                                                                >
-                                                                    {file.name}
+                                                        {/* File Info - inline */}
+                                                        <FileText size={12} className={`flex-shrink-0 ${isSelected ? 'text-pink-400' : 'opacity-40'}`} />
+                                                        <div className="flex flex-col flex-1 min-w-0">
+                                                            <span
+                                                                className={`text-[11px] truncate ${isSelected ? 'font-medium' : ''}`}
+                                                                style={{ color: isSelected ? theme.accent : theme.textMuted }}
+                                                            >
+                                                                {file.name}
+                                                            </span>
+                                                            {file.summary && (
+                                                                <span className="text-[9px] opacity-40 truncate font-light line-clamp-1">
+                                                                    {file.summary}
                                                                 </span>
-                                                                {file.summary && (
-                                                                    <span className="text-[9px] opacity-40 truncate font-light line-clamp-1">
-                                                                        {file.summary}
-                                                                    </span>
-                                                                )}
-                                                            </div>
+                                                            )}
                                                         </div>
 
                                                         {/* Delete Button */}
