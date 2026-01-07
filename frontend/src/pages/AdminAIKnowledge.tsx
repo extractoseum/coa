@@ -896,9 +896,9 @@ const AdminAIKnowledge = () => {
                                                                             <GripVertical size={12} className="opacity-30 group-hover:opacity-70 transition-opacity text-pink-400" />
                                                                         </div>
 
-                                                                        {/* File Info - inline, clicking row opens file */}
-                                                                        <FileText size={12} className={`flex-shrink-0 ${isSelected ? 'text-pink-400' : 'opacity-40'}`} />
-                                                                        <div className="flex flex-col flex-1 min-w-0">
+                                                                        {/* File Info - pointer-events-none to allow drag through */}
+                                                                        <FileText size={12} className={`flex-shrink-0 pointer-events-none ${isSelected ? 'text-pink-400' : 'opacity-40'}`} />
+                                                                        <div className="flex flex-col flex-1 min-w-0 pointer-events-none">
                                                                             {subFolder && (
                                                                                 <span className="text-[8px] opacity-30 font-mono">{subFolder}/</span>
                                                                             )}
@@ -974,9 +974,9 @@ const AdminAIKnowledge = () => {
                                                             <GripVertical size={12} className="opacity-30 group-hover:opacity-70 transition-opacity text-pink-400" />
                                                         </div>
 
-                                                        {/* File Info - inline */}
-                                                        <FileText size={12} className={`flex-shrink-0 ${isSelected ? 'text-pink-400' : 'opacity-40'}`} />
-                                                        <div className="flex flex-col flex-1 min-w-0">
+                                                        {/* File Info - pointer-events-none to allow drag through */}
+                                                        <FileText size={12} className={`flex-shrink-0 pointer-events-none ${isSelected ? 'text-pink-400' : 'opacity-40'}`} />
+                                                        <div className="flex flex-col flex-1 min-w-0 pointer-events-none">
                                                             <span
                                                                 className={`text-[11px] truncate ${isSelected ? 'font-medium' : ''}`}
                                                                 style={{ color: isSelected ? theme.accent : theme.textMuted }}
@@ -993,7 +993,6 @@ const AdminAIKnowledge = () => {
                                                         {/* Delete Button */}
                                                         <button
                                                             onClick={(e) => { e.stopPropagation(); handleDeleteFile(folder, file.name); }}
-                                                            onMouseDown={(e) => e.stopPropagation()}
                                                             className="p-1 rounded opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:bg-red-500/10 transition-all text-red-500 flex-shrink-0">
                                                             <Trash2 size={10} />
                                                         </button>
