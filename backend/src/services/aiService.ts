@@ -7,6 +7,7 @@ import path from 'path';
 import { ADMIN_TOOLS, TOOL_HANDLERS } from './aiTools';
 import { AIUsageService } from './aiUsageService';
 import { ModelRouter, RouterInput, AutoGoal, TaskType, RouterOutput } from './ModelRouter';
+import { IntelligenceService } from './intelligenceService';
 
 dotenv.config();
 
@@ -298,34 +299,58 @@ export class AIService {
                 systemPrompt = fs.readFileSync(identityPath, 'utf8') + '\n\n';
             }
 
-            // Read other files and build a Knowledge Catalog (summaries only for optimization)
+            // Read Knowledge Snaps for smart contextual knowledge loading
             try {
-                // Get all MD files except the instructive one
-                const files = fs.readdirSync(agentFolderPath).filter(f => f.endsWith('.md') && f !== instructiveFileName);
+                const intelligenceService = IntelligenceService.getInstance();
+                const metadata = intelligenceService.getMetadata(agentFolderPath);
+                const snaps = metadata.knowledgeSnaps || [];
 
-                // Read metadata to get intelligence-powered summaries
-                const metaPath = path.join(agentFolderPath, 'metadata.json');
-                let metadata: any = { files: {} };
-                if (fs.existsSync(metaPath)) {
-                    try {
-                        metadata = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
-                    } catch (e: any) {
-                        console.warn(`[AIService] Failed to parse metadata during summary load at ${metaPath}:`, e.message);
+                // Find relevant snaps based on the user's message
+                const relevantSnaps = intelligenceService.findRelevantSnaps(agentFolderPath, message);
+
+                // Build the Knowledge Catalog with snap intelligence
+                if (snaps.length > 0) {
+                    systemPrompt += `\n### 📚 CATÁLOGO DE CONOCIMIENTO DISPONIBLE:\n`;
+                    systemPrompt += `Tienes acceso a los siguientes archivos de conocimiento. Cada uno tiene triggers (palabras clave) que indican cuándo usarlo.\n\n`;
+
+                    // Sort snaps by priority (higher priority first)
+                    const sortedSnaps = [...snaps].sort((a, b) => (b.priority || 5) - (a.priority || 5));
+
+                    for (const snap of sortedSnaps) {
+                        const priorityBadge = snap.priority >= 8 ? '🔴' : snap.priority >= 5 ? '🟡' : '⚪';
+                        const categoryBadge = snap.category ? `[${snap.category.toUpperCase()}]` : '';
+                        systemPrompt += `${priorityBadge} **${snap.fileName}** ${categoryBadge}\n`;
+                        systemPrompt += `   📝 ${snap.summary}\n`;
+                        systemPrompt += `   🎯 USO: ${snap.usage}\n`;
+                        if (snap.triggers && snap.triggers.length > 0) {
+                            systemPrompt += `   🔑 TRIGGERS: ${snap.triggers.join(', ')}\n`;
+                        }
+                        systemPrompt += `\n`;
                     }
                 }
 
-                if (files.length > 0) {
-                    systemPrompt += `\n### CATÁLOGO DE CONOCIMIENTO DISPONIBLE:\n`;
-                    systemPrompt += `Actualmente tienes acceso a los siguientes archivos. NO los has leído completos (excepto el instructivo principal arriba), pero conoces su propósito. Si necesitas información específica de alguno, pregunta o indica que vas a usar la herramienta de lectura:\n\n`;
+                // AUTO-LOAD relevant knowledge based on message triggers
+                if (relevantSnaps.length > 0) {
+                    systemPrompt += `\n### 🎯 CONOCIMIENTO RELEVANTE PARA ESTA CONVERSACIÓN:\n`;
+                    systemPrompt += `Los siguientes archivos coinciden con el tema del mensaje del cliente y han sido cargados automáticamente:\n\n`;
 
-                    for (const f of files) {
-                        const summary = metadata.files?.[f]?.summary || "Sin resumen disponible (pendiente de análisis).";
-                        systemPrompt += `- [${f}]: ${summary}\n`;
+                    for (const snap of relevantSnaps.slice(0, 3)) { // Limit to top 3 most relevant
+                        const filePath = path.join(agentFolderPath, snap.fileName);
+                        if (fs.existsSync(filePath)) {
+                            try {
+                                const content = fs.readFileSync(filePath, 'utf8');
+                                systemPrompt += `---\n#### 📄 ${snap.fileName}\n${content}\n---\n\n`;
+
+                                // Track usage for analytics (fire and forget)
+                                intelligenceService.recordSnapUsage(agentFolderPath, [snap.fileName]).catch(() => {});
+                            } catch (readErr) {
+                                console.warn(`[AIService] Failed to read relevant file ${snap.fileName}:`, readErr);
+                            }
+                        }
                     }
-                    systemPrompt += `\n`;
                 }
 
-            } catch (e) { console.error('[AIService] Knowledge load failed:', e); }
+            } catch (e) { console.error('[AIService] Knowledge Snaps load failed:', e); }
         }
 
         // 2. Append Structural Objectives (Omnichannel Orchestrator Phase 3)
