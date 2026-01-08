@@ -87,6 +87,10 @@ const AdminCRM: React.FC = () => {
     const [browsingEvents, setBrowsingEvents] = useState<any[]>([]);
     const [loadingEvents, setLoadingEvents] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
+    // Phase 62: Advanced Filters & Sorting
+    const [sortBy, setSortBy] = useState<'session' | 'recent' | 'ltv'>('session');
+    const [activeFilters, setActiveFilters] = useState<string[]>([]);
+    const [showFilters, setShowFilters] = useState(false);
     const [clientSearchResults, setClientSearchResults] = useState<any[]>([]);
     const [searchingClients, setSearchingClients] = useState(false);
     const [showClientResults, setShowClientResults] = useState(false);
@@ -106,11 +110,35 @@ const AdminCRM: React.FC = () => {
 
     const filteredConversations = useMemo(() => {
         let base = conversations;
+
+        // --- PHASE 62: ADVANCED FILTERS ---
+        if (activeFilters.length > 0) {
+            base = base.filter(c => {
+                return activeFilters.every(filter => {
+                    switch (filter) {
+                        case 'nuevo': return c.is_new_customer;
+                        case 'vip': return c.is_vip;
+                        case 'estancado': return c.is_stalled;
+                        case 'exp': return c.window_status === 'expired';
+                        case 'activo': return c.window_status === 'active';
+                        case 'pendiente': return c.awaiting_response;
+                        case 'club': return c.tags?.some(t => t.toLowerCase().includes('club'));
+                        case 'no_club': return !c.tags?.some(t => t.toLowerCase().includes('club'));
+                        case 'whatsapp': return c.channel === 'WA';
+                        case 'email': return c.channel === 'EMAIL';
+                        case 'instagram': return c.channel === 'IG';
+                        default: return true;
+                    }
+                });
+            });
+        }
+
+        // Search filter
         if (searchTerm) {
             const s = searchTerm.toLowerCase();
             const rawSearch = searchTerm.replace(/\D/g, ''); // Extract only digits for phone matching
 
-            base = conversations.filter(c => {
+            base = base.filter(c => {
                 const handle = c.contact_handle?.toLowerCase() || '';
                 const rawHandle = handle.replace(/\D/g, '');
                 const name = (c.contact_name || c.facts?.user_name || '').toLowerCase();
@@ -126,14 +154,33 @@ const AdminCRM: React.FC = () => {
             });
         }
 
-        // --- PHASE 60: AUTO-SORTING ---
-        // Ensure the latest interactions are always visible at the top of their columns
+        // --- PHASE 62: SMART SORTING ---
         return [...base].sort((a, b) => {
-            const timeA = new Date(a.last_message_at || 0).getTime();
-            const timeB = new Date(b.last_message_at || 0).getTime();
-            return timeB - timeA;
+            switch (sortBy) {
+                case 'session':
+                    // Sort by hours_remaining (most urgent first, expired at bottom)
+                    const aExpired = a.window_status === 'expired';
+                    const bExpired = b.window_status === 'expired';
+                    if (aExpired && !bExpired) return 1;  // Expired goes to bottom
+                    if (!aExpired && bExpired) return -1;
+                    if (aExpired && bExpired) {
+                        // Both expired: most recent first
+                        return new Date(b.last_message_at || 0).getTime() - new Date(a.last_message_at || 0).getTime();
+                    }
+                    // Both active: lowest hours remaining first (most urgent)
+                    return (a.hours_remaining || 24) - (b.hours_remaining || 24);
+
+                case 'ltv':
+                    // Sort by LTV (highest first)
+                    return (b.ltv || 0) - (a.ltv || 0);
+
+                case 'recent':
+                default:
+                    // Sort by most recent message
+                    return new Date(b.last_message_at || 0).getTime() - new Date(a.last_message_at || 0).getTime();
+            }
         });
-    }, [conversations, searchTerm]);
+    }, [conversations, searchTerm, activeFilters, sortBy]);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -1172,6 +1219,19 @@ const AdminCRM: React.FC = () => {
                                 )}
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
+                                {/* Filter Toggle */}
+                                <button
+                                    onClick={() => setShowFilters(!showFilters)}
+                                    className={`p-2 rounded-full transition-colors relative ${showFilters || activeFilters.length > 0 ? 'bg-pink-500/20 text-pink-400' : 'hover:bg-white/5 text-gray-400'}`}
+                                    title="Filtros avanzados"
+                                >
+                                    <Filter size={20} />
+                                    {activeFilters.length > 0 && (
+                                        <span className="absolute -top-1 -right-1 w-4 h-4 bg-pink-500 rounded-full text-[9px] text-white flex items-center justify-center font-bold">
+                                            {activeFilters.length}
+                                        </span>
+                                    )}
+                                </button>
                                 <button
                                     onClick={() => setShowToolEditor(true)}
                                     className="p-2 rounded-full hover:bg-white/5 transition-colors text-pink-400"
@@ -1192,6 +1252,119 @@ const AdminCRM: React.FC = () => {
                             </div>
                         </div>
                     </div>
+
+                    {/* Phase 62: Filter & Sort Toolbar */}
+                    {showFilters && (
+                        <div className="px-4 py-3 border-b flex flex-wrap items-center gap-3" style={{ borderColor: theme.border, backgroundColor: 'rgba(0,0,0,0.2)' }}>
+                            {/* Sort Options */}
+                            <div className="flex items-center gap-1 mr-4">
+                                <span className="text-[10px] uppercase font-bold tracking-wider opacity-40 mr-2">Ordenar:</span>
+                                {[
+                                    { key: 'session', label: 'Sesión 24h', icon: Clock },
+                                    { key: 'recent', label: 'Reciente', icon: Activity },
+                                    { key: 'ltv', label: 'LTV', icon: DollarSign }
+                                ].map(opt => (
+                                    <button
+                                        key={opt.key}
+                                        onClick={() => setSortBy(opt.key as any)}
+                                        className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold transition-all ${sortBy === opt.key ? 'bg-pink-500 text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}
+                                    >
+                                        <opt.icon size={10} />
+                                        {opt.label}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {/* Filter Chips */}
+                            <div className="flex items-center gap-1 flex-wrap">
+                                <span className="text-[10px] uppercase font-bold tracking-wider opacity-40 mr-2">Filtrar:</span>
+                                {[
+                                    { key: 'nuevo', label: 'Nuevo', color: 'blue' },
+                                    { key: 'vip', label: 'VIP', color: 'yellow' },
+                                    { key: 'pendiente', label: 'Pendiente', color: 'pink' },
+                                    { key: 'estancado', label: 'Estancado', color: 'gray' },
+                                    { key: 'activo', label: 'Sesión Activa', color: 'green' },
+                                    { key: 'exp', label: 'Expirado', color: 'red' },
+                                    { key: 'club', label: 'Club', color: 'purple' },
+                                    { key: 'no_club', label: 'Sin Club', color: 'orange' },
+                                ].map(f => {
+                                    const isActive = activeFilters.includes(f.key);
+                                    const colorMap: Record<string, string> = {
+                                        blue: isActive ? 'bg-blue-500 text-white' : 'bg-blue-500/10 text-blue-400 hover:bg-blue-500/20',
+                                        yellow: isActive ? 'bg-yellow-500 text-black' : 'bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20',
+                                        pink: isActive ? 'bg-pink-500 text-white' : 'bg-pink-500/10 text-pink-400 hover:bg-pink-500/20',
+                                        gray: isActive ? 'bg-gray-500 text-white' : 'bg-gray-500/10 text-gray-400 hover:bg-gray-500/20',
+                                        green: isActive ? 'bg-green-500 text-white' : 'bg-green-500/10 text-green-400 hover:bg-green-500/20',
+                                        red: isActive ? 'bg-red-500 text-white' : 'bg-red-500/10 text-red-400 hover:bg-red-500/20',
+                                        purple: isActive ? 'bg-purple-500 text-white' : 'bg-purple-500/10 text-purple-400 hover:bg-purple-500/20',
+                                        orange: isActive ? 'bg-orange-500 text-white' : 'bg-orange-500/10 text-orange-400 hover:bg-orange-500/20',
+                                    };
+                                    return (
+                                        <button
+                                            key={f.key}
+                                            onClick={() => setActiveFilters(prev =>
+                                                prev.includes(f.key) ? prev.filter(x => x !== f.key) : [...prev, f.key]
+                                            )}
+                                            className={`px-2 py-1 rounded-full text-[10px] font-bold transition-all ${colorMap[f.color]}`}
+                                        >
+                                            {f.label}
+                                        </button>
+                                    );
+                                })}
+
+                                {/* Channel Filters */}
+                                <span className="text-[10px] opacity-30 mx-2">|</span>
+                                {[
+                                    { key: 'whatsapp', label: 'WA', icon: MessageCircle },
+                                    { key: 'email', label: 'Email', icon: Mail },
+                                    { key: 'instagram', label: 'IG', icon: Instagram },
+                                ].map(ch => {
+                                    const isActive = activeFilters.includes(ch.key);
+                                    return (
+                                        <button
+                                            key={ch.key}
+                                            onClick={() => setActiveFilters(prev =>
+                                                prev.includes(ch.key) ? prev.filter(x => x !== ch.key) : [...prev, ch.key]
+                                            )}
+                                            className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold transition-all ${isActive ? 'bg-white text-black' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}
+                                        >
+                                            <ch.icon size={10} />
+                                            {ch.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            {/* Clear Filters */}
+                            {activeFilters.length > 0 && (
+                                <button
+                                    onClick={() => setActiveFilters([])}
+                                    className="ml-auto flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-all"
+                                >
+                                    <X size={10} />
+                                    Limpiar ({activeFilters.length})
+                                </button>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Active Filters Summary (when toolbar hidden) */}
+                    {!showFilters && activeFilters.length > 0 && (
+                        <div className="px-4 py-2 border-b flex items-center gap-2" style={{ borderColor: theme.border, backgroundColor: 'rgba(0,0,0,0.1)' }}>
+                            <span className="text-[10px] opacity-40">Filtros activos:</span>
+                            {activeFilters.map(f => (
+                                <span key={f} className="px-2 py-0.5 rounded-full bg-pink-500/20 text-pink-400 text-[10px] font-bold">
+                                    {f}
+                                </span>
+                            ))}
+                            <button
+                                onClick={() => setActiveFilters([])}
+                                className="ml-auto text-[10px] text-red-400 hover:text-red-300"
+                            >
+                                Limpiar
+                            </button>
+                        </div>
+                    )}
 
                     {/* Kanban Board */}
                     <div className="flex-1 overflow-x-auto overflow-y-hidden p-4 flex gap-4 bg-black/5">
