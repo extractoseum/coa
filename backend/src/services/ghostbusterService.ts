@@ -12,6 +12,7 @@
 
 import { supabase } from '../config/supabase';
 import { sendBulkWhatsApp, isWhapiConfigured } from './whapiService';
+import { sendAraEmail, getAraEmailStatus } from './emailService';
 
 // ============================================================================
 // CONFIGURATION
@@ -236,67 +237,183 @@ export const processGhostbusting = async (): Promise<{ processed: number; ghosts
 };
 
 /**
- * "Bust" a ghost (Send reactivation message)
+ * Channel options for busting ghosts
  */
-export const bustGhost = async (alertId: string): Promise<boolean> => {
+export type BustChannel = 'whatsapp' | 'email' | 'both';
+
+/**
+ * Generate reactivation message based on ghost level
+ */
+const generateReactivationMessage = (clientName: string, level: GhostStatus['ghostLevel']): { text: string; subject: string; html: string } => {
+    let text = '';
+    let subject = '';
+    let html = '';
+
+    if (level === 'warm_ghost') {
+        subject = `¡Hola ${clientName}! Te extrañamos 🌿`;
+        text = `Hola ${clientName}! Solo pasando a saludar. 🌿 ¿Cómo te ha ido con tus últimos productos? Si necesitas algo, aquí estamos.`;
+        html = `
+            <p>Hola <strong>${clientName}</strong>!</p>
+            <p>Solo pasando a saludar. 🌿 ¿Cómo te ha ido con tus últimos productos?</p>
+            <p>Si necesitas algo, aquí estamos para ayudarte.</p>
+            <br>
+            <p><a href="https://extractoseum.com" style="background:#4F46E5;color:#fff;padding:12px 24px;text-decoration:none;border-radius:8px;display:inline-block;">Ver Catálogo</a></p>
+        `;
+    } else if (level === 'cold_ghost') {
+        subject = `${clientName}, tenemos novedades para ti 👀`;
+        text = `${clientName}, hace tiempo que no sabemos de ti. 👀 Tenemos inventario fresco que podría interesarte. ¿Te mando el catálogo actualizado?`;
+        html = `
+            <p><strong>${clientName}</strong>, hace tiempo que no sabemos de ti. 👀</p>
+            <p>Tenemos inventario fresco que podría interesarte.</p>
+            <p>¿Te gustaría ver el catálogo actualizado?</p>
+            <br>
+            <p><a href="https://extractoseum.com" style="background:#4F46E5;color:#fff;padding:12px 24px;text-decoration:none;border-radius:8px;display:inline-block;">Ver Novedades</a></p>
+        `;
+    } else if (level === 'frozen_ghost') {
+        const code = `VOLVEMOS${clientName.substring(0, 3).toUpperCase()}`;
+        subject = `💚 Te extrañamos ${clientName} - 15% OFF especial`;
+        text = `Te extrañamos ${clientName}! 💚 Como cliente VIP, te activamos un 15% OFF para tu regreso. Tu código es: ${code} (Válido 7 días). ¿Lo usas hoy?`;
+        html = `
+            <p>Te extrañamos <strong>${clientName}</strong>! 💚</p>
+            <p>Como cliente VIP, te activamos un descuento especial para tu regreso:</p>
+            <div style="background:#10B981;color:#fff;padding:20px;border-radius:8px;text-align:center;margin:20px 0;">
+                <p style="margin:0;font-size:24px;font-weight:bold;">15% OFF</p>
+                <p style="margin:10px 0 0 0;font-size:18px;">Código: <strong>${code}</strong></p>
+                <p style="margin:5px 0 0 0;font-size:12px;">Válido por 7 días</p>
+            </div>
+            <p><a href="https://extractoseum.com" style="background:#4F46E5;color:#fff;padding:12px 24px;text-decoration:none;border-radius:8px;display:inline-block;">Usar mi código ahora</a></p>
+        `;
+    } else {
+        // Churned - last resort
+        subject = `${clientName}, queremos reconectarte 💫`;
+        text = `Hola ${clientName}, ha pasado mucho tiempo. Nos encantaría saber de ti. ¿Hay algo en lo que podamos ayudarte?`;
+        html = `
+            <p>Hola <strong>${clientName}</strong>,</p>
+            <p>Ha pasado mucho tiempo desde tu última visita. Nos encantaría saber de ti.</p>
+            <p>¿Hay algo en lo que podamos ayudarte?</p>
+            <br>
+            <p><a href="https://extractoseum.com" style="background:#4F46E5;color:#fff;padding:12px 24px;text-decoration:none;border-radius:8px;display:inline-block;">Visitar Tienda</a></p>
+        `;
+    }
+
+    return { text, subject, html };
+};
+
+/**
+ * "Bust" a ghost (Send reactivation message via WhatsApp, Email, or both)
+ */
+export const bustGhost = async (alertId: string, channel: BustChannel = 'whatsapp'): Promise<{ success: boolean; channels: string[] }> => {
+    const sentChannels: string[] = [];
+
     try {
-        // 1. Fetch Alert
+        // 1. Fetch Alert with client info including email
         const { data: alert, error } = await supabase
             .from('ghost_alerts')
             .select(`
                 *,
-                clients (name, phone)
+                clients (id, name, phone, email)
             `)
             .eq('id', alertId)
             .single();
 
         if (error || !alert) throw new Error('Alert not found');
-        if (alert.reactivation_status !== 'pending') return false;
+        if (alert.reactivation_status !== 'pending') {
+            return { success: false, channels: [] };
+        }
 
         const clientName = alert.clients?.name || 'Cliente';
         const clientPhone = alert.clients?.phone;
-
-        // 2. Generate Message based on Level
-        let message = '';
+        const clientEmail = alert.clients?.email;
         const level = alert.ghost_level as GhostStatus['ghostLevel'];
 
-        if (level === 'warm_ghost') {
-            message = `Hola ${clientName}! Solo pasando a saludar. 🌿 ¿Cómo te ha ido con tus últimos productos? Si necesitas algo, aquí estamos.`;
-        } else if (level === 'cold_ghost') {
-            // In a real version, we'd look up their top product
-            message = `${clientName}, hace tiempo que no sabemos de ti. 👀 Tenemos inventario fresco que podría interesarte. ¿Te mando el catálogo actualizado?`;
-        } else if (level === 'frozen_ghost') {
-            // Discount hook
-            const code = `VOLVEMOS${clientName.substring(0, 3).toUpperCase()}`;
-            message = `Te extrañamos ${clientName}! 💚 Como cliente VIP, te activamos un 15% OFF para tu regreso. Tu código es: ${code} (Válido 7 días). ¿Lo usas hoy?`;
+        // 2. Generate Message
+        const { text, subject, html } = generateReactivationMessage(clientName, level);
+
+        if (!text) {
+            return { success: false, channels: [] };
         }
 
-        if (!message || !clientPhone) return false;
+        // 3. Send via selected channel(s)
 
-        // 3. Send
-        if (isWhapiConfigured()) {
+        // WhatsApp
+        if ((channel === 'whatsapp' || channel === 'both') && clientPhone && isWhapiConfigured()) {
             const result = await sendBulkWhatsApp(
                 [clientPhone],
-                message,
+                text,
                 `ghostbuster_${alert.id}`
             );
-
             if (result.sent > 0) {
-                await supabase.from('ghost_alerts').update({
-                    reactivation_status: 'contacted',
-                    reactivation_channel: 'whatsapp',
-                    reactivation_message: message,
-                    reactivation_sent_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString()
-                }).eq('id', alertId);
-                return true;
+                sentChannels.push('whatsapp');
             }
         }
 
-        return false;
+        // Email
+        if ((channel === 'email' || channel === 'both') && clientEmail) {
+            const emailStatus = getAraEmailStatus();
+            if (emailStatus.configured) {
+                const emailHtml = `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background: #f4f4f4; }
+        .container { max-width: 600px; margin: 20px auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .header { background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%); color: #fff; padding: 30px; text-align: center; }
+        .logo { font-size: 24px; font-weight: bold; }
+        .content { padding: 30px; }
+        .footer { background: #f8fafc; padding: 20px; text-align: center; font-size: 12px; color: #718096; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">EXTRACTOS EUM</div>
+        </div>
+        <div class="content">
+            ${html}
+        </div>
+        <div class="footer">
+            <p>© ${new Date().getFullYear()} Extractos EUM. Todos los derechos reservados.</p>
+            <p>Si no deseas recibir más correos, responde con "CANCELAR"</p>
+        </div>
+    </div>
+</body>
+</html>`;
+
+                const result = await sendAraEmail({
+                    to: clientEmail,
+                    subject: `[EUM] ${subject}`,
+                    text: text,
+                    html: emailHtml
+                });
+
+                if (result.success) {
+                    sentChannels.push('email');
+                }
+            }
+        }
+
+        // 4. Update alert status if at least one channel succeeded
+        if (sentChannels.length > 0) {
+            await supabase.from('ghost_alerts').update({
+                reactivation_status: 'contacted',
+                reactivation_channel: sentChannels.join(','),
+                reactivation_message: text,
+                reactivation_sent_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            }).eq('id', alertId);
+
+            console.log(`[Ghostbuster] 👻 Busted ${clientName} via ${sentChannels.join(', ')}`);
+            return { success: true, channels: sentChannels };
+        }
+
+        // No channel available
+        console.warn(`[Ghostbuster] No channel available for ${clientName} (phone: ${!!clientPhone}, email: ${!!clientEmail})`);
+        return { success: false, channels: [] };
 
     } catch (error) {
         console.error('[Ghostbuster] Error busting ghost:', error);
-        return false;
+        return { success: false, channels: [] };
     }
 };

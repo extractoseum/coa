@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { supabase } from '../config/supabase';
-import { processGhostbusting, bustGhost as bustGhostService } from '../services/ghostbusterService';
+import { processGhostbusting, bustGhost as bustGhostService, BustChannel } from '../services/ghostbusterService';
 
 // Get Alerts
 export const getGhostAlerts = async (req: Request, res: Response) => {
@@ -43,14 +43,24 @@ export const triggerScan = async (req: Request, res: Response) => {
 // Bust Ghost Action
 export const bustGhost = async (req: Request, res: Response) => {
     try {
-        const { alertId } = req.body;
+        const { alertId, channel = 'whatsapp' } = req.body;
         if (!alertId) return res.status(400).json({ success: false, error: 'Missing alertId' });
 
-        const success = await bustGhostService(alertId);
-        if (success) {
-            res.json({ success: true, message: 'Ghost busted successfully' });
+        // Validate channel
+        const validChannels: BustChannel[] = ['whatsapp', 'email', 'both'];
+        if (!validChannels.includes(channel)) {
+            return res.status(400).json({ success: false, error: 'Invalid channel. Use: whatsapp, email, or both' });
+        }
+
+        const result = await bustGhostService(alertId, channel as BustChannel);
+        if (result.success) {
+            res.json({
+                success: true,
+                message: `Ghost busted via ${result.channels.join(', ')}`,
+                channels: result.channels
+            });
         } else {
-            res.status(400).json({ success: false, error: 'Failed to bust ghost (check status or credits)' });
+            res.status(400).json({ success: false, error: 'Failed to bust ghost (check status, phone/email availability)' });
         }
     } catch (error: any) {
         console.error('Error busting ghost:', error);

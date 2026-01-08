@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useTheme } from '../contexts/ThemeContext';
-import { Ghost, ArrowLeft, RefreshCw, AlertTriangle, CheckCircle2, Zap, MessageCircle } from 'lucide-react';
+import { Ghost, ArrowLeft, RefreshCw, AlertTriangle, CheckCircle2, Zap, MessageCircle, Mail, Send } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { ROUTES } from '../routes';
+
+type BustChannel = 'whatsapp' | 'email' | 'both';
 
 interface GhostAlert {
     id: string;
@@ -44,8 +46,13 @@ const AdminGhostbuster: React.FC = () => {
         }
     };
 
-    const handleBustGhost = async (alertId: string, name: string) => {
-        if (!confirm(`¿Enviar mensaje de reactivación a ${name}?`)) return;
+    const handleBustGhost = async (alertId: string, name: string, channel: BustChannel) => {
+        const channelLabels = {
+            whatsapp: 'WhatsApp',
+            email: 'Email',
+            both: 'WhatsApp y Email'
+        };
+        if (!confirm(`¿Enviar mensaje de reactivación a ${name} por ${channelLabels[channel]}?`)) return;
         try {
             const res = await fetch('/api/v1/ghostbuster/bust', {
                 method: 'POST',
@@ -53,11 +60,11 @@ const AdminGhostbuster: React.FC = () => {
                     'Content-Type': 'application/json',
                     Authorization: `Bearer ${localStorage.getItem('accessToken')}`
                 },
-                body: JSON.stringify({ alertId })
+                body: JSON.stringify({ alertId, channel })
             });
             const data = await res.json();
             if (data.success) {
-                alert('Mensaje enviado con éxito');
+                alert(`Mensaje enviado por: ${data.channels?.join(', ') || channel}`);
                 fetchData();
             } else {
                 alert('Error: ' + data.error);
@@ -193,12 +200,26 @@ const AdminGhostbuster: React.FC = () => {
                                             <div className="text-xs opacity-50">Vibe Check</div>
                                             <div className="text-sm">{alert.vibe_at_creation}</div>
                                         </div>
-                                        <button
-                                            onClick={() => handleBustGhost(alert.id, alert.clients?.name)}
-                                            className="p-3 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white transition-all transform hover:scale-105 active:scale-95"
-                                            title="Bust Ghost (Send Message)">
-                                            <MessageCircle size={20} />
-                                        </button>
+                                        <div className="flex items-center gap-1">
+                                            <button
+                                                onClick={() => handleBustGhost(alert.id, alert.clients?.name || 'Cliente', 'whatsapp')}
+                                                className="p-2 rounded-l-lg bg-green-600 hover:bg-green-700 text-white transition-all"
+                                                title="Enviar por WhatsApp">
+                                                <MessageCircle size={18} />
+                                            </button>
+                                            <button
+                                                onClick={() => handleBustGhost(alert.id, alert.clients?.name || 'Cliente', 'email')}
+                                                className="p-2 bg-blue-600 hover:bg-blue-700 text-white transition-all"
+                                                title="Enviar por Email">
+                                                <Mail size={18} />
+                                            </button>
+                                            <button
+                                                onClick={() => handleBustGhost(alert.id, alert.clients?.name || 'Cliente', 'both')}
+                                                className="p-2 rounded-r-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-all"
+                                                title="Enviar por ambos canales">
+                                                <Send size={18} />
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             ))}
