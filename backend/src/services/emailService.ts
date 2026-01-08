@@ -576,8 +576,10 @@ export const processIncomingAraEmail = async (email: IncomingEmail): Promise<str
         }
     });
 
+    const now = new Date().toISOString();
     await supabase.from('conversations').update({
-        last_message_at: email.date.toISOString(),
+        last_message_at: now,
+        last_inbound_at: now,  // Reset 24h session window on user message
         summary: `Email: ${email.subject}`
     }).eq('id', conversationId);
 
