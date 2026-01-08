@@ -127,7 +127,7 @@ jobs:
           strip_components: 1
           timeout: 120s
 
-      - name: Install Prod Deps & Restart
+      - name: Configure Environment & Restart
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.HOST }}
@@ -135,6 +135,26 @@ jobs:
           key: ${{ secrets.DEPLOY_KEY }}
           script: |
             cd /var/www/coa-viewer/backend
+
+            # Update ARA OAuth credentials in .env (if secrets are configured)
+            if [ -n "${{ secrets.ARA_CLIENT_ID }}" ]; then
+              # Remove old ARA lines
+              sed -i '/^ARA_CLIENT_ID=/d' .env 2>/dev/null || true
+              sed -i '/^ARA_CLIENT_SECRET=/d' .env 2>/dev/null || true
+              sed -i '/^ARA_REFRESH_TOKEN=/d' .env 2>/dev/null || true
+              sed -i '/^ARA_EMAIL_USER=/d' .env 2>/dev/null || true
+              sed -i '/^# Ara OAuth2/d' .env 2>/dev/null || true
+              sed -i '/^\\n# Ara/d' .env 2>/dev/null || true
+
+              # Append fresh ARA OAuth config
+              echo "" >> .env
+              echo "# Ara OAuth2 Config (Gmail)" >> .env
+              echo "ARA_CLIENT_ID=${{ secrets.ARA_CLIENT_ID }}" >> .env
+              echo "ARA_CLIENT_SECRET=${{ secrets.ARA_CLIENT_SECRET }}" >> .env
+              echo "ARA_REFRESH_TOKEN=${{ secrets.ARA_REFRESH_TOKEN }}" >> .env
+              echo "ARA_EMAIL_USER=ara@extractoseum.com" >> .env
+            fi
+
             npm install --omit=dev
             pm2 restart coa-backend
           timeout: 120s
