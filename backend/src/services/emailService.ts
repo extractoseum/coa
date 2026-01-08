@@ -568,7 +568,7 @@ export const processIncomingAraEmail = async (email: IncomingEmail): Promise<str
                 platform: 'email',
                 traffic_source: 'ghostbuster',
                 column_id: targetColumnId,
-                client_id: client?.id || null,
+
                 summary: `Email: ${email.subject}`,
                 facts: { user_email: senderEmail, user_name: email.fromName }
             })
