@@ -28,5 +28,7 @@
   "adminKnowledge": "/admin/knowledge",
   "adminCrm": "/admin/crm",
   "adminTelemetry": "/admin/telemetry",
-  "adminAgentPerformance": "/admin/agent-performance"
+  "adminAgentPerformance": "/admin/agent-performance",
+  "adminOracle": "/admin/oracle",
+  "adminGhostbuster": "/admin/ghostbuster"
 }

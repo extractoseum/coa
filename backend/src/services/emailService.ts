@@ -219,21 +219,25 @@ export const sendAbandonedRecoveryEmail = async (to: string, name: string, check
 // ============================================================================
 
 import { ImapFlow } from 'imapflow';
+import axios from 'axios';
 import { simpleParser, ParsedMail } from 'mailparser';
 import { supabase } from '../config/supabase';
 
 // Ara's email configuration
 const ARA_EMAIL_CONFIG = {
     user: process.env.ARA_EMAIL_USER || 'ara@extractoseum.com',
-    password: process.env.ARA_EMAIL_PASSWORD || '',
+    clientId: process.env.ARA_CLIENT_ID,
+    clientSecret: process.env.ARA_CLIENT_SECRET,
+    refreshToken: process.env.ARA_REFRESH_TOKEN,
+    password: process.env.ARA_EMAIL_PASSWORD,
     smtp: {
-        host: process.env.ARA_SMTP_HOST || 'mail.extractoseum.com',
-        port: parseInt(process.env.ARA_SMTP_PORT || '465'),
+        host: 'smtp.gmail.com',
+        port: 465,
         secure: true
     },
     imap: {
-        host: process.env.ARA_IMAP_HOST || 'mail.extractoseum.com',
-        port: parseInt(process.env.ARA_IMAP_PORT || '993'),
+        host: 'imap.gmail.com',
+        port: 993,
         tls: true
     }
 };
@@ -247,16 +251,29 @@ const initAraTransporter = () => {
         return null;
     }
 
-    araTransporter = nodemailer.createTransport({
-        host: ARA_EMAIL_CONFIG.smtp.host,
-        port: ARA_EMAIL_CONFIG.smtp.port,
-        secure: ARA_EMAIL_CONFIG.smtp.secure,
-        auth: {
-            user: ARA_EMAIL_CONFIG.user,
-            pass: ARA_EMAIL_CONFIG.password
-        },
-        tls: { rejectUnauthorized: false }
-    });
+    if (ARA_EMAIL_CONFIG.clientId && ARA_EMAIL_CONFIG.refreshToken) {
+        araTransporter = nodemailer.createTransport({
+            service: 'gmail',
+            auth: {
+                type: 'OAuth2',
+                user: ARA_EMAIL_CONFIG.user,
+                clientId: ARA_EMAIL_CONFIG.clientId,
+                clientSecret: ARA_EMAIL_CONFIG.clientSecret,
+                refreshToken: ARA_EMAIL_CONFIG.refreshToken
+            }
+        });
+    } else {
+        araTransporter = nodemailer.createTransport({
+            host: ARA_EMAIL_CONFIG.smtp.host,
+            port: ARA_EMAIL_CONFIG.smtp.port,
+            secure: ARA_EMAIL_CONFIG.smtp.secure,
+            auth: {
+                user: ARA_EMAIL_CONFIG.user,
+                pass: ARA_EMAIL_CONFIG.password
+            },
+            tls: { rejectUnauthorized: false }
+        });
+    }
 
     araTransporter.verify((error) => {
         if (error) {
@@ -384,11 +401,27 @@ export const fetchAraEmails = async (): Promise<IncomingEmail[]> => {
     }
 
     const emails: IncomingEmail[] = [];
+    let accessToken = '';
+    if (ARA_EMAIL_CONFIG.refreshToken) {
+        try {
+            const res = await axios.post('https://oauth2.googleapis.com/token', {
+                client_id: ARA_EMAIL_CONFIG.clientId,
+                client_secret: ARA_EMAIL_CONFIG.clientSecret,
+                refresh_token: ARA_EMAIL_CONFIG.refreshToken,
+                grant_type: 'refresh_token'
+            });
+            accessToken = res.data.access_token;
+        } catch (e: any) { console.error('[AraEmail] Token fetch error', e.message); }
+    }
+
     const client = new ImapFlow({
         host: ARA_EMAIL_CONFIG.imap.host,
         port: ARA_EMAIL_CONFIG.imap.port,
         secure: ARA_EMAIL_CONFIG.imap.tls,
-        auth: {
+        auth: accessToken ? {
+            user: ARA_EMAIL_CONFIG.user,
+            accessToken: accessToken
+        } : {
             user: ARA_EMAIL_CONFIG.user,
             pass: ARA_EMAIL_CONFIG.password
         },
@@ -1020,7 +1053,7 @@ export const sendeDarkStoreTicket = async (
     }
 
     const priorityPrefix = ticket.priority === 'urgent' ? '🚨 URGENTE: ' :
-                          ticket.priority === 'high' ? '⚠️ ' : '';
+        ticket.priority === 'high' ? '⚠️ ' : '';
 
     const subject = `[EDS Ticket ${ticketId}] ${priorityPrefix}${ticket.subject}`;
     const html = geteDarkStoreTicketTemplate(ticket, ticketId);
