@@ -332,12 +332,14 @@ import { Screen } from './telemetry/Screen';
 import { QAOverlay } from './telemetry/QAOverlay';
 import { TelemetryTracker } from './telemetry/TelemetryTracker';
 import { ThemeSwitcher } from './components/ThemeSwitcher';
+import ImpersonationBanner from './components/ImpersonationBanner';
 
 function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
         <ThemeProvider>
+          <ImpersonationBanner />
           <div className="hidden md:block">
             <ThemeSwitcher />
           </div>

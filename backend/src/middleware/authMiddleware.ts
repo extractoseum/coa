@@ -17,6 +17,10 @@ declare global {
             userEmail?: string;
             userRole?: string;
             lastVerifiedAt?: string;
+            // Impersonation fields
+            isImpersonating?: boolean;
+            originalAdminId?: string;
+            impersonationSessionId?: string;
         }
     }
 }
@@ -25,6 +29,10 @@ interface JWTPayload {
     clientId: string;
     email: string;
     role: string;
+    // Impersonation fields (optional)
+    isImpersonating?: boolean;
+    adminId?: string;
+    impersonationSessionId?: string;
 }
 
 // Helper to determine effective role (considering tags)
@@ -52,6 +60,31 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
 
         try {
             const decoded = jwt.verify(token, JWT_SECRET) as JWTPayload;
+
+            // Handle impersonation session
+            if (decoded.isImpersonating && decoded.impersonationSessionId) {
+                // Validate impersonation session is still active
+                const { data: session, error: sessionError } = await supabase
+                    .from('impersonation_sessions')
+                    .select('*')
+                    .eq('id', decoded.impersonationSessionId)
+                    .eq('status', 'active')
+                    .gt('expires_at', new Date().toISOString())
+                    .single();
+
+                if (sessionError || !session) {
+                    return res.status(401).json({
+                        success: false,
+                        error: 'impersonation_session_expired',
+                        message: 'La sesión de impersonación ha expirado o fue terminada'
+                    });
+                }
+
+                // Add impersonation context to request
+                req.isImpersonating = true;
+                req.originalAdminId = decoded.adminId;
+                req.impersonationSessionId = decoded.impersonationSessionId;
+            }
 
             // Verify client still exists and is active
             const { data: client, error } = await supabase
@@ -240,11 +273,14 @@ export const filterEditableFields = (req: Request, res: Response, next: NextFunc
  * Middleware: Require Step-up Authentication
  * Checks if the user has verified their identity recently (e.g., last 5 minutes)
  * If not, returns a 403 step_up_required error.
+ *
+ * @param maxAgeMinutes - Maximum age of verification in minutes
+ * @param enforceForSuperAdmin - If true, also require step-up for super_admins (for sensitive ops like impersonation)
  */
-export const requireStepUp = (maxAgeMinutes = 5) => {
+export const requireStepUp = (maxAgeMinutes = 5, enforceForSuperAdmin = true) => {
     return (req: Request, res: Response, next: NextFunction) => {
-        // Super admins bypass step-up verification
-        if (req.userRole === 'super_admin') {
+        // Super admins can optionally bypass step-up verification
+        if (req.userRole === 'super_admin' && !enforceForSuperAdmin) {
             return next();
         }
 

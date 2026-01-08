@@ -96,6 +96,7 @@ export interface ContactSnapshot {
     channel: string;
     name: string;
     email?: string; // For identity bridge with browsing events
+    client_id?: string | null; // For impersonation - links to clients table
     ltv: number;
     orders_count: number;
     average_ticket: number;

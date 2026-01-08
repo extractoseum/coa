@@ -38,6 +38,7 @@ import vapiRoutes from './routes/vapiRoutes'; // NEW: Vapi Real-Time Voice
 import driftRoutes from './routes/driftRoutes'; // NEW: Drift Bot Mission Control
 import oracleRoutes from './routes/oracleRoutes';
 import ghostbusterRoutes from './routes/ghostbusterRoutes'; // NEW: Oracle Predictive Restocking
+import impersonationRoutes from './routes/impersonationRoutes'; // NEW: User Impersonation
 
 import { initCronJobs } from './services/cronService';
 import { startEmailPolling } from './services/emailService';
@@ -171,6 +172,7 @@ app.use('/api/v1/vapi', vapiRoutes); // NEW: Vapi Voice Integration
 app.use('/api/v1/drift', driftRoutes); // NEW: Drift Bot
 app.use('/api/v1/oracle', oracleRoutes);
 app.use('/api/v1/ghostbuster', ghostbusterRoutes); // NEW: Oracle Predictive Restocking
+app.use('/api/v1/impersonation', impersonationRoutes); // NEW: User Impersonation
 
 // Telemetry Logs Endpoint (Surgical Injection)
 app.use('/api/v1/logs', logsRoutes); // Telemetry Logs

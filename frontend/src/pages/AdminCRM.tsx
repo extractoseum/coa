@@ -2172,12 +2172,12 @@ const AdminCRM: React.FC = () => {
                                                     </div>
 
                                                     {/* Impersonate Client Button */}
-                                                    {isSuperAdmin && contactSnapshot?.id && (
+                                                    {isSuperAdmin && contactSnapshot?.client_id && (
                                                         <div className="pt-4 border-t border-white/10">
                                                             <button
                                                                 onClick={() => {
                                                                     setImpersonationTarget({
-                                                                        id: contactSnapshot.id,
+                                                                        id: contactSnapshot.client_id!,
                                                                         name: contactSnapshot.name,
                                                                         email: contactSnapshot.email,
                                                                         phone: contactSnapshot.handle

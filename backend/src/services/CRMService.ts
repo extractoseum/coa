@@ -110,6 +110,8 @@ export interface ContactSnapshot {
     last_updated_at?: string;
     created_at?: string;
     updated_at?: string;
+    email?: string;
+    client_id?: string | null;
 }
 
 
@@ -1220,7 +1222,8 @@ export class CRMService {
 
         return {
             ...data,
-            email
+            email,
+            client_id: client?.id || null
         };
     }
 

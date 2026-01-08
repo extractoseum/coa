@@ -28,12 +28,25 @@ interface Client {
     auth_level?: 'registered' | 'verified';
 }
 
+interface ImpersonationState {
+    isImpersonating: boolean;
+    impersonatedClient: Client | null;
+    originalAdmin: { id: string; email: string; name?: string } | null;
+    sessionId: string | null;
+    expiresAt: string | null;
+}
+
 interface AuthContextType {
     client: Client | null;
     isLoading: boolean;
     isAuthenticated: boolean;
     isSuperAdmin: boolean;
     authLevel: 'guest' | 'registered' | 'verified';
+    // Impersonation
+    impersonation: ImpersonationState;
+    startImpersonation: (targetClientId: string, reason?: string) => Promise<{ success: boolean; error?: string }>;
+    endImpersonation: () => Promise<{ success: boolean; error?: string }>;
+    // Auth methods
     login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
     loginWithTotp: (email: string, token: string) => Promise<{ success: boolean; error?: string }>;
     sendOTP: (identifier: string) => Promise<{ success: boolean; error?: string; channel?: string }>;
@@ -49,9 +62,18 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const API_BASE = '/api/v1';
 
+const INITIAL_IMPERSONATION_STATE: ImpersonationState = {
+    isImpersonating: false,
+    impersonatedClient: null,
+    originalAdmin: null,
+    sessionId: null,
+    expiresAt: null
+};
+
 export function AuthProvider({ children }: { children: ReactNode }) {
     const [client, setClient] = useState<Client | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [impersonation, setImpersonation] = useState<ImpersonationState>(INITIAL_IMPERSONATION_STATE);
 
     // Check for existing session on mount and initialize OneSignal
     useEffect(() => {
@@ -383,6 +405,126 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
     };
 
+    // ============================================
+    // IMPERSONATION METHODS
+    // ============================================
+
+    const startImpersonation = async (targetClientId: string, reason?: string): Promise<{ success: boolean; error?: string }> => {
+        try {
+            const accessToken = localStorage.getItem('accessToken');
+            const refreshTokenValue = localStorage.getItem('refreshToken');
+
+            const res = await fetch(`${API_BASE}/impersonation/start`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${accessToken}`
+                },
+                body: JSON.stringify({
+                    targetClientId,
+                    reason,
+                    refreshToken: refreshTokenValue
+                })
+            });
+
+            const data = await res.json();
+
+            if (data.success) {
+                // Save original admin tokens for restoration later
+                localStorage.setItem('originalAdminAccessToken', accessToken || '');
+                localStorage.setItem('originalAdminRefreshToken', refreshTokenValue || '');
+
+                // Set impersonation token as the active token
+                localStorage.setItem('accessToken', data.impersonationToken);
+                // Clear refresh token during impersonation (not used)
+                localStorage.removeItem('refreshToken');
+
+                // Update state
+                setImpersonation({
+                    isImpersonating: true,
+                    impersonatedClient: data.impersonatedClient,
+                    originalAdmin: data.originalAdmin,
+                    sessionId: data.sessionId,
+                    expiresAt: data.expiresAt
+                });
+
+                // Update client to the impersonated user
+                setClient(data.impersonatedClient);
+
+                return { success: true };
+            }
+
+            return { success: false, error: data.error || data.message || 'Error al iniciar impersonación' };
+        } catch (error) {
+            console.error('Start impersonation error:', error);
+            return { success: false, error: 'Error de conexión' };
+        }
+    };
+
+    const endImpersonation = async (): Promise<{ success: boolean; error?: string }> => {
+        try {
+            const accessToken = localStorage.getItem('accessToken');
+
+            const res = await fetch(`${API_BASE}/impersonation/end`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${accessToken}`
+                }
+            });
+
+            const data = await res.json();
+
+            // Restore original admin tokens (whether API succeeded or not)
+            const originalAccessToken = localStorage.getItem('originalAdminAccessToken');
+            const originalRefreshToken = localStorage.getItem('originalAdminRefreshToken');
+
+            if (originalAccessToken) {
+                localStorage.setItem('accessToken', originalAccessToken);
+            }
+            if (originalRefreshToken) {
+                localStorage.setItem('refreshToken', originalRefreshToken);
+            }
+
+            // Clear impersonation storage
+            localStorage.removeItem('originalAdminAccessToken');
+            localStorage.removeItem('originalAdminRefreshToken');
+
+            // Reset impersonation state
+            setImpersonation(INITIAL_IMPERSONATION_STATE);
+
+            // Restore admin client info
+            if (data.admin) {
+                setClient(data.admin);
+            } else {
+                // If no admin data returned, re-check auth
+                await checkAuth();
+            }
+
+            return { success: true };
+        } catch (error) {
+            console.error('End impersonation error:', error);
+
+            // Still try to restore original tokens on error
+            const originalAccessToken = localStorage.getItem('originalAdminAccessToken');
+            const originalRefreshToken = localStorage.getItem('originalAdminRefreshToken');
+
+            if (originalAccessToken) {
+                localStorage.setItem('accessToken', originalAccessToken);
+                localStorage.removeItem('originalAdminAccessToken');
+            }
+            if (originalRefreshToken) {
+                localStorage.setItem('refreshToken', originalRefreshToken);
+                localStorage.removeItem('originalAdminRefreshToken');
+            }
+
+            setImpersonation(INITIAL_IMPERSONATION_STATE);
+            await checkAuth();
+
+            return { success: false, error: 'Error de conexión' };
+        }
+    };
+
     // Check if user is super_admin based on role or tags
     const isSuperAdmin = client?.role === 'super_admin' ||
         (Array.isArray(client?.tags) && client.tags.includes('super_admin'));
@@ -398,6 +540,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: !!client,
         isSuperAdmin: !!isSuperAdmin,
         authLevel,
+        // Impersonation
+        impersonation,
+        startImpersonation,
+        endImpersonation,
+        // Auth methods
         login,
         loginWithTotp,
         sendOTP,
