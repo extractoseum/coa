@@ -1190,16 +1190,50 @@ export class CRMService {
 
         // Enrich with client email for identity bridge (browsing events use email as handle)
         const cleanPhone = cleanupPhone(handle);
-        const { data: client } = await supabase
+        let { data: client } = await supabase
             .from('clients')
-            .select('id, email')
+            .select('id, email, name')
             .or(`phone.ilike.%${cleanPhone}%,phone.ilike.%${cleanPhone.slice(-10)}%`)
             .maybeSingle();
 
         let email = client?.email || null;
+        let clientId = client?.id || null;
 
-        // If email is fake (@noemail.eum) or missing, try to get it from Shopify
-        if (!email || email.includes('@noemail.eum')) {
+        // If no client found, try to find/create from Shopify data
+        if (!client) {
+            try {
+                const shopifyCustomers = await searchShopifyCustomerByPhone(handle);
+                if (shopifyCustomers.length > 0) {
+                    const shopifyCustomer = shopifyCustomers[0];
+                    const customerName = `${shopifyCustomer.first_name || ''} ${shopifyCustomer.last_name || ''}`.trim();
+                    email = shopifyCustomer.email || null;
+
+                    // Create client record from Shopify data
+                    const { data: newClient, error: createError } = await supabase
+                        .from('clients')
+                        .insert({
+                            phone: cleanPhone,
+                            email: email || `${cleanPhone}@noemail.eum`,
+                            name: customerName || data.name || cleanPhone,
+                            role: 'client',
+                            is_active: true,
+                            shopify_customer_id: String(shopifyCustomer.id)
+                        })
+                        .select('id, email, name')
+                        .single();
+
+                    if (!createError && newClient) {
+                        clientId = newClient.id;
+                        console.log(`[CRMService] Created client ${clientId} from Shopify for ${cleanPhone}`);
+                    } else if (createError) {
+                        console.warn(`[CRMService] Failed to create client for ${cleanPhone}:`, createError.message);
+                    }
+                }
+            } catch (shopifyErr: any) {
+                console.warn(`[CRMService] Shopify lookup failed for ${handle}:`, shopifyErr.message);
+            }
+        } else if (!email || email.includes('@noemail.eum')) {
+            // Client exists but email is fake, try to get real email from Shopify
             try {
                 const shopifyCustomers = await searchShopifyCustomerByPhone(handle);
                 if (shopifyCustomers.length > 0 && shopifyCustomers[0].email) {
@@ -1207,13 +1241,11 @@ export class CRMService {
                     console.log(`[CRMService] Found email from Shopify for ${handle}: ${email}`);
 
                     // Update client record with real email from Shopify
-                    if (client?.id) {
-                        await supabase
-                            .from('clients')
-                            .update({ email })
-                            .eq('id', client.id);
-                        console.log(`[CRMService] Updated client ${client.id} with Shopify email`);
-                    }
+                    await supabase
+                        .from('clients')
+                        .update({ email })
+                        .eq('id', client.id);
+                    console.log(`[CRMService] Updated client ${client.id} with Shopify email`);
                 }
             } catch (shopifyErr: any) {
                 console.warn(`[CRMService] Shopify email lookup failed for ${handle}:`, shopifyErr.message);
@@ -1223,7 +1255,7 @@ export class CRMService {
         return {
             ...data,
             email,
-            client_id: client?.id || null
+            client_id: clientId
         };
     }
 
