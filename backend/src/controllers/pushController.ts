@@ -19,7 +19,10 @@ import {
 import {
     sendBulkMarketingEmail,
     isBulkEmailConfigured,
-    getAraEmailStatus
+    getAraEmailStatus,
+    fetchAraEmails,
+    processIncomingAraEmail,
+    startEmailPolling
 } from '../services/emailService';
 
 /**
@@ -965,18 +968,43 @@ export const getWhatsAppStatus = async (_req: Request, res: Response) => {
 
 /**
  * Get Email (Ara) service status
- * GET /api/v1/push/email/status
+ * GET /api/v1/push/email/status or /api/v1/push/email/health
+ * Add ?poll=true to force a poll cycle
  */
-export const getEmailStatus = async (_req: Request, res: Response) => {
+export const getEmailStatus = async (req: Request, res: Response) => {
     try {
         const status = getAraEmailStatus();
+
+        // If polling not started but configured, try to start it
+        if (status.configured && !status.polling) {
+            console.log('[Push] Email configured but not polling - starting now...');
+            startEmailPolling(60000);
+        }
+
+        // Force poll if requested
+        let pollResult = null;
+        if (req.query.poll === 'true' && status.configured) {
+            console.log('[Push] Manual poll requested...');
+            try {
+                const emails = await fetchAraEmails();
+                pollResult = { found: emails.length, processed: 0 };
+                for (const email of emails) {
+                    const convId = await processIncomingAraEmail(email);
+                    if (convId) pollResult.processed++;
+                }
+            } catch (pollError: any) {
+                pollResult = { error: pollError.message };
+            }
+        }
+
         res.json({
             success: true,
             email: {
                 configured: status.configured,
                 address: status.email,
                 polling: status.polling
-            }
+            },
+            ...(pollResult && { pollResult })
         });
     } catch (error: any) {
         console.error('[Push] Error getting Email status:', error);

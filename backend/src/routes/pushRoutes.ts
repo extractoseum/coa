@@ -22,6 +22,9 @@ import { requireAuth, requireSuperAdmin } from '../middleware/authMiddleware';
 
 const router = Router();
 
+// Public health check for email service (no auth required for diagnostics)
+router.get('/email/health', getEmailStatus);
+
 // Public routes (for registering devices before full auth)
 router.post('/register', requireAuth, registerDevice);
 router.post('/unregister', unregisterDevice);
