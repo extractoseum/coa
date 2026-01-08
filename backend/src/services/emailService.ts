@@ -577,7 +577,7 @@ export const processIncomingAraEmail = async (email: IncomingEmail): Promise<str
 
         if (error || !newConv) {
             console.error('[AraEmail] Failed to create conversation:', error);
-            return null;
+            throw new Error(`Failed to create conversation: ${error?.message || 'Unknown DB error'}`);
         }
 
         conversationId = newConv.id;
