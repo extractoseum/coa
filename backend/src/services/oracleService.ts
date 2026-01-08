@@ -768,19 +768,42 @@ export const aggregateDailySales = async (date?: Date): Promise<number> => {
         // Upsert into product_sales_history
         let inserted = 0;
         for (const [productId, sales] of productSales) {
-            await supabase
+            // First try to find existing record
+            const { data: existing } = await supabase
                 .from('product_sales_history')
-                .upsert({
-                    shopify_product_id: productId,
-                    product_title: sales.title,
-                    sale_date: dateStr,
-                    units_sold: sales.units,
-                    revenue: sales.revenue,
-                    orders_count: sales.orders,
-                    unique_customers: sales.customers.size
-                }, {
-                    onConflict: 'shopify_product_id,sale_date'
-                });
+                .select('id')
+                .eq('shopify_product_id', productId)
+                .eq('sale_date', dateStr)
+                .maybeSingle();
+
+            const salesData = {
+                shopify_product_id: productId,
+                product_title: sales.title,
+                sale_date: dateStr,
+                units_sold: sales.units,
+                revenue: sales.revenue,
+                orders_count: sales.orders,
+                unique_customers: sales.customers.size
+            };
+
+            if (existing) {
+                // Update existing
+                const { error } = await supabase
+                    .from('product_sales_history')
+                    .update(salesData)
+                    .eq('id', existing.id);
+                if (error) {
+                    console.error(`[Oracle] Error updating sales for ${productId}:`, error.message);
+                }
+            } else {
+                // Insert new
+                const { error } = await supabase
+                    .from('product_sales_history')
+                    .insert(salesData);
+                if (error) {
+                    console.error(`[Oracle] Error inserting sales for ${productId}:`, error.message);
+                }
+            }
             inserted++;
         }
 
@@ -903,33 +926,49 @@ export const generateInventoryForecast = async (): Promise<{
             // Calculate recommended order quantity
             const recommendedOrder = Math.max(0, predictedUnits + safetyStock - (currentStock || 0));
 
-            // Upsert forecast
-            await supabase
+            // Upsert forecast - use manual check instead of onConflict
+            const periodStartStr = periodStart.toISOString().split('T')[0];
+            const { data: existingForecast } = await supabase
                 .from('inventory_demand_forecast')
-                .upsert({
-                    shopify_product_id: productId,
-                    product_title: stats.title,
-                    forecast_period: 'monthly',
-                    period_start: periodStart.toISOString().split('T')[0],
-                    period_end: periodEnd.toISOString().split('T')[0],
-                    predicted_units: Math.round(predictedUnits * trendFactor),
-                    historical_avg_daily_sales: avgDailySales,
-                    trend_factor: Math.round(trendFactor * 100) / 100,
-                    current_stock: currentStock,
-                    recommended_order_qty: recommendedOrder,
-                    reorder_point: reorderPoint,
-                    safety_stock: safetyStock,
-                    days_of_stock_remaining: daysOfStock,
-                    is_low_stock: isLowStock,
-                    is_stockout_risk: isStockoutRisk,
-                    stockout_risk_date: isStockoutRisk && daysOfStock !== null
-                        ? new Date(Date.now() + daysOfStock * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-                        : null,
-                    calculated_at: new Date().toISOString(),
-                    data_points_used: stats.days
-                }, {
-                    onConflict: 'shopify_product_id,forecast_period,period_start'
-                });
+                .select('id')
+                .eq('shopify_product_id', productId)
+                .eq('forecast_period', 'monthly')
+                .eq('period_start', periodStartStr)
+                .maybeSingle();
+
+            const forecastData = {
+                shopify_product_id: productId,
+                product_title: stats.title,
+                forecast_period: 'monthly',
+                period_start: periodStartStr,
+                period_end: periodEnd.toISOString().split('T')[0],
+                predicted_units: Math.round(predictedUnits * trendFactor),
+                historical_avg_daily_sales: avgDailySales,
+                trend_factor: Math.round(trendFactor * 100) / 100,
+                current_stock: currentStock,
+                recommended_order_qty: recommendedOrder,
+                reorder_point: reorderPoint,
+                safety_stock: safetyStock,
+                days_of_stock_remaining: daysOfStock,
+                is_low_stock: isLowStock,
+                is_stockout_risk: isStockoutRisk,
+                stockout_risk_date: isStockoutRisk && daysOfStock !== null
+                    ? new Date(Date.now() + daysOfStock * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+                    : null,
+                calculated_at: new Date().toISOString(),
+                data_points_used: stats.days
+            };
+
+            if (existingForecast) {
+                await supabase
+                    .from('inventory_demand_forecast')
+                    .update(forecastData)
+                    .eq('id', existingForecast.id);
+            } else {
+                await supabase
+                    .from('inventory_demand_forecast')
+                    .insert(forecastData);
+            }
 
             products++;
 
