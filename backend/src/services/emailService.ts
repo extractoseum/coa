@@ -396,7 +396,9 @@ export const sendAraEmailToConversation = async (
  * Fetch new emails from IMAP using ImapFlow
  */
 export const fetchAraEmails = async (): Promise<IncomingEmail[]> => {
-    if (!ARA_EMAIL_CONFIG.password) {
+    // Allow OAuth (refreshToken) OR password authentication
+    if (!ARA_EMAIL_CONFIG.password && !ARA_EMAIL_CONFIG.refreshToken) {
+        console.log('[AraEmail] No password or OAuth configured - skipping email fetch');
         return [];
     }
 
