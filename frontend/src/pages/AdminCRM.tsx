@@ -126,6 +126,7 @@ const AdminCRM: React.FC = () => {
                 return activeFilters.every(filter => {
                     // Status filters
                     if (filter === 'nuevo') return c.is_new_customer;
+                    if (filter === 'comprador') return !c.is_new_customer || (c.ltv || 0) > 0;
                     if (filter === 'vip') return c.is_vip;
                     if (filter === 'estancado') return c.is_stalled;
                     if (filter === 'exp') return c.window_status === 'expired';
@@ -1309,6 +1310,7 @@ const AdminCRM: React.FC = () => {
                                 <span className="text-[10px] uppercase font-bold tracking-wider opacity-40 mr-2">Estado:</span>
                                 {[
                                     { key: 'nuevo', label: 'Nuevo', color: 'blue' },
+                                    { key: 'comprador', label: 'Comprador', color: 'emerald' },
                                     { key: 'vip', label: 'VIP', color: 'yellow' },
                                     { key: 'pendiente', label: 'Pendiente', color: 'pink' },
                                     { key: 'estancado', label: 'Estancado', color: 'gray' },
@@ -1318,6 +1320,7 @@ const AdminCRM: React.FC = () => {
                                     const isActive = activeFilters.includes(f.key);
                                     const colorMap: Record<string, string> = {
                                         blue: isActive ? 'bg-blue-500 text-white' : 'bg-blue-500/10 text-blue-400 hover:bg-blue-500/20',
+                                        emerald: isActive ? 'bg-emerald-500 text-white' : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20',
                                         yellow: isActive ? 'bg-yellow-500 text-black' : 'bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20',
                                         pink: isActive ? 'bg-pink-500 text-white' : 'bg-pink-500/10 text-pink-400 hover:bg-pink-500/20',
                                         gray: isActive ? 'bg-gray-500 text-white' : 'bg-gray-500/10 text-gray-400 hover:bg-gray-500/20',
