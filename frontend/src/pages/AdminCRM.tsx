@@ -27,6 +27,7 @@ import OrchestratorConfig from '../components/OrchestratorConfig';
 import { VoiceSelector } from '../components/VoiceSelector';
 import KanbanCard from '../components/KanbanCard';
 import CreateTicketModal from '../components/CreateTicketModal';
+import ImpersonationModal from '../components/ImpersonationModal';
 import type { Column, Conversation, AgentMetadata, ToolRegistryItem, ContactSnapshot } from '../types/crm';
 import { getAvatarGradient, getTagColor, getChannelIcon } from '../utils/crmUtils';
 import { useNavigate } from 'react-router-dom';
@@ -46,9 +47,13 @@ const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
 const AdminCRM: React.FC = () => {
     // Build version: 2025-12-20-16-05
     const { theme, setThemeMode: setTheme } = useTheme(); // Aliased for compatibility
-    const { client: user, isSuperAdmin } = useAuth(); // Client aliased to user for compatibility
+    const { client: user, isSuperAdmin, impersonation } = useAuth(); // Client aliased to user for compatibility
     const navigate = useNavigate();
     const token = localStorage.getItem('accessToken');
+
+    // Impersonation modal state
+    const [showImpersonationModal, setShowImpersonationModal] = useState(false);
+    const [impersonationTarget, setImpersonationTarget] = useState<{ id: string; name?: string; email?: string; phone?: string } | null>(null);
 
     const [columns, setColumns] = useState<Column[]>([]);
     const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -2165,6 +2170,33 @@ const AdminCRM: React.FC = () => {
                                                             ))}
                                                         </ul>
                                                     </div>
+
+                                                    {/* Impersonate Client Button */}
+                                                    {isSuperAdmin && contactSnapshot?.id && (
+                                                        <div className="pt-4 border-t border-white/10">
+                                                            <button
+                                                                onClick={() => {
+                                                                    setImpersonationTarget({
+                                                                        id: contactSnapshot.id,
+                                                                        name: contactSnapshot.name,
+                                                                        email: contactSnapshot.email,
+                                                                        phone: contactSnapshot.handle
+                                                                    });
+                                                                    setShowImpersonationModal(true);
+                                                                }}
+                                                                disabled={impersonation.isImpersonating}
+                                                                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-gradient-to-r from-red-500/20 to-orange-500/20 border border-red-500/30 hover:border-red-500/50 text-red-400 hover:text-red-300 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                                            >
+                                                                <User size={14} />
+                                                                <span className="text-xs font-semibold">Impersonar Cliente</span>
+                                                            </button>
+                                                            {impersonation.isImpersonating && (
+                                                                <p className="text-[9px] text-center text-red-400/70 mt-2">
+                                                                    Ya estás impersonando a otro usuario
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )}
 
@@ -2457,6 +2489,19 @@ const AdminCRM: React.FC = () => {
                                 fetchData(); // Refresh to update ticket count
                                 // Optional: Show success toast or notification
                                 console.log(`Ticket created: ${ticketId}`);
+                            }}
+                        />
+                    )}
+                    {showImpersonationModal && impersonationTarget && (
+                        <ImpersonationModal
+                            targetClient={impersonationTarget}
+                            onClose={() => {
+                                setShowImpersonationModal(false);
+                                setImpersonationTarget(null);
+                            }}
+                            onSuccess={() => {
+                                // Navigate to dashboard after successful impersonation
+                                navigate(ROUTES.dashboard);
                             }}
                         />
                     )}
