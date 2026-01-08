@@ -12,7 +12,6 @@ import { Router, Request, Response } from 'express';
 import { requireAuth, requireSuperAdmin } from '../middleware/authMiddleware';
 import { supabase } from '../config/supabase';
 import {
-    getOracleStats,
     getLowStockAlerts,
     generateRestockPredictions,
     processRestockNotifications,
@@ -34,8 +33,40 @@ const router = Router();
  */
 router.get('/stats', requireAuth, requireSuperAdmin, async (_req: Request, res: Response) => {
     try {
-        const stats = await getOracleStats();
-        res.json({ success: true, ...stats });
+        // Get total active predictions
+        const { count: totalPredictions } = await supabase
+            .from('restock_predictions')
+            .select('*', { count: 'exact', head: true })
+            .eq('is_active', true);
+
+        // Get predictions due in next 7 days
+        const nextWeek = new Date();
+        nextWeek.setDate(nextWeek.getDate() + 7);
+        const { count: predictionsDueSoon } = await supabase
+            .from('restock_predictions')
+            .select('*', { count: 'exact', head: true })
+            .eq('is_active', true)
+            .eq('notification_status', 'pending')
+            .lte('predicted_restock_date', nextWeek.toISOString().split('T')[0]);
+
+        // Get active consumption profiles count
+        const { count: activeProfiles } = await supabase
+            .from('product_consumption_profiles')
+            .select('*', { count: 'exact', head: true });
+
+        // Get active inventory alerts count
+        const { count: inventoryAlerts } = await supabase
+            .from('inventory_alerts')
+            .select('*', { count: 'exact', head: true })
+            .eq('status', 'active');
+
+        res.json({
+            success: true,
+            total_predictions: totalPredictions || 0,
+            predictions_due_soon: predictionsDueSoon || 0,
+            active_profiles: activeProfiles || 0,
+            inventory_alerts: inventoryAlerts || 0
+        });
     } catch (error: any) {
         console.error('[Oracle] Error getting stats:', error);
         res.status(500).json({ success: false, error: error.message });
@@ -93,8 +124,9 @@ router.get('/predictions', requireAuth, requireSuperAdmin, async (req: Request, 
         const status = req.query.status as string;
         const limit = parseInt(req.query.limit as string) || 50;
 
+        // Use view that includes days_until_restock calculation
         let query = supabase
-            .from('restock_predictions')
+            .from('restock_predictions_with_days')
             .select('*')
             .eq('is_active', true)
             .order('predicted_restock_date', { ascending: true })
@@ -121,17 +153,15 @@ router.get('/predictions', requireAuth, requireSuperAdmin, async (req: Request, 
  */
 router.get('/predictions/due-soon', requireAuth, requireSuperAdmin, async (_req: Request, res: Response) => {
     try {
-        const nextWeek = new Date();
-        nextWeek.setDate(nextWeek.getDate() + 7);
-
+        // Use view that includes days_until_restock calculation
+        // Get predictions for next 30 days to show in dashboard
         const { data: predictions, error } = await supabase
-            .from('restock_predictions')
+            .from('restock_predictions_with_days')
             .select('*')
             .eq('is_active', true)
-            .eq('notification_status', 'pending')
-            .lte('predicted_restock_date', nextWeek.toISOString().split('T')[0])
+            .gte('days_until_restock', -7) // Include recently past due (up to 7 days ago)
             .order('predicted_restock_date', { ascending: true })
-            .limit(20);
+            .limit(50);
 
         if (error) throw error;
 

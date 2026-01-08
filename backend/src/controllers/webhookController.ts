@@ -430,6 +430,17 @@ const processOrderInternal = async (order: any, eventType: 'create' | 'update') 
             newStatus = 'cancelled';
         }
 
+        // Extract line_items for Oracle predictions
+        const lineItems = Array.isArray(order.line_items)
+            ? order.line_items.map((item: any) => ({
+                product_id: item.product_id?.toString(),
+                variant_id: item.variant_id?.toString(),
+                title: item.title || item.name,
+                quantity: item.quantity,
+                price: item.price
+            }))
+            : [];
+
         const { data: savedOrder, error: orderError } = await supabase
             .from('orders')
             .upsert({
@@ -440,7 +451,10 @@ const processOrderInternal = async (order: any, eventType: 'create' | 'update') 
                 total_amount: order.total_price,
                 currency: order.currency,
                 shopify_created_at: order.created_at,
-                shopify_updated_at: order.updated_at
+                shopify_updated_at: order.updated_at,
+                line_items: lineItems,
+                customer_email: email,
+                customer_phone: order.customer?.phone || order.customer?.default_address?.phone || null
             }, { onConflict: 'shopify_order_id' })
             .select()
             .single();
@@ -674,6 +688,17 @@ export const handleFulfillmentUpdate = async (req: Request, res: Response) => {
                     const email = shopifyOrder.email || shopifyOrder.customer?.email;
                     const client = await getOrCreateClientInternal(shopifyOrder.customer, email);
                     if (client) {
+                        // Extract line_items for Oracle predictions
+                        const lineItems = Array.isArray(shopifyOrder.line_items)
+                            ? shopifyOrder.line_items.map((item: any) => ({
+                                product_id: item.product_id?.toString(),
+                                variant_id: item.variant_id?.toString(),
+                                title: item.title || item.name,
+                                quantity: item.quantity,
+                                price: item.price
+                            }))
+                            : [];
+
                         const { data: newOrder, error: orderError } = await supabase
                             .from('orders')
                             .upsert({
@@ -684,7 +709,10 @@ export const handleFulfillmentUpdate = async (req: Request, res: Response) => {
                                 total_amount: shopifyOrder.total_price,
                                 currency: shopifyOrder.currency,
                                 shopify_created_at: shopifyOrder.created_at,
-                                shopify_updated_at: shopifyOrder.updated_at
+                                shopify_updated_at: shopifyOrder.updated_at,
+                                line_items: lineItems,
+                                customer_email: email,
+                                customer_phone: shopifyOrder.customer?.phone || shopifyOrder.customer?.default_address?.phone || null
                             }, { onConflict: 'shopify_order_id' })
                             .select('id, client_id, order_number, fulfilled_notified')
                             .single();
