@@ -87,6 +87,32 @@ const AdminGhostbuster: React.FC = () => {
         }
     };
 
+    const handleResetAndRescan = async () => {
+        if (!confirm('Esto eliminará todas las alertas pendientes y volverá a escanear con datos corregidos. ¿Continuar?')) return;
+        setIsRefreshing(true);
+        try {
+            // First reset
+            await fetch('/api/v1/ghostbuster/reset', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
+            });
+            // Then scan
+            const res = await fetch('/api/v1/ghostbuster/scan', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert(`Reset y escaneo completo. Fantasmas encontrados: ${data.result.ghosts_found}`);
+                fetchData();
+            }
+        } catch (error) {
+            console.error(error);
+        } finally {
+            setIsRefreshing(false);
+        }
+    };
+
     const getLevelBadge = (level: string) => {
         switch (level) {
             case 'warm_ghost': return <span className="px-2 py-1 rounded bg-yellow-500/20 text-yellow-300 text-xs">Warm (14-30d)</span>;
@@ -119,6 +145,10 @@ const AdminGhostbuster: React.FC = () => {
                         </div>
                     </div>
                     <div className="flex gap-3">
+                        <button onClick={handleResetAndRescan} disabled={isRefreshing}
+                            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 text-red-400 text-sm font-medium">
+                            <AlertTriangle size={16} /> Reset & Rescan
+                        </button>
                         <button onClick={handleManualScan} disabled={isRefreshing}
                             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-500/10 border border-indigo-500/20 hover:bg-indigo-500/20 text-indigo-400 text-sm font-medium">
                             <Zap size={16} /> Escanear Ahora

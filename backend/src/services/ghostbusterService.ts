@@ -59,14 +59,15 @@ export const processGhostbusting = async (): Promise<{ processed: number; ghosts
     let alertsCreated = 0;
 
     try {
-        // 1. Get all clients with basic info
+        // 1. Get all clients with basic info (including created_at for fallback)
         const { data: clients, error } = await supabase
             .from('clients')
             .select(`
-                id, 
-                name, 
-                phone, 
-                tags
+                id,
+                name,
+                phone,
+                tags,
+                created_at
             `)
             .not('phone', 'is', null);
 
@@ -147,20 +148,30 @@ export const processGhostbusting = async (): Promise<{ processed: number; ghosts
                 }
             }
 
-            // Determine max activity
-            let lastActivityAt = new Date(0); // Epoch
+            // Determine max activity - use client created_at as fallback instead of epoch
+            const clientCreatedAt = client.created_at ? new Date(client.created_at) : null;
+            let lastActivityAt: Date | null = null;
             let activityType: GhostStatus['lastActivityType'] = 'unknown';
 
-            if (lastOrder && lastOrder > lastActivityAt) {
+            if (lastOrder) {
                 lastActivityAt = lastOrder;
                 activityType = 'order';
             }
-            if (lastMessage && lastMessage > lastActivityAt) {
+            if (lastMessage && (!lastActivityAt || lastMessage > lastActivityAt)) {
                 lastActivityAt = lastMessage;
                 activityType = 'message';
             }
 
-            // TODO: Add browsing_events and coa_scans checks here when avail
+            // If no activity found, use client creation date as baseline
+            if (!lastActivityAt) {
+                if (clientCreatedAt) {
+                    lastActivityAt = clientCreatedAt;
+                    activityType = 'unknown';
+                } else {
+                    // Skip clients with no activity and no creation date
+                    continue;
+                }
+            }
 
             // Calculate Inactivity
             const now = new Date();
