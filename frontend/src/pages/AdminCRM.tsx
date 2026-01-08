@@ -108,6 +108,15 @@ const AdminCRM: React.FC = () => {
     const [isResizingResourceDock, setIsResizingResourceDock] = useState(false);
     const [showCreateTicketModal, setShowCreateTicketModal] = useState(false);
 
+    // Phase 62: Extract unique tags from all conversations for dynamic filtering
+    const availableTags = useMemo(() => {
+        const tagSet = new Set<string>();
+        conversations.forEach(c => {
+            c.tags?.forEach(t => tagSet.add(t));
+        });
+        return Array.from(tagSet).sort();
+    }, [conversations]);
+
     const filteredConversations = useMemo(() => {
         let base = conversations;
 
@@ -115,20 +124,40 @@ const AdminCRM: React.FC = () => {
         if (activeFilters.length > 0) {
             base = base.filter(c => {
                 return activeFilters.every(filter => {
-                    switch (filter) {
-                        case 'nuevo': return c.is_new_customer;
-                        case 'vip': return c.is_vip;
-                        case 'estancado': return c.is_stalled;
-                        case 'exp': return c.window_status === 'expired';
-                        case 'activo': return c.window_status === 'active';
-                        case 'pendiente': return c.awaiting_response;
-                        case 'club': return c.tags?.some(t => t.toLowerCase().includes('club'));
-                        case 'no_club': return !c.tags?.some(t => t.toLowerCase().includes('club'));
-                        case 'whatsapp': return c.channel === 'WA';
-                        case 'email': return c.channel === 'EMAIL';
-                        case 'instagram': return c.channel === 'IG';
-                        default: return true;
+                    // Status filters
+                    if (filter === 'nuevo') return c.is_new_customer;
+                    if (filter === 'vip') return c.is_vip;
+                    if (filter === 'estancado') return c.is_stalled;
+                    if (filter === 'exp') return c.window_status === 'expired';
+                    if (filter === 'activo') return c.window_status === 'active';
+                    if (filter === 'pendiente') return c.awaiting_response;
+
+                    // Channel filters
+                    if (filter === 'whatsapp') return c.channel === 'WA';
+                    if (filter === 'email') return c.channel === 'EMAIL';
+                    if (filter === 'instagram') return c.channel === 'IG';
+
+                    // Emotional/Intent filters (from facts)
+                    if (filter === 'high_friction') return (c.facts?.friction_score || 0) >= 70;
+                    if (filter === 'low_friction') return (c.facts?.friction_score || 50) < 40;
+                    if (filter === 'hot_intent') return (c.facts?.intent_score || 0) >= 70;
+                    if (filter === 'cold_intent') return (c.facts?.intent_score || 50) < 40;
+                    if (filter === 'frustrated') {
+                        const vibe = (c.facts?.emotional_vibe || '').toLowerCase();
+                        return vibe.includes('frustrad') || vibe.includes('molest') || vibe.includes('enojad');
                     }
+                    if (filter === 'enthusiastic') {
+                        const vibe = (c.facts?.emotional_vibe || '').toLowerCase();
+                        return vibe.includes('entusiasm') || vibe.includes('emocion') || vibe.includes('feliz');
+                    }
+
+                    // Dynamic tag filter (prefixed with "tag:")
+                    if (filter.startsWith('tag:')) {
+                        const tagName = filter.substring(4);
+                        return c.tags?.some(t => t.toLowerCase() === tagName.toLowerCase());
+                    }
+
+                    return true;
                 });
             });
         }
@@ -1275,18 +1304,16 @@ const AdminCRM: React.FC = () => {
                                 ))}
                             </div>
 
-                            {/* Filter Chips */}
+                            {/* Status Filters */}
                             <div className="flex items-center gap-1 flex-wrap">
-                                <span className="text-[10px] uppercase font-bold tracking-wider opacity-40 mr-2">Filtrar:</span>
+                                <span className="text-[10px] uppercase font-bold tracking-wider opacity-40 mr-2">Estado:</span>
                                 {[
                                     { key: 'nuevo', label: 'Nuevo', color: 'blue' },
                                     { key: 'vip', label: 'VIP', color: 'yellow' },
                                     { key: 'pendiente', label: 'Pendiente', color: 'pink' },
                                     { key: 'estancado', label: 'Estancado', color: 'gray' },
-                                    { key: 'activo', label: 'Sesión Activa', color: 'green' },
+                                    { key: 'activo', label: 'Activo 24h', color: 'green' },
                                     { key: 'exp', label: 'Expirado', color: 'red' },
-                                    { key: 'club', label: 'Club', color: 'purple' },
-                                    { key: 'no_club', label: 'Sin Club', color: 'orange' },
                                 ].map(f => {
                                     const isActive = activeFilters.includes(f.key);
                                     const colorMap: Record<string, string> = {
@@ -1296,8 +1323,6 @@ const AdminCRM: React.FC = () => {
                                         gray: isActive ? 'bg-gray-500 text-white' : 'bg-gray-500/10 text-gray-400 hover:bg-gray-500/20',
                                         green: isActive ? 'bg-green-500 text-white' : 'bg-green-500/10 text-green-400 hover:bg-green-500/20',
                                         red: isActive ? 'bg-red-500 text-white' : 'bg-red-500/10 text-red-400 hover:bg-red-500/20',
-                                        purple: isActive ? 'bg-purple-500 text-white' : 'bg-purple-500/10 text-purple-400 hover:bg-purple-500/20',
-                                        orange: isActive ? 'bg-orange-500 text-white' : 'bg-orange-500/10 text-orange-400 hover:bg-orange-500/20',
                                     };
                                     return (
                                         <button
@@ -1311,9 +1336,36 @@ const AdminCRM: React.FC = () => {
                                         </button>
                                     );
                                 })}
+                            </div>
 
-                                {/* Channel Filters */}
-                                <span className="text-[10px] opacity-30 mx-2">|</span>
+                            {/* Emotional/Intent Filters */}
+                            <div className="flex items-center gap-1 flex-wrap">
+                                <span className="text-[10px] uppercase font-bold tracking-wider opacity-40 mr-2">Emoción:</span>
+                                {[
+                                    { key: 'hot_intent', label: '🔥 Listo p/comprar', color: 'text-orange-400 bg-orange-500' },
+                                    { key: 'cold_intent', label: '❄️ Solo mirando', color: 'text-cyan-400 bg-cyan-500' },
+                                    { key: 'frustrated', label: '😤 Frustrado', color: 'text-red-400 bg-red-500' },
+                                    { key: 'enthusiastic', label: '😊 Entusiasta', color: 'text-green-400 bg-green-500' },
+                                    { key: 'high_friction', label: '⚠️ Alta fricción', color: 'text-amber-400 bg-amber-500' },
+                                ].map(f => {
+                                    const isActive = activeFilters.includes(f.key);
+                                    return (
+                                        <button
+                                            key={f.key}
+                                            onClick={() => setActiveFilters(prev =>
+                                                prev.includes(f.key) ? prev.filter(x => x !== f.key) : [...prev, f.key]
+                                            )}
+                                            className={`px-2 py-1 rounded-full text-[10px] font-bold transition-all ${isActive ? `${f.color.split(' ')[1]} text-white` : `${f.color.split(' ')[1]}/10 ${f.color.split(' ')[0]} hover:${f.color.split(' ')[1]}/20`}`}
+                                        >
+                                            {f.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            {/* Channel Filters */}
+                            <div className="flex items-center gap-1">
+                                <span className="text-[10px] uppercase font-bold tracking-wider opacity-40 mr-2">Canal:</span>
                                 {[
                                     { key: 'whatsapp', label: 'WA', icon: MessageCircle },
                                     { key: 'email', label: 'Email', icon: Mail },
@@ -1334,6 +1386,31 @@ const AdminCRM: React.FC = () => {
                                     );
                                 })}
                             </div>
+
+                            {/* Dynamic Tag Filters (from Shopify/system) */}
+                            {availableTags.length > 0 && (
+                                <div className="flex items-center gap-1 flex-wrap">
+                                    <span className="text-[10px] uppercase font-bold tracking-wider opacity-40 mr-2">Tags:</span>
+                                    {availableTags.slice(0, 12).map(tag => {
+                                        const filterKey = `tag:${tag}`;
+                                        const isActive = activeFilters.includes(filterKey);
+                                        return (
+                                            <button
+                                                key={tag}
+                                                onClick={() => setActiveFilters(prev =>
+                                                    prev.includes(filterKey) ? prev.filter(x => x !== filterKey) : [...prev, filterKey]
+                                                )}
+                                                className={`px-2 py-1 rounded-full text-[10px] font-bold transition-all ${isActive ? 'bg-purple-500 text-white' : 'bg-purple-500/10 text-purple-400 hover:bg-purple-500/20'}`}
+                                            >
+                                                {tag}
+                                            </button>
+                                        );
+                                    })}
+                                    {availableTags.length > 12 && (
+                                        <span className="text-[9px] opacity-40">+{availableTags.length - 12} más</span>
+                                    )}
+                                </div>
+                            )}
 
                             {/* Clear Filters */}
                             {activeFilters.length > 0 && (
