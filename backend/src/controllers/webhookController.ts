@@ -402,7 +402,7 @@ const processOrderInternal = async (order: any, eventType: 'create' | 'update') 
         // Check if order already exists in our system
         const { data: existingOrder } = await supabase
             .from('orders')
-            .select('id, status, fulfilled_notified')
+            .select('id, status, fulfilled_notified, paid_notified')
             .eq('shopify_order_id', shopifyOrderId)
             .maybeSingle();
 
@@ -587,14 +587,21 @@ const processOrderInternal = async (order: any, eventType: 'create' | 'update') 
                 }
             }
 
-            // Only send "Order Created" notification if NOT already fulfilled
-            // BUG FIX: Prevents confusing sequence where "Order Received" arrives after "Order Shipped"
+            // Only send "Order Created" notification if:
+            // 1. shouldNotify is true (new paid order OR newly paid existing order)
+            // 2. NOT already notified (paid_notified flag)
+            // 3. NOT already fulfilled (prevents "Order Received" after "Order Shipped")
             const alreadyFulfilled = order.fulfillments && order.fulfillments.length > 0 && order.fulfillments.some((f: any) => f.tracking_numbers?.length > 0 || f.tracking_number);
-            if (!alreadyFulfilled) {
+            const alreadyNotified = existingOrder?.paid_notified === true;
+
+            if (shouldNotify && !alreadyNotified && !alreadyFulfilled) {
                 console.log(`[Webhook] Triggering CREATED notification for order ${orderNumber} (Client: ${client.id})`);
                 await notifyOrderCreated(client.id, orderNumber, client);
+
+                // Mark as notified to prevent duplicates from simultaneous webhooks
+                await supabase.from('orders').update({ paid_notified: true }).eq('id', savedOrder.id);
             } else {
-                console.log(`[Webhook] Skipping CREATED notification for ${orderNumber} - already fulfilled, SHIPPED notification was sent instead`);
+                console.log(`[Webhook] Skipping CREATED notification for ${orderNumber} - shouldNotify: ${shouldNotify}, alreadyNotified: ${alreadyNotified}, alreadyFulfilled: ${alreadyFulfilled}`);
             }
 
             // --- Behavioral Engagement (Post-Purchase) ---
