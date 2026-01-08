@@ -604,8 +604,8 @@ export const startEmailPolling = (intervalMs: number = 60000): void => {
         return;
     }
 
-    if (!ARA_EMAIL_CONFIG.password) {
-        console.warn('[AraEmail] Cannot start polling - no password configured');
+    if (!ARA_EMAIL_CONFIG.password && !ARA_EMAIL_CONFIG.refreshToken) {
+        console.warn('[AraEmail] Cannot start polling - no password or OAuth configured');
         return;
     }
 
@@ -650,7 +650,7 @@ const pollEmails = async (): Promise<void> => {
  */
 export const getAraEmailStatus = (): { configured: boolean; polling: boolean; email: string } => {
     return {
-        configured: !!ARA_EMAIL_CONFIG.password,
+        configured: !!(ARA_EMAIL_CONFIG.password || ARA_EMAIL_CONFIG.refreshToken),
         polling: isPollingEmails,
         email: ARA_EMAIL_CONFIG.user
     };
@@ -887,7 +887,7 @@ export const sendBulkMarketingEmail = async (
  * Check if bulk email is configured and ready
  */
 export const isBulkEmailConfigured = (): boolean => {
-    return !!ARA_EMAIL_CONFIG.password && ARA_EMAIL_CONFIG.password.length > 0;
+    return !!(ARA_EMAIL_CONFIG.password || ARA_EMAIL_CONFIG.refreshToken);
 };
 
 // ============================================================================
