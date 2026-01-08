@@ -204,13 +204,23 @@ router.post('/predictions/:id/convert', requireAuth, requireSuperAdmin, async (r
  */
 router.get('/inventory/forecast', requireAuth, requireSuperAdmin, async (_req: Request, res: Response) => {
     try {
+        // Get latest forecast for each product
         const { data: forecast, error } = await supabase
-            .from('inventory_forecast_summary')
-            .select('*');
+            .from('inventory_demand_forecast')
+            .select('*')
+            .order('calculated_at', { ascending: false });
 
         if (error) throw error;
 
-        res.json({ success: true, forecast: forecast || [] });
+        // Group by product, taking only the most recent forecast per product
+        const latestByProduct = new Map();
+        for (const item of forecast || []) {
+            if (!latestByProduct.has(item.shopify_product_id)) {
+                latestByProduct.set(item.shopify_product_id, item);
+            }
+        }
+
+        res.json({ success: true, forecast: Array.from(latestByProduct.values()) });
     } catch (error: any) {
         console.error('[Oracle] Error getting inventory forecast:', error);
         res.status(500).json({ success: false, error: error.message });

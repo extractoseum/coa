@@ -44,6 +44,7 @@ export const ROUTES = {
     adminTelemetry: '/admin/telemetry',
     adminAgentPerformance: '/admin/agent-performance',
     adminOracle: '/admin/oracle',
+    adminGhostbuster: '/admin/ghostbuster',
 } as const;
 
 // Helper functions to generate dynamic routes safely

@@ -9,6 +9,7 @@ import {
     aggregateDailySales,
     generateInventoryForecast
 } from './oracleService';
+import { processGhostbusting } from './ghostbusterService';
 
 /**
  * Initialize all cron jobs
@@ -158,6 +159,20 @@ export const initCronJobs = () => {
         timezone: 'America/Mexico_City'
     });
     console.log('[Cron] Scheduled: Oracle inventory forecast weekly on Mondays at 6:00 AM');
+
+    // Ghostbuster Protocol daily at 10:00 AM
+    cron.schedule('0 10 * * *', async () => {
+        console.log('[Cron] Starting Ghostbuster Protocol...');
+        try {
+            const result = await processGhostbusting();
+            console.log(`[Cron] Ghostbuster complete: ${result.ghosts_found} ghosts found, ${result.alerts_created} alerts created`);
+        } catch (error: any) {
+            console.error('[Cron] Ghostbuster failed:', error.message);
+        }
+    }, {
+        timezone: 'America/Mexico_City'
+    });
+    console.log('[Cron] Scheduled: Ghostbuster Protocol daily at 10:00 AM');
 
     // Check if cache needs initial population (on server start)
     checkAndRefreshCacheIfNeeded();

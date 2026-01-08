@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import {
   Info, Brain, Terminal, FileText, Upload, Box, Award, Image,
   FileCode, Bell, LayoutDashboard, Settings, FolderOpen, Package,
-  Heart, ShieldCheck, Leaf, BarChart3
+  Heart, ShieldCheck, Leaf, BarChart3, Ghost
 } from 'lucide-react';
 import DOMPurify from 'isomorphic-dompurify';
 
@@ -26,6 +26,7 @@ const AdminTelemetry = lazy(() => import('./pages/AdminTelemetry')); // Telemetr
 const AdminCRM = lazy(() => import('./pages/AdminCRM'));
 const AdminAgentPerformance = lazy(() => import('./pages/AdminAgentPerformance'));
 const AdminOracle = lazy(() => import('./pages/AdminOracle'));
+const AdminGhostbuster = lazy(() => import('./pages/AdminGhostbuster'));
 const FoldersView = lazy(() => import('./pages/FoldersView'));
 const PublicFolderView = lazy(() => import('./pages/PublicFolderView'));
 const MyCollection = lazy(() => import('./pages/MyCollection'));
@@ -138,6 +139,7 @@ function Home() {
     { label: 'The Oracle', icon: <Brain size={20} />, path: ROUTES.adminOracle, color: '#8b5cf6' },
     { label: 'Omni CRM', icon: <LayoutDashboard size={20} />, path: ROUTES.adminCrm, color: '#f472b6' },
     { label: 'Telemetry', icon: <Terminal size={20} />, path: ROUTES.adminTelemetry, color: '#3b82f6' },
+    { label: 'Ghostbuster', icon: <Ghost size={20} />, path: ROUTES.adminGhostbuster, color: '#818cf8' },
     { label: 'Configuracion', icon: <Settings size={20} />, path: ROUTES.settings, color: '#6b7280' },
   ];
 
@@ -437,6 +439,11 @@ function App() {
                 <Route path={ROUTES.adminOracle} element={
                   <ProtectedRoute requireSuperAdmin>
                     <AdminOracle />
+                  </ProtectedRoute>
+                } />
+                <Route path={ROUTES.adminGhostbuster} element={
+                  <ProtectedRoute requireSuperAdmin>
+                    <AdminGhostbuster />
                   </ProtectedRoute>
                 } />
                 <Route path={ROUTES.folders} element={

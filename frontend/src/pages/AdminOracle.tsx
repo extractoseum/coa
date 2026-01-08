@@ -49,6 +49,28 @@ interface InventoryAlert {
     created_at: string;
 }
 
+interface InventoryForecast {
+    id: string;
+    shopify_product_id: string;
+    product_title: string;
+    forecast_period: string;
+    period_start: string;
+    period_end: string;
+    predicted_units: number;
+    historical_avg_daily_sales: number;
+    trend_factor: number;
+    current_stock: number;
+    recommended_order_qty: number;
+    reorder_point: number;
+    safety_stock: number;
+    days_of_stock_remaining: number | null;
+    is_low_stock: boolean;
+    is_stockout_risk: boolean;
+    stockout_risk_date: string | null;
+    calculated_at: string;
+    data_points_used: number;
+}
+
 const AdminOracle: React.FC = () => {
     const { theme } = useTheme();
     const navigate = useNavigate();
@@ -57,7 +79,8 @@ const AdminOracle: React.FC = () => {
     const [stats, setStats] = useState<OracleStats | null>(null);
     const [predictions, setPredictions] = useState<Prediction[]>([]);
     const [alerts, setAlerts] = useState<InventoryAlert[]>([]);
-    const [profiles, setProfiles] = useState<any[]>([]); // New State
+    const [profiles, setProfiles] = useState<any[]>([]);
+    const [inventoryForecast, setInventoryForecast] = useState<InventoryForecast[]>([]);
     const [activeTab, setActiveTab] = useState<'dashboard' | 'profiles' | 'inventory'>('dashboard');
     const [isLoading, setIsLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -72,22 +95,25 @@ const AdminOracle: React.FC = () => {
         try {
             // Parallel fetch
             const token = localStorage.getItem('accessToken');
-            const [statsRes, predsRes, alertsRes, profilesRes] = await Promise.all([
+            const [statsRes, predsRes, alertsRes, profilesRes, forecastRes] = await Promise.all([
                 fetch('/api/v1/oracle/stats', { headers: { Authorization: `Bearer ${token}` } }),
                 fetch('/api/v1/oracle/predictions/due-soon', { headers: { Authorization: `Bearer ${token}` } }),
                 fetch('/api/v1/oracle/alerts/low-stock', { headers: { Authorization: `Bearer ${token}` } }),
-                fetch('/api/v1/oracle/profiles', { headers: { Authorization: `Bearer ${token}` } })
+                fetch('/api/v1/oracle/profiles', { headers: { Authorization: `Bearer ${token}` } }),
+                fetch('/api/v1/oracle/inventory/forecast', { headers: { Authorization: `Bearer ${token}` } })
             ]);
 
             const statsData = await statsRes.json();
             const predsData = await predsRes.json();
             const alertsData = await alertsRes.json();
             const profilesData = await profilesRes.json();
+            const forecastData = await forecastRes.json();
 
             if (statsData.success) setStats(statsData);
             if (predsData.success) setPredictions(predsData.predictions);
             if (alertsData.success) setAlerts(alertsData.alerts);
             if (profilesData.success) setProfiles(profilesData.profiles);
+            if (forecastData.success) setInventoryForecast(forecastData.forecast);
 
         } catch (error) {
             console.error('Error fetching Oracle data:', error);
@@ -377,10 +403,132 @@ const AdminOracle: React.FC = () => {
                 )}
 
                 {activeTab === 'inventory' && (
-                    <div className="text-center py-20 border border-dashed border-white/10 rounded-xl">
-                        <Package size={48} className="mx-auto text-gray-600 mb-4 opacity-50" />
-                        <h3 className="text-lg font-bold text-gray-400">Inventario Inteligente</h3>
-                        <p className="text-sm text-gray-500 mt-2">Próximamente: Pronóstico de demanda de inventario basado en ventas.</p>
+                    <div className="space-y-6">
+                        {/* Inventory Alerts */}
+                        {alerts.length > 0 && (
+                            <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4">
+                                <h3 className="text-lg font-bold text-red-400 flex items-center gap-2 mb-4">
+                                    <AlertTriangle size={20} />
+                                    Alertas de Inventario ({alerts.length})
+                                </h3>
+                                <div className="space-y-2">
+                                    {alerts.map(alert => (
+                                        <div key={alert.id} className="flex items-center justify-between p-3 bg-black/20 rounded-lg">
+                                            <div>
+                                                <span className="font-medium text-white">{alert.product_title}</span>
+                                                <p className="text-sm text-gray-400">{alert.message}</p>
+                                            </div>
+                                            <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                                alert.severity === 'critical' ? 'bg-red-500/20 text-red-300' :
+                                                alert.severity === 'warning' ? 'bg-yellow-500/20 text-yellow-300' :
+                                                'bg-blue-500/20 text-blue-300'
+                                            }`}>
+                                                {alert.severity === 'critical' ? '🔴 Crítico' :
+                                                 alert.severity === 'warning' ? '🟠 Alerta' : '🔵 Info'}
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Inventory Forecast Table */}
+                        {inventoryForecast.length > 0 ? (
+                            <div className="rounded-xl border border-white/10 overflow-hidden">
+                                <div className="p-4 border-b border-white/10 flex items-center justify-between">
+                                    <h3 className="font-bold text-white flex items-center gap-2">
+                                        <TrendingUp size={18} className="text-purple-400" />
+                                        Pronóstico de Demanda
+                                    </h3>
+                                    <button
+                                        onClick={() => handleManualTrigger('predictions')}
+                                        className="text-xs px-3 py-1 rounded bg-purple-500/20 text-purple-300 hover:bg-purple-500/30"
+                                    >
+                                        Actualizar Pronóstico
+                                    </button>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm">
+                                        <thead className="bg-white/5">
+                                            <tr>
+                                                <th className="text-left p-3 text-gray-400">Producto</th>
+                                                <th className="text-center p-3 text-gray-400">Stock Actual</th>
+                                                <th className="text-center p-3 text-gray-400">Días de Stock</th>
+                                                <th className="text-center p-3 text-gray-400">Venta Diaria Prom.</th>
+                                                <th className="text-center p-3 text-gray-400">Demanda Mes</th>
+                                                <th className="text-center p-3 text-gray-400">Pedir</th>
+                                                <th className="text-center p-3 text-gray-400">Estado</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {inventoryForecast.sort((a, b) => {
+                                                // Sort by risk level: stockout first, then low stock, then healthy
+                                                if (a.is_stockout_risk && !b.is_stockout_risk) return -1;
+                                                if (!a.is_stockout_risk && b.is_stockout_risk) return 1;
+                                                if (a.is_low_stock && !b.is_low_stock) return -1;
+                                                if (!a.is_low_stock && b.is_low_stock) return 1;
+                                                return (a.days_of_stock_remaining || 999) - (b.days_of_stock_remaining || 999);
+                                            }).map(item => (
+                                                <tr key={item.id} className="border-t border-white/5 hover:bg-white/5">
+                                                    <td className="p-3">
+                                                        <span className="font-medium text-white">{item.product_title}</span>
+                                                        <div className="text-xs text-gray-500">{item.data_points_used} días de datos</div>
+                                                    </td>
+                                                    <td className="p-3 text-center text-white">{item.current_stock || 0}</td>
+                                                    <td className="p-3 text-center">
+                                                        <span className={`font-bold ${
+                                                            item.is_stockout_risk ? 'text-red-400' :
+                                                            item.is_low_stock ? 'text-yellow-400' :
+                                                            'text-green-400'
+                                                        }`}>
+                                                            {item.days_of_stock_remaining !== null ? `${item.days_of_stock_remaining}d` : 'N/A'}
+                                                        </span>
+                                                    </td>
+                                                    <td className="p-3 text-center text-gray-300">
+                                                        {item.historical_avg_daily_sales?.toFixed(1) || '0'}
+                                                    </td>
+                                                    <td className="p-3 text-center text-gray-300">{item.predicted_units}</td>
+                                                    <td className="p-3 text-center">
+                                                        {item.recommended_order_qty > 0 ? (
+                                                            <span className="px-2 py-1 rounded bg-purple-500/20 text-purple-300 font-bold">
+                                                                +{item.recommended_order_qty}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-gray-500">-</span>
+                                                        )}
+                                                    </td>
+                                                    <td className="p-3 text-center">
+                                                        {item.is_stockout_risk ? (
+                                                            <span className="px-2 py-1 rounded bg-red-500/20 text-red-300 text-xs">🔴 Riesgo</span>
+                                                        ) : item.is_low_stock ? (
+                                                            <span className="px-2 py-1 rounded bg-yellow-500/20 text-yellow-300 text-xs">🟠 Bajo</span>
+                                                        ) : (
+                                                            <span className="px-2 py-1 rounded bg-green-500/20 text-green-300 text-xs">🟢 OK</span>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="text-center py-12 border border-dashed border-white/10 rounded-xl">
+                                <Package size={48} className="mx-auto text-gray-600 mb-4 opacity-50" />
+                                <h3 className="text-lg font-bold text-gray-400">Sin Datos de Inventario</h3>
+                                <p className="text-sm text-gray-500 mt-2">
+                                    {alerts.length === 0
+                                        ? 'Ejecuta el proceso de pronóstico para ver datos de demanda.'
+                                        : 'No hay pronósticos disponibles aún.'}
+                                </p>
+                                <button
+                                    onClick={() => handleManualTrigger('predictions')}
+                                    className="mt-4 px-4 py-2 rounded-lg bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 text-sm"
+                                >
+                                    Generar Pronóstico
+                                </button>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
