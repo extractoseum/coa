@@ -246,8 +246,9 @@ const ARA_EMAIL_CONFIG = {
 let araTransporter: nodemailer.Transporter | null = null;
 
 const initAraTransporter = () => {
-    if (!ARA_EMAIL_CONFIG.password) {
-        console.warn('[AraEmail] No password configured - Ara email disabled');
+    // Allow OAuth OR password authentication
+    if (!ARA_EMAIL_CONFIG.password && !ARA_EMAIL_CONFIG.refreshToken) {
+        console.warn('[AraEmail] No password or OAuth configured - Ara email disabled');
         return null;
     }
 
