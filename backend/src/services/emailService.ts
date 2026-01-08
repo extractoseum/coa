@@ -563,7 +563,7 @@ export const processIncomingAraEmail = async (email: IncomingEmail): Promise<str
             .from('conversations')
             .insert({
                 contact_handle: senderEmail,
-                contact_name: email.fromName || client?.name || senderEmail.split('@')[0],
+
                 channel: 'EMAIL',
                 platform: 'email',
                 traffic_source: 'ghostbuster',
