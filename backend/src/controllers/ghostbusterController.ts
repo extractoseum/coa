@@ -1,8 +1,9 @@
 import { Request, Response } from 'express';
 import { supabase } from '../config/supabase';
 import { processGhostbusting, bustGhost as bustGhostService, BustChannel } from '../services/ghostbusterService';
+import { syncShopifyMetricsToClients } from '../services/shopifyService';
 
-// Get Alerts
+// Get Alerts (with enhanced client data)
 export const getGhostAlerts = async (req: Request, res: Response) => {
     try {
         const { status } = req.query;
@@ -10,7 +11,16 @@ export const getGhostAlerts = async (req: Request, res: Response) => {
             .from('ghost_alerts')
             .select(`
                 *,
-                clients (id, name, phone, tags)
+                clients (
+                    id,
+                    name,
+                    phone,
+                    tags,
+                    shopify_orders_count,
+                    shopify_total_spent,
+                    shopify_tags,
+                    customer_segment
+                )
             `)
             .order('days_inactive', { ascending: false });
 
@@ -64,6 +74,23 @@ export const bustGhost = async (req: Request, res: Response) => {
         }
     } catch (error: any) {
         console.error('Error busting ghost:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+// Sync Shopify metrics to clients for enhanced ghost detection
+export const syncShopifyMetrics = async (_req: Request, res: Response) => {
+    try {
+        console.log('[Ghostbuster] Starting Shopify metrics sync...');
+        const result = await syncShopifyMetricsToClients();
+        res.json({
+            success: result.success,
+            message: result.message,
+            updated: result.updated,
+            errors: result.errors
+        });
+    } catch (error: any) {
+        console.error('Error syncing Shopify metrics:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 };

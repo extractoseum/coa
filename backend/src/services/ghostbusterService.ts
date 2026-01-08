@@ -1,18 +1,24 @@
 /**
  * Ghostbuster Service 👻
- * 
+ *
  * "Who you gonna call?"
- * 
+ *
  * Detects inactive customers ("Ghosts") and triggers automated re-engagement
  * based on their "Ghost Level":
  * - Warm Ghost (14-30 days): Casual check-in
  * - Cold Ghost (31-60 days): Product hook
  * - Frozen Ghost (61-90 days): Discount offer
+ *
+ * NEW Enhanced Ghost Types:
+ * - VIP at Risk: High-value customer showing inactivity
+ * - One-Time Buyer: Single purchase, never returned (45+ days)
+ * - Big Spender Lapsed: High total_spent but inactive (60+ days)
  */
 
 import { supabase } from '../config/supabase';
 import { sendBulkWhatsApp, isWhapiConfigured } from './whapiService';
 import { sendAraEmail, getAraEmailStatus } from './emailService';
+import { parseShopifyTags } from './shopifyService';
 
 // ============================================================================
 // CONFIGURATION
@@ -27,10 +33,29 @@ const GHOST_CONFIG = {
     FROZEN_MAX: 90,
     CHURNED_MIN: 91,
 
+    // Enhanced thresholds
+    VIP_MIN_ORDERS: 5,
+    VIP_MIN_SPENT: 5000,
+    VIP_AT_RISK_DAYS: 45,
+    ONE_TIME_BUYER_DAYS: 45,
+    BIG_SPENDER_MIN_SPENT: 3000,
+    BIG_SPENDER_LAPSED_DAYS: 60,
+
     // Safety
     MAX_FRICTION_SCORE: 50,
     FORBIDDEN_VIBES: ['frustrated', 'angry', 'hostile']
 };
+
+// Extended ghost levels including new types
+type ExtendedGhostLevel =
+    | 'warm_ghost'
+    | 'cold_ghost'
+    | 'frozen_ghost'
+    | 'churned'
+    | 'active'
+    | 'vip_at_risk'
+    | 'one_time_buyer'
+    | 'big_spender_lapsed';
 
 interface GhostStatus {
     clientId: string;
@@ -39,9 +64,14 @@ interface GhostStatus {
     daysInactive: number;
     lastActivityType: 'order' | 'message' | 'browse' | 'scan' | 'unknown';
     lastActivityAt: Date;
-    ghostLevel: 'warm_ghost' | 'cold_ghost' | 'frozen_ghost' | 'churned' | 'active';
+    ghostLevel: ExtendedGhostLevel;
     currentVibe: string | null;
     currentFriction: number;
+    // Enhanced data
+    ordersCount?: number;
+    totalSpent?: number;
+    customerSegment?: string;
+    shopifyTags?: string[];
 }
 
 // ============================================================================
@@ -49,18 +79,52 @@ interface GhostStatus {
 // ============================================================================
 
 /**
+ * Determine enhanced ghost level based on customer metrics
+ */
+const determineEnhancedGhostLevel = (
+    daysInactive: number,
+    ordersCount: number,
+    totalSpent: number,
+    customerSegment: string | null
+): ExtendedGhostLevel => {
+    // Priority 1: VIP at Risk (high-value customers showing inactivity)
+    const isVIP = ordersCount >= GHOST_CONFIG.VIP_MIN_ORDERS || totalSpent >= GHOST_CONFIG.VIP_MIN_SPENT;
+    if (isVIP && daysInactive >= GHOST_CONFIG.VIP_AT_RISK_DAYS) {
+        return 'vip_at_risk';
+    }
+
+    // Priority 2: Big Spender Lapsed (high spend but inactive)
+    if (totalSpent >= GHOST_CONFIG.BIG_SPENDER_MIN_SPENT && daysInactive >= GHOST_CONFIG.BIG_SPENDER_LAPSED_DAYS) {
+        return 'big_spender_lapsed';
+    }
+
+    // Priority 3: One-Time Buyer (single purchase, never returned)
+    if (ordersCount === 1 && daysInactive >= GHOST_CONFIG.ONE_TIME_BUYER_DAYS) {
+        return 'one_time_buyer';
+    }
+
+    // Standard ghost levels
+    if (daysInactive >= GHOST_CONFIG.CHURNED_MIN) return 'churned';
+    if (daysInactive >= GHOST_CONFIG.FROZEN_MIN) return 'frozen_ghost';
+    if (daysInactive >= GHOST_CONFIG.COLD_MIN) return 'cold_ghost';
+    if (daysInactive >= GHOST_CONFIG.WARM_MIN) return 'warm_ghost';
+
+    return 'active';
+};
+
+/**
  * Run the Ghostbuster protocol
  * Called by Cron Job daily
  */
 export const processGhostbusting = async (): Promise<{ processed: number; ghosts_found: number; alerts_created: number }> => {
-    console.log('[Ghostbuster] 👻 Starting protocol...');
+    console.log('[Ghostbuster] 👻 Starting enhanced protocol...');
 
     let processed = 0;
     let ghostsFound = 0;
     let alertsCreated = 0;
 
     try {
-        // 1. Get all clients with basic info (including created_at for fallback)
+        // 1. Get all clients with basic info + Shopify metrics
         const { data: clients, error } = await supabase
             .from('clients')
             .select(`
@@ -68,7 +132,12 @@ export const processGhostbusting = async (): Promise<{ processed: number; ghosts
                 name,
                 phone,
                 tags,
-                created_at
+                created_at,
+                shopify_orders_count,
+                shopify_total_spent,
+                shopify_tags,
+                shopify_last_order_date,
+                customer_segment
             `)
             .not('phone', 'is', null);
 
@@ -100,7 +169,6 @@ export const processGhostbusting = async (): Promise<{ processed: number; ghosts
         if (ordersData) {
             ordersData.forEach((o: any) => {
                 if (!orderMap.has(o.client_id)) orderMap.set(o.client_id, o);
-                // Since desc sort, first match is latest
             });
         }
 
@@ -119,19 +187,11 @@ export const processGhostbusting = async (): Promise<{ processed: number; ghosts
             });
         }
 
-        console.log(`[Ghostbuster] Scanning ${clients.length} clients...`);
+        console.log(`[Ghostbuster] Scanning ${clients.length} clients with enhanced metrics...`);
 
         // 2. Analyze each client
         for (const client of clients) {
             processed++;
-
-            // Get latest interaction from various sources
-            // (In a real scenario, we'd also join browsing_events and coa_scans, 
-            // but for simplicity we'll check message/order first, or assume we fetch them if needed)
-
-            // Note: For now, using what we have in `client` object + `conversations`
-            // Ideally we'd do a more complex query for scans/browsing, 
-            // but let's stick to the prompt's main data points.
 
             const lastOrderObj = orderMap.get(client.id);
             const lastOrderDateStr = lastOrderObj?.shopify_created_at || lastOrderObj?.created_at;
@@ -139,28 +199,37 @@ export const processGhostbusting = async (): Promise<{ processed: number; ghosts
 
             // Find latest conversation inbound
             let lastMessage: Date | null = null;
-            // @ts-ignore
             const clientConvs = conversationMap.get(client.id) || [];
 
             if (clientConvs.length > 0) {
-                const latest = clientConvs[0]; // Already ordered by DB or we can sort again
+                const latest = clientConvs[0];
                 if (latest.last_inbound_at) {
                     lastMessage = new Date(latest.last_inbound_at);
                 }
             }
 
-            // Determine max activity - use client created_at as fallback instead of epoch
+            // Use shopify_last_order_date if available and more recent
+            let shopifyLastOrder: Date | null = null;
+            if (client.shopify_last_order_date) {
+                shopifyLastOrder = new Date(client.shopify_last_order_date);
+            }
+
+            // Determine max activity - use client created_at as fallback
             const clientCreatedAt = client.created_at ? new Date(client.created_at) : null;
             let lastActivityAt: Date | null = null;
             let activityType: GhostStatus['lastActivityType'] = 'unknown';
 
-            if (lastOrder) {
-                lastActivityAt = lastOrder;
-                activityType = 'order';
-            }
-            if (lastMessage && (!lastActivityAt || lastMessage > lastActivityAt)) {
-                lastActivityAt = lastMessage;
-                activityType = 'message';
+            // Check all activity sources
+            const activities: { date: Date; type: GhostStatus['lastActivityType'] }[] = [];
+            if (lastOrder) activities.push({ date: lastOrder, type: 'order' });
+            if (lastMessage) activities.push({ date: lastMessage, type: 'message' });
+            if (shopifyLastOrder) activities.push({ date: shopifyLastOrder, type: 'order' });
+
+            if (activities.length > 0) {
+                // Sort descending and take most recent
+                activities.sort((a, b) => b.date.getTime() - a.date.getTime());
+                lastActivityAt = activities[0].date;
+                activityType = activities[0].type;
             }
 
             // If no activity found, use client creation date as baseline
@@ -169,7 +238,6 @@ export const processGhostbusting = async (): Promise<{ processed: number; ghosts
                     lastActivityAt = clientCreatedAt;
                     activityType = 'unknown';
                 } else {
-                    // Skip clients with no activity and no creation date
                     continue;
                 }
             }
@@ -179,12 +247,13 @@ export const processGhostbusting = async (): Promise<{ processed: number; ghosts
             const diffTime = Math.abs(now.getTime() - lastActivityAt.getTime());
             const daysInactive = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-            // Determine Level
-            let level: GhostStatus['ghostLevel'] = 'active';
-            if (daysInactive >= GHOST_CONFIG.CHURNED_MIN) level = 'churned';
-            else if (daysInactive >= GHOST_CONFIG.FROZEN_MIN) level = 'frozen_ghost';
-            else if (daysInactive >= GHOST_CONFIG.COLD_MIN) level = 'cold_ghost';
-            else if (daysInactive >= GHOST_CONFIG.WARM_MIN) level = 'warm_ghost';
+            // Get Shopify metrics (default to 0 if not available)
+            const ordersCount = client.shopify_orders_count || 0;
+            const totalSpent = parseFloat(client.shopify_total_spent) || 0;
+            const customerSegment = client.customer_segment || null;
+
+            // Determine enhanced ghost level
+            const level = determineEnhancedGhostLevel(daysInactive, ordersCount, totalSpent, customerSegment);
 
             if (level === 'active') continue; // Not a ghost
 
@@ -201,8 +270,6 @@ export const processGhostbusting = async (): Promise<{ processed: number; ghosts
             }
 
             // Create Alert if not already pending for this level
-            // We want to avoid spamming. Only create if we haven't already created one for THIS level recently.
-
             const { data: existing } = await supabase
                 .from('ghost_alerts')
                 .select('id')
@@ -220,10 +287,13 @@ export const processGhostbusting = async (): Promise<{ processed: number; ghosts
                     last_activity_at: lastActivityAt.toISOString(),
                     vibe_at_creation: vibe,
                     friction_at_creation: friction,
-                    reactivation_status: 'pending' // Ready for "Busting" (manual or auto)
+                    reactivation_status: 'pending'
                 });
                 alertsCreated++;
-                console.log(`[Ghostbuster] 👻 Ghost Detected: ${client.name} (${daysInactive} days - ${level})`);
+
+                // Enhanced logging with customer value
+                const valueInfo = totalSpent > 0 ? ` | $${totalSpent.toFixed(0)} spent, ${ordersCount} orders` : '';
+                console.log(`[Ghostbuster] 👻 Ghost Detected: ${client.name} (${daysInactive} days - ${level}${valueInfo})`);
             }
         }
 
@@ -242,14 +312,114 @@ export const processGhostbusting = async (): Promise<{ processed: number; ghosts
 export type BustChannel = 'whatsapp' | 'email' | 'both';
 
 /**
- * Generate reactivation message based on ghost level
+ * Customer context for personalized messages
  */
-const generateReactivationMessage = (clientName: string, level: GhostStatus['ghostLevel']): { text: string; subject: string; html: string } => {
+interface CustomerContext {
+    name: string;
+    totalSpent?: number;
+    ordersCount?: number;
+    tags?: string[];
+    segment?: string;
+}
+
+/**
+ * Get personalized product recommendations based on tags
+ */
+const getPersonalizedRecommendation = (tags: string[]): string => {
+    const tagLower = tags.map(t => t.toLowerCase());
+
+    if (tagLower.some(t => t.includes('cbd') || t.includes('aceite'))) {
+        return 'aceites de CBD';
+    }
+    if (tagLower.some(t => t.includes('rso') || t.includes('full spectrum'))) {
+        return 'extractos RSO';
+    }
+    if (tagLower.some(t => t.includes('topico') || t.includes('crema'))) {
+        return 'productos tópicos';
+    }
+    if (tagLower.some(t => t.includes('vip') || t.includes('premium'))) {
+        return 'nuestras novedades premium';
+    }
+    if (tagLower.some(t => t.includes('mayorista') || t.includes('wholesale'))) {
+        return 'ofertas mayoristas';
+    }
+
+    return 'nuestras novedades';
+};
+
+/**
+ * Generate reactivation message based on ghost level with personalization
+ */
+const generateReactivationMessage = (
+    clientName: string,
+    level: ExtendedGhostLevel,
+    context?: CustomerContext
+): { text: string; subject: string; html: string } => {
     let text = '';
     let subject = '';
     let html = '';
 
-    if (level === 'warm_ghost') {
+    const tags = context?.tags || [];
+    const totalSpent = context?.totalSpent || 0;
+    const ordersCount = context?.ordersCount || 0;
+    const recommendation = getPersonalizedRecommendation(tags);
+
+    // VIP at Risk - High priority, personalized approach
+    if (level === 'vip_at_risk') {
+        const code = `VIP${clientName.substring(0, 3).toUpperCase()}20`;
+        subject = `⭐ ${clientName}, tu cuenta VIP te espera`;
+        text = `${clientName}, eres uno de nuestros clientes más valiosos. 🌟 Notamos que no has visitado recientemente. Como agradecimiento por tu lealtad ($${totalSpent.toFixed(0)} en ${ordersCount} pedidos), te preparamos un 20% OFF exclusivo. Código: ${code}. ¿Necesitas algo especial?`;
+        html = `
+            <p><strong>${clientName}</strong>, eres uno de nuestros clientes más valiosos. 🌟</p>
+            <p>Notamos que no has visitado recientemente y queríamos asegurarnos de que todo esté bien.</p>
+            <p>Como agradecimiento por tu lealtad (${ordersCount} pedidos con nosotros), te preparamos algo especial:</p>
+            <div style="background:linear-gradient(135deg, #F59E0B 0%, #D97706 100%);color:#fff;padding:20px;border-radius:8px;text-align:center;margin:20px 0;">
+                <p style="margin:0;font-size:14px;">EXCLUSIVO CLIENTE VIP</p>
+                <p style="margin:5px 0;font-size:28px;font-weight:bold;">20% OFF</p>
+                <p style="margin:10px 0 0 0;font-size:18px;">Código: <strong>${code}</strong></p>
+            </div>
+            <p>También tenemos nuevos ${recommendation} que podrían interesarte.</p>
+            <p><a href="https://extractoseum.com" style="background:#4F46E5;color:#fff;padding:12px 24px;text-decoration:none;border-radius:8px;display:inline-block;">Ver Novedades VIP</a></p>
+        `;
+    }
+    // Big Spender Lapsed - Win-back with value acknowledgment
+    else if (level === 'big_spender_lapsed') {
+        const code = `REGRESA${clientName.substring(0, 3).toUpperCase()}`;
+        subject = `💎 ${clientName}, preparamos algo especial para ti`;
+        text = `Hola ${clientName}! 💎 Como uno de nuestros clientes favoritos, te extrañamos. Tenemos un 15% OFF esperándote con el código: ${code}. ¿Te interesa ver nuestro nuevo inventario de ${recommendation}?`;
+        html = `
+            <p>Hola <strong>${clientName}</strong>! 💎</p>
+            <p>Como uno de nuestros clientes favoritos, queríamos recordarte que siempre tienes un lugar especial con nosotros.</p>
+            <p>Te preparamos un descuento exclusivo para tu regreso:</p>
+            <div style="background:#8B5CF6;color:#fff;padding:20px;border-radius:8px;text-align:center;margin:20px 0;">
+                <p style="margin:0;font-size:24px;font-weight:bold;">15% OFF</p>
+                <p style="margin:10px 0 0 0;font-size:18px;">Código: <strong>${code}</strong></p>
+            </div>
+            <p>¿Te interesa ver nuestro nuevo inventario de ${recommendation}?</p>
+            <p><a href="https://extractoseum.com" style="background:#4F46E5;color:#fff;padding:12px 24px;text-decoration:none;border-radius:8px;display:inline-block;">Ver Novedades</a></p>
+        `;
+    }
+    // One-Time Buyer - Encourage second purchase
+    else if (level === 'one_time_buyer') {
+        const code = `SEGUNDO10`;
+        subject = `${clientName}, ¿qué tal tu experiencia? 🌿`;
+        text = `Hola ${clientName}! 🌿 Esperamos que hayas disfrutado tu primer pedido. ¿Cómo te fue? Nos encantaría saber tu opinión. Si quieres repetir, usa SEGUNDO10 para un 10% OFF en tu siguiente compra.`;
+        html = `
+            <p>Hola <strong>${clientName}</strong>! 🌿</p>
+            <p>Esperamos que hayas disfrutado tu primer pedido con nosotros.</p>
+            <p>¿Cómo te fue con los productos? Nos encantaría saber tu opinión.</p>
+            <p>Si quieres repetir la experiencia, tenemos un regalo para ti:</p>
+            <div style="background:#10B981;color:#fff;padding:20px;border-radius:8px;text-align:center;margin:20px 0;">
+                <p style="margin:0;font-size:18px;">Tu segundo pedido</p>
+                <p style="margin:5px 0;font-size:24px;font-weight:bold;">10% OFF</p>
+                <p style="margin:10px 0 0 0;font-size:16px;">Código: <strong>${code}</strong></p>
+            </div>
+            <p>Basado en tu compra anterior, te podría interesar ver ${recommendation}.</p>
+            <p><a href="https://extractoseum.com" style="background:#4F46E5;color:#fff;padding:12px 24px;text-decoration:none;border-radius:8px;display:inline-block;">Explorar Productos</a></p>
+        `;
+    }
+    // Warm Ghost - Casual check-in
+    else if (level === 'warm_ghost') {
         subject = `¡Hola ${clientName}! Te extrañamos 🌿`;
         text = `Hola ${clientName}! Solo pasando a saludar. 🌿 ¿Cómo te ha ido con tus últimos productos? Si necesitas algo, aquí estamos.`;
         html = `
@@ -259,23 +429,27 @@ const generateReactivationMessage = (clientName: string, level: GhostStatus['gho
             <br>
             <p><a href="https://extractoseum.com" style="background:#4F46E5;color:#fff;padding:12px 24px;text-decoration:none;border-radius:8px;display:inline-block;">Ver Catálogo</a></p>
         `;
-    } else if (level === 'cold_ghost') {
+    }
+    // Cold Ghost - Product hook
+    else if (level === 'cold_ghost') {
         subject = `${clientName}, tenemos novedades para ti 👀`;
-        text = `${clientName}, hace tiempo que no sabemos de ti. 👀 Tenemos inventario fresco que podría interesarte. ¿Te mando el catálogo actualizado?`;
+        text = `${clientName}, hace tiempo que no sabemos de ti. 👀 Tenemos inventario fresco de ${recommendation} que podría interesarte. ¿Te mando el catálogo actualizado?`;
         html = `
             <p><strong>${clientName}</strong>, hace tiempo que no sabemos de ti. 👀</p>
-            <p>Tenemos inventario fresco que podría interesarte.</p>
+            <p>Tenemos inventario fresco de ${recommendation} que podría interesarte.</p>
             <p>¿Te gustaría ver el catálogo actualizado?</p>
             <br>
             <p><a href="https://extractoseum.com" style="background:#4F46E5;color:#fff;padding:12px 24px;text-decoration:none;border-radius:8px;display:inline-block;">Ver Novedades</a></p>
         `;
-    } else if (level === 'frozen_ghost') {
+    }
+    // Frozen Ghost - Discount offer
+    else if (level === 'frozen_ghost') {
         const code = `VOLVEMOS${clientName.substring(0, 3).toUpperCase()}`;
         subject = `💚 Te extrañamos ${clientName} - 15% OFF especial`;
-        text = `Te extrañamos ${clientName}! 💚 Como cliente VIP, te activamos un 15% OFF para tu regreso. Tu código es: ${code} (Válido 7 días). ¿Lo usas hoy?`;
+        text = `Te extrañamos ${clientName}! 💚 Como cliente especial, te activamos un 15% OFF para tu regreso. Tu código es: ${code} (Válido 7 días). ¿Lo usas hoy?`;
         html = `
             <p>Te extrañamos <strong>${clientName}</strong>! 💚</p>
-            <p>Como cliente VIP, te activamos un descuento especial para tu regreso:</p>
+            <p>Como cliente especial, te activamos un descuento para tu regreso:</p>
             <div style="background:#10B981;color:#fff;padding:20px;border-radius:8px;text-align:center;margin:20px 0;">
                 <p style="margin:0;font-size:24px;font-weight:bold;">15% OFF</p>
                 <p style="margin:10px 0 0 0;font-size:18px;">Código: <strong>${code}</strong></p>
@@ -283,8 +457,9 @@ const generateReactivationMessage = (clientName: string, level: GhostStatus['gho
             </div>
             <p><a href="https://extractoseum.com" style="background:#4F46E5;color:#fff;padding:12px 24px;text-decoration:none;border-radius:8px;display:inline-block;">Usar mi código ahora</a></p>
         `;
-    } else {
-        // Churned - last resort
+    }
+    // Churned - last resort
+    else {
         subject = `${clientName}, queremos reconectarte 💫`;
         text = `Hola ${clientName}, ha pasado mucho tiempo. Nos encantaría saber de ti. ¿Hay algo en lo que podamos ayudarte?`;
         html = `
@@ -306,12 +481,21 @@ export const bustGhost = async (alertId: string, channel: BustChannel = 'whatsap
     const sentChannels: string[] = [];
 
     try {
-        // 1. Fetch Alert with client info including email
+        // 1. Fetch Alert with client info including email and Shopify metrics
         const { data: alert, error } = await supabase
             .from('ghost_alerts')
             .select(`
                 *,
-                clients (id, name, phone, email)
+                clients (
+                    id,
+                    name,
+                    phone,
+                    email,
+                    shopify_orders_count,
+                    shopify_total_spent,
+                    shopify_tags,
+                    customer_segment
+                )
             `)
             .eq('id', alertId)
             .single();
@@ -324,10 +508,19 @@ export const bustGhost = async (alertId: string, channel: BustChannel = 'whatsap
         const clientName = alert.clients?.name || 'Cliente';
         const clientPhone = alert.clients?.phone;
         const clientEmail = alert.clients?.email;
-        const level = alert.ghost_level as GhostStatus['ghostLevel'];
+        const level = alert.ghost_level as ExtendedGhostLevel;
 
-        // 2. Generate Message
-        const { text, subject, html } = generateReactivationMessage(clientName, level);
+        // Build customer context for personalization
+        const customerContext: CustomerContext = {
+            name: clientName,
+            totalSpent: parseFloat(alert.clients?.shopify_total_spent) || 0,
+            ordersCount: alert.clients?.shopify_orders_count || 0,
+            tags: parseShopifyTags(alert.clients?.shopify_tags),
+            segment: alert.clients?.customer_segment || undefined
+        };
+
+        // 2. Generate personalized message
+        const { text, subject, html } = generateReactivationMessage(clientName, level, customerContext);
 
         if (!text) {
             return { success: false, channels: [] };

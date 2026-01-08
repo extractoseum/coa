@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useTheme } from '../contexts/ThemeContext';
-import { Ghost, ArrowLeft, RefreshCw, AlertTriangle, CheckCircle2, Zap, MessageCircle, Mail, Send } from 'lucide-react';
+import { Ghost, ArrowLeft, RefreshCw, AlertTriangle, CheckCircle2, Zap, MessageCircle, Mail, Send, Download } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { ROUTES } from '../routes';
 
@@ -120,12 +120,39 @@ const AdminGhostbuster: React.FC = () => {
         }
     };
 
+    const handleSyncShopifyMetrics = async () => {
+        if (!confirm('Esto sincronizará métricas de Shopify (orders_count, total_spent, tags) para todos los clientes. ¿Continuar?')) return;
+        setIsRefreshing(true);
+        try {
+            const res = await fetch('/api/v1/ghostbuster/sync-metrics', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert(`Sync completo. ${data.message}`);
+                // Rescan after sync to detect new ghost types
+                await handleManualScan();
+            } else {
+                alert('Error: ' + data.error);
+            }
+        } catch (error) {
+            console.error(error);
+        } finally {
+            setIsRefreshing(false);
+        }
+    };
+
     const getLevelBadge = (level: string) => {
         switch (level) {
             case 'warm_ghost': return <span className="px-2 py-1 rounded bg-yellow-500/20 text-yellow-300 text-xs">Warm (14-30d)</span>;
             case 'cold_ghost': return <span className="px-2 py-1 rounded bg-blue-500/20 text-blue-300 text-xs">Cold (31-60d)</span>;
             case 'frozen_ghost': return <span className="px-2 py-1 rounded bg-indigo-500/20 text-indigo-300 text-xs">Frozen (60-90d)</span>;
             case 'churned': return <span className="px-2 py-1 rounded bg-red-500/20 text-red-300 text-xs">Churned (90d+)</span>;
+            // Enhanced ghost types
+            case 'vip_at_risk': return <span className="px-2 py-1 rounded bg-amber-500/20 text-amber-300 text-xs font-bold">⭐ VIP at Risk</span>;
+            case 'one_time_buyer': return <span className="px-2 py-1 rounded bg-emerald-500/20 text-emerald-300 text-xs">One-Time Buyer</span>;
+            case 'big_spender_lapsed': return <span className="px-2 py-1 rounded bg-purple-500/20 text-purple-300 text-xs">💎 Big Spender</span>;
             default: return level;
         }
     };
@@ -151,7 +178,11 @@ const AdminGhostbuster: React.FC = () => {
                             <p className="text-sm opacity-60">Sistema de Reactivación de Clientes Inactivos</p>
                         </div>
                     </div>
-                    <div className="flex gap-3">
+                    <div className="flex gap-3 flex-wrap">
+                        <button onClick={handleSyncShopifyMetrics} disabled={isRefreshing}
+                            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 text-emerald-400 text-sm font-medium">
+                            <Download size={16} /> Sync Shopify
+                        </button>
                         <button onClick={handleResetAndRescan} disabled={isRefreshing}
                             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 text-red-400 text-sm font-medium">
                             <AlertTriangle size={16} /> Reset & Rescan

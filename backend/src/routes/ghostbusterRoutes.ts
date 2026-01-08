@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth, requireSuperAdmin } from '../middleware/authMiddleware';
-import { getGhostAlerts, triggerScan, bustGhost } from '../controllers/ghostbusterController';
+import { getGhostAlerts, triggerScan, bustGhost, syncShopifyMetrics } from '../controllers/ghostbusterController';
 import { supabase } from '../config/supabase';
 
 const router = Router();
@@ -11,6 +11,7 @@ router.use(requireAuth);
 router.get('/alerts', getGhostAlerts);
 router.post('/scan', triggerScan);
 router.post('/bust', bustGhost);
+router.post('/sync-metrics', requireSuperAdmin, syncShopifyMetrics);
 
 // Reset all alerts (for fixing bad data)
 router.post('/reset', requireSuperAdmin, async (_req: Request, res: Response) => {

@@ -1163,3 +1163,228 @@ export const getCustomersByTagFromBackup = async (
     }
 };
 
+// ============ CLIENT ENRICHMENT FUNCTIONS ============
+
+/**
+ * Customer segment types for classification
+ */
+export type CustomerSegment = 'vip' | 'vip_at_risk' | 'regular' | 'new' | 'one_time' | 'churned' | 'unknown';
+
+/**
+ * Calculate customer segment based on metrics
+ */
+export const calculateCustomerSegment = (
+    ordersCount: number,
+    totalSpent: number,
+    lastOrderDate: Date | null
+): CustomerSegment => {
+    const daysSinceOrder = lastOrderDate
+        ? Math.floor((Date.now() - lastOrderDate.getTime()) / (1000 * 60 * 60 * 24))
+        : null;
+
+    // VIP: 5+ orders OR $5000+ spent
+    if (ordersCount >= 5 || totalSpent >= 5000) {
+        if (daysSinceOrder !== null && daysSinceOrder > 60) {
+            return 'vip_at_risk';
+        }
+        return 'vip';
+    }
+
+    // Regular: 3+ orders OR $2000+ spent
+    if (ordersCount >= 3 || totalSpent >= 2000) {
+        return 'regular';
+    }
+
+    // One-time buyer
+    if (ordersCount === 1) {
+        return 'one_time';
+    }
+
+    // New customer (no orders yet)
+    if (ordersCount === 0) {
+        return 'new';
+    }
+
+    return 'unknown';
+};
+
+/**
+ * Sync Shopify customer metrics to local clients table
+ * This enriches our clients with orders_count, total_spent, tags, etc.
+ */
+export const syncShopifyMetricsToClients = async (): Promise<{
+    success: boolean;
+    updated: number;
+    errors: number;
+    message: string;
+}> => {
+    console.log('[Shopify Enrichment] Starting client metrics sync...');
+
+    let updated = 0;
+    let errors = 0;
+
+    try {
+        // 1. Get all clients that have a shopify_customer_id
+        const { data: clients, error: clientsError } = await supabase
+            .from('clients')
+            .select('id, shopify_customer_id, email')
+            .not('shopify_customer_id', 'is', null);
+
+        if (clientsError) throw clientsError;
+
+        if (!clients || clients.length === 0) {
+            console.log('[Shopify Enrichment] No clients with Shopify IDs found');
+            return { success: true, updated: 0, errors: 0, message: 'No clients to sync' };
+        }
+
+        console.log(`[Shopify Enrichment] Found ${clients.length} clients to enrich`);
+
+        // 2. For each client, fetch their Shopify data
+        for (const client of clients) {
+            try {
+                const shopifyCustomer = await getShopifyCustomerById(client.shopify_customer_id);
+
+                if (!shopifyCustomer) {
+                    console.log(`[Shopify Enrichment] Customer ${client.shopify_customer_id} not found in Shopify`);
+                    continue;
+                }
+
+                // Calculate segment
+                const lastOrderDate = await getLastOrderDateForCustomer(shopifyCustomer.id);
+                const segment = calculateCustomerSegment(
+                    shopifyCustomer.orders_count || 0,
+                    parseFloat(shopifyCustomer.total_spent) || 0,
+                    lastOrderDate
+                );
+
+                // Update client record
+                const { error: updateError } = await supabase
+                    .from('clients')
+                    .update({
+                        shopify_orders_count: shopifyCustomer.orders_count || 0,
+                        shopify_total_spent: parseFloat(shopifyCustomer.total_spent) || 0,
+                        shopify_tags: shopifyCustomer.tags || null,
+                        shopify_last_order_date: lastOrderDate?.toISOString() || null,
+                        shopify_accepts_marketing: shopifyCustomer.accepts_marketing || false,
+                        shopify_state: shopifyCustomer.state || null,
+                        shopify_synced_at: new Date().toISOString(),
+                        customer_segment: segment,
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', client.id);
+
+                if (updateError) {
+                    console.error(`[Shopify Enrichment] Error updating client ${client.id}:`, updateError);
+                    errors++;
+                } else {
+                    updated++;
+                }
+
+                // Rate limit: small delay between API calls
+                await delay(200);
+
+            } catch (err: any) {
+                console.error(`[Shopify Enrichment] Error processing client ${client.id}:`, err.message);
+                errors++;
+            }
+        }
+
+        console.log(`[Shopify Enrichment] Complete. Updated: ${updated}, Errors: ${errors}`);
+        return {
+            success: true,
+            updated,
+            errors,
+            message: `Synced ${updated} clients (${errors} errors)`
+        };
+
+    } catch (error: any) {
+        console.error('[Shopify Enrichment] Critical error:', error.message);
+        return {
+            success: false,
+            updated,
+            errors,
+            message: error.message
+        };
+    }
+};
+
+/**
+ * Get the last order date for a Shopify customer
+ */
+const getLastOrderDateForCustomer = async (shopifyCustomerId: number): Promise<Date | null> => {
+    try {
+        const orders = await getShopifyCustomerOrders(shopifyCustomerId);
+        if (orders && orders.length > 0) {
+            // Orders are typically returned newest first
+            const lastOrder = orders[0];
+            return new Date(lastOrder.created_at);
+        }
+        return null;
+    } catch {
+        return null;
+    }
+};
+
+/**
+ * Sync metrics for a single client by their ID
+ * Useful for on-demand enrichment
+ */
+export const syncSingleClientMetrics = async (clientId: string): Promise<boolean> => {
+    try {
+        const { data: client, error } = await supabase
+            .from('clients')
+            .select('id, shopify_customer_id')
+            .eq('id', clientId)
+            .single();
+
+        if (error || !client?.shopify_customer_id) {
+            return false;
+        }
+
+        const shopifyCustomer = await getShopifyCustomerById(client.shopify_customer_id);
+        if (!shopifyCustomer) return false;
+
+        const lastOrderDate = await getLastOrderDateForCustomer(shopifyCustomer.id);
+        const segment = calculateCustomerSegment(
+            shopifyCustomer.orders_count || 0,
+            parseFloat(shopifyCustomer.total_spent) || 0,
+            lastOrderDate
+        );
+
+        const { error: updateError } = await supabase
+            .from('clients')
+            .update({
+                shopify_orders_count: shopifyCustomer.orders_count || 0,
+                shopify_total_spent: parseFloat(shopifyCustomer.total_spent) || 0,
+                shopify_tags: shopifyCustomer.tags || null,
+                shopify_last_order_date: lastOrderDate?.toISOString() || null,
+                shopify_accepts_marketing: shopifyCustomer.accepts_marketing || false,
+                shopify_state: shopifyCustomer.state || null,
+                shopify_synced_at: new Date().toISOString(),
+                customer_segment: segment,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', clientId);
+
+        return !updateError;
+    } catch {
+        return false;
+    }
+};
+
+/**
+ * Parse Shopify tags into an array
+ */
+export const parseShopifyTags = (tagsString: string | null): string[] => {
+    if (!tagsString) return [];
+    return tagsString.split(',').map(t => t.trim()).filter(Boolean);
+};
+
+/**
+ * Check if a client has a specific tag
+ */
+export const clientHasShopifyTag = (tagsString: string | null, tag: string): boolean => {
+    const tags = parseShopifyTags(tagsString);
+    return tags.some(t => t.toLowerCase() === tag.toLowerCase());
+};
+
