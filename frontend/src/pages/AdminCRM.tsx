@@ -653,7 +653,7 @@ const AdminCRM: React.FC = () => {
                                 {desc && <p className="text-[10px] opacity-70 mt-1 line-clamp-2">{desc}</p>}
                             </div>
                             <div className="px-3 py-2 bg-black/10 flex items-center justify-between">
-                                <span className="text-[9px] opacity-40 truncate flex-1">{new URL(url).hostname}</span>
+                                <span className="text-[9px] opacity-40 truncate flex-1">{(() => { try { return new URL(url).hostname; } catch { return url; } })()}</span>
                                 <ExternalLink size={10} className="opacity-40" />
                             </div>
                         </a>
