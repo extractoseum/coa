@@ -507,15 +507,17 @@ export const processIncomingAraEmail = async (email: IncomingEmail): Promise<str
     // Find existing conversation
     let { data: existingConv } = await supabase
         .from('conversations')
-        .select('id')
+        .select('id, last_inbound_at')
         .eq('contact_handle', senderEmail)
         .eq('channel', 'EMAIL')
         .single();
 
     let conversationId: string;
+    let previousLastInbound: string | null = null;
 
     if (existingConv) {
         conversationId = existingConv.id;
+        previousLastInbound = existingConv.last_inbound_at;
     } else {
         // Check if client exists
         const { data: client } = await supabase
@@ -577,11 +579,22 @@ export const processIncomingAraEmail = async (email: IncomingEmail): Promise<str
     });
 
     const now = new Date().toISOString();
-    await supabase.from('conversations').update({
+    const updates: any = {
         last_message_at: now,
-        last_inbound_at: now,  // Reset 24h session window on user message
         summary: `Email: ${email.subject}`
-    }).eq('id', conversationId);
+    };
+
+    // Session window logic: only reset last_inbound_at if:
+    // 1. No previous session exists (new conversation or null)
+    // 2. Previous session has expired (>24h since last_inbound_at)
+    const sessionExpired = !previousLastInbound ||
+        (Date.now() - new Date(previousLastInbound).getTime()) > 24 * 60 * 60 * 1000;
+
+    if (sessionExpired) {
+        updates.last_inbound_at = now;
+    }
+
+    await supabase.from('conversations').update(updates).eq('id', conversationId);
 
     await supabase.from('system_logs').insert({
         event_type: 'ara_email_received',

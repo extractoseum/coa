@@ -521,11 +521,20 @@ export class CRMService {
         if (raw.direction === 'inbound' || !raw.from_me) {
             const now = new Date().toISOString();
             const updates: any = {
-                last_inbound_at: now,
                 last_message_at: now
             };
 
-            // If first_inbound_at is null, this is the start of the 24h window
+            // Session window logic: only reset last_inbound_at if:
+            // 1. No previous session exists (first message ever)
+            // 2. Previous session has expired (>24h since last_inbound_at)
+            const sessionExpired = !conversation.last_inbound_at ||
+                (Date.now() - new Date(conversation.last_inbound_at).getTime()) > 24 * 60 * 60 * 1000;
+
+            if (sessionExpired) {
+                updates.last_inbound_at = now;
+            }
+
+            // If first_inbound_at is null, this is the very first message
             if (!conversation.first_inbound_at) {
                 updates.first_inbound_at = now;
             }
