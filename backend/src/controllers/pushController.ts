@@ -987,10 +987,19 @@ export const getEmailStatus = async (req: Request, res: Response) => {
             console.log('[Push] Manual poll requested...');
             try {
                 const emails = await fetchAraEmails();
-                pollResult = { found: emails.length, processed: 0 };
+                pollResult = { found: emails.length, processed: 0, details: [] as any[] };
                 for (const email of emails) {
-                    const convId = await processIncomingAraEmail(email);
-                    if (convId) pollResult.processed++;
+                    try {
+                        const convId = await processIncomingAraEmail(email);
+                        if (convId) {
+                            pollResult.processed++;
+                            pollResult.details.push({ from: email.from, status: 'ok', convId });
+                        } else {
+                            pollResult.details.push({ from: email.from, status: 'failed', reason: 'null returned' });
+                        }
+                    } catch (emailError: any) {
+                        pollResult.details.push({ from: email.from, status: 'error', reason: emailError.message });
+                    }
                 }
             } catch (pollError: any) {
                 pollResult = { error: pollError.message };

@@ -543,6 +543,21 @@ export const processIncomingAraEmail = async (email: IncomingEmail): Promise<str
             .eq('channel_id', 'email_ara_ghostbuster')
             .single();
 
+        // Fallback to first column if no chip configured
+        let targetColumnId = emailChip?.default_entry_column_id;
+        if (!targetColumnId) {
+            console.log('[AraEmail] No email chip found, using first column as fallback');
+            const { data: defaultCol } = await supabase
+                .from('crm_columns')
+                .select('id')
+                .order('position', { ascending: true })
+                .limit(1)
+                .single();
+            targetColumnId = defaultCol?.id || null;
+        }
+
+        console.log(`[AraEmail] Creating conversation for ${senderEmail} in column ${targetColumnId}`);
+
         // Create new conversation with proper column routing
         const { data: newConv, error } = await supabase
             .from('conversations')
@@ -552,7 +567,7 @@ export const processIncomingAraEmail = async (email: IncomingEmail): Promise<str
                 channel: 'EMAIL',
                 platform: 'email',
                 traffic_source: 'ghostbuster',
-                column_id: emailChip?.default_entry_column_id || null,
+                column_id: targetColumnId,
                 client_id: client?.id || null,
                 summary: `Email: ${email.subject}`,
                 facts: { user_email: senderEmail, user_name: email.fromName }
