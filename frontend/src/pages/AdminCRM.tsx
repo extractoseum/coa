@@ -91,6 +91,7 @@ const AdminCRM: React.FC = () => {
     const [sortBy, setSortBy] = useState<'session' | 'recent' | 'ltv'>('session');
     const [activeFilters, setActiveFilters] = useState<string[]>([]);
     const [showFilters, setShowFilters] = useState(false);
+    const [showAllTags, setShowAllTags] = useState(false);
     const [clientSearchResults, setClientSearchResults] = useState<any[]>([]);
     const [searchingClients, setSearchingClients] = useState(false);
     const [showClientResults, setShowClientResults] = useState(false);
@@ -188,7 +189,7 @@ const AdminCRM: React.FC = () => {
         return [...base].sort((a, b) => {
             switch (sortBy) {
                 case 'session':
-                    // Sort by hours_remaining (most urgent first, expired at bottom)
+                    // Sort by hours_remaining (most time remaining first: 24h, 23h, 20h... 0h, expired)
                     const aExpired = a.window_status === 'expired';
                     const bExpired = b.window_status === 'expired';
                     if (aExpired && !bExpired) return 1;  // Expired goes to bottom
@@ -197,8 +198,8 @@ const AdminCRM: React.FC = () => {
                         // Both expired: most recent first
                         return new Date(b.last_message_at || 0).getTime() - new Date(a.last_message_at || 0).getTime();
                     }
-                    // Both active: lowest hours remaining first (most urgent)
-                    return (a.hours_remaining || 24) - (b.hours_remaining || 24);
+                    // Both active: highest hours remaining first (freshest sessions at top)
+                    return (b.hours_remaining || 0) - (a.hours_remaining || 0);
 
                 case 'ltv':
                     // Sort by LTV (highest first)
@@ -1394,7 +1395,7 @@ const AdminCRM: React.FC = () => {
                             {availableTags.length > 0 && (
                                 <div className="flex items-center gap-1 flex-wrap">
                                     <span className="text-[10px] uppercase font-bold tracking-wider opacity-40 mr-2">Tags:</span>
-                                    {availableTags.slice(0, 12).map(tag => {
+                                    {(showAllTags ? availableTags : availableTags.slice(0, 12)).map(tag => {
                                         const filterKey = `tag:${tag}`;
                                         const isActive = activeFilters.includes(filterKey);
                                         return (
@@ -1410,7 +1411,12 @@ const AdminCRM: React.FC = () => {
                                         );
                                     })}
                                     {availableTags.length > 12 && (
-                                        <span className="text-[9px] opacity-40">+{availableTags.length - 12} más</span>
+                                        <button
+                                            onClick={() => setShowAllTags(!showAllTags)}
+                                            className="text-[9px] text-purple-400 hover:text-purple-300 transition-colors cursor-pointer"
+                                        >
+                                            {showAllTags ? 'Ver menos' : `+${availableTags.length - 12} más`}
+                                        </button>
                                     )}
                                 </div>
                             )}
