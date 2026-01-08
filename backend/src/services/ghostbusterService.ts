@@ -312,6 +312,105 @@ export const processGhostbusting = async (): Promise<{ processed: number; ghosts
 export type BustChannel = 'whatsapp' | 'email' | 'both';
 
 /**
+ * Create or update CRM conversation for Ghostbuster email tracking
+ * This ensures replies from customers appear in the CRM
+ */
+const createGhostbusterCRMConversation = async (
+    clientEmail: string,
+    clientName: string,
+    clientId: string | undefined,
+    messageText: string,
+    subject: string,
+    emailMessageId: string | undefined,
+    alertId: string
+): Promise<string | null> => {
+    try {
+        const emailLower = clientEmail.toLowerCase();
+
+        // Check for existing conversation
+        let { data: existingConv } = await supabase
+            .from('conversations')
+            .select('id')
+            .eq('contact_handle', emailLower)
+            .eq('channel', 'EMAIL')
+            .single();
+
+        let conversationId: string;
+
+        if (existingConv) {
+            conversationId = existingConv.id;
+        } else {
+            // Get the Ghostbuster email chip for routing to Reactivación column
+            const { data: emailChip } = await supabase
+                .from('channel_chips')
+                .select('default_entry_column_id')
+                .eq('channel_id', 'email_ara_ghostbuster')
+                .single();
+
+            // Create new conversation
+            const { data: newConv, error } = await supabase
+                .from('conversations')
+                .insert({
+                    contact_handle: emailLower,
+                    contact_name: clientName,
+                    channel: 'EMAIL',
+                    platform: 'email',
+                    traffic_source: 'ghostbuster',
+                    column_id: emailChip?.default_entry_column_id || null,
+                    client_id: clientId || null,
+                    summary: `Reactivación: ${subject}`,
+                    facts: {
+                        user_email: emailLower,
+                        user_name: clientName,
+                        ghostbuster_alert_id: alertId,
+                        campaign: 'ghostbuster_reactivation'
+                    }
+                })
+                .select('id')
+                .single();
+
+            if (error || !newConv) {
+                console.error('[Ghostbuster] Failed to create CRM conversation:', error);
+                return null;
+            }
+
+            conversationId = newConv.id;
+            console.log(`[Ghostbuster] Created CRM conversation: ${conversationId}`);
+        }
+
+        // Add the outbound message to crm_messages
+        await supabase.from('crm_messages').insert({
+            conversation_id: conversationId,
+            direction: 'outbound',
+            role: 'assistant',
+            message_type: 'text',
+            status: 'sent',
+            content: messageText,
+            raw_payload: {
+                type: 'email',
+                email_message_id: emailMessageId,
+                subject: subject,
+                to: clientEmail,
+                campaign: 'ghostbuster',
+                alert_id: alertId
+            }
+        });
+
+        // Update conversation timestamp
+        await supabase.from('conversations').update({
+            last_message_at: new Date().toISOString(),
+            summary: `Reactivación: ${subject}`
+        }).eq('id', conversationId);
+
+        return conversationId;
+
+    } catch (error) {
+        console.error('[Ghostbuster] Error creating CRM conversation:', error);
+        return null;
+    }
+};
+
+/**
  * Customer context for personalized messages
  */
 interface CustomerContext {
@@ -583,6 +682,17 @@ export const bustGhost = async (alertId: string, channel: BustChannel = 'whatsap
 
                 if (result.success) {
                     sentChannels.push('email');
+
+                    // Create CRM conversation for tracking replies
+                    await createGhostbusterCRMConversation(
+                        clientEmail,
+                        clientName,
+                        alert.clients?.id,
+                        text,
+                        subject,
+                        result.messageId,
+                        alertId
+                    );
                 }
             }
         }

@@ -350,12 +350,16 @@ export const sendAraEmailToConversation = async (
     if (result.success) {
         const content = message.text || message.html || '';
 
-        await supabase.from('messages').insert({
+        // Use crm_messages with correct schema
+        await supabase.from('crm_messages').insert({
             conversation_id: conversationId,
-            sender: senderId,
+            direction: 'outbound',
+            role: senderId === 'system' ? 'system' : 'assistant',
+            message_type: 'text',  // 'email' not in constraint, use 'text' + metadata
+            status: 'sent',
             content: content.substring(0, 5000),
-            message_type: 'email',
-            metadata: {
+            raw_payload: {
+                type: 'email',
                 email_message_id: result.messageId,
                 subject: message.subject,
                 to: message.to
@@ -485,14 +489,23 @@ export const processIncomingAraEmail = async (email: IncomingEmail): Promise<str
             .eq('email', senderEmail)
             .single();
 
-        // Create new conversation
+        // Get the email channel chip for routing
+        const { data: emailChip } = await supabase
+            .from('channel_chips')
+            .select('default_entry_column_id')
+            .eq('channel_id', 'email_ara_ghostbuster')
+            .single();
+
+        // Create new conversation with proper column routing
         const { data: newConv, error } = await supabase
             .from('conversations')
             .insert({
                 contact_handle: senderEmail,
                 contact_name: email.fromName || client?.name || senderEmail.split('@')[0],
                 channel: 'EMAIL',
-                column_id: 'col_nuevos',
+                platform: 'email',
+                traffic_source: 'ghostbuster',
+                column_id: emailChip?.default_entry_column_id || null,
                 client_id: client?.id || null,
                 summary: `Email: ${email.subject}`,
                 facts: { user_email: senderEmail, user_name: email.fromName }
@@ -508,15 +521,18 @@ export const processIncomingAraEmail = async (email: IncomingEmail): Promise<str
         conversationId = newConv.id;
     }
 
-    // Create message
+    // Create message in crm_messages with correct schema
     const messageContent = email.text || email.html || '(Empty email)';
 
-    await supabase.from('messages').insert({
+    await supabase.from('crm_messages').insert({
         conversation_id: conversationId,
-        sender: 'client',
+        direction: 'inbound',
+        role: 'user',
+        message_type: 'text',  // Use 'text' + raw_payload for email type
+        status: 'delivered',
         content: messageContent.substring(0, 10000),
-        message_type: 'email',
-        metadata: {
+        raw_payload: {
+            type: 'email',
             email_message_id: email.messageId,
             subject: email.subject,
             from: email.from,
@@ -1101,16 +1117,16 @@ export const createeDarkStoreTicketFromConversation = async (
         return { success: false, error: 'Conversation not found' };
     }
 
-    // Get recent messages for context
+    // Get recent messages for context from crm_messages
     const { data: messages } = await supabase
-        .from('messages')
-        .select('content, sender, created_at')
+        .from('crm_messages')
+        .select('content, direction, role, created_at')
         .eq('conversation_id', conversationId)
         .order('created_at', { ascending: false })
         .limit(5);
 
     const messageContext = messages?.reverse().map(m =>
-        `[${m.sender === 'client' ? 'Cliente' : 'Agente'}]: ${m.content}`
+        `[${m.direction === 'inbound' ? 'Cliente' : 'Agente'}]: ${m.content}`
     ).join('\n\n') || '';
 
     const ticket: eDarkStoreTicket = {
@@ -1141,12 +1157,15 @@ Información adicional:
             .update({ conversation_id: conversationId })
             .eq('ticket_id', result.ticketId);
 
-        // Add system message to conversation
-        await supabase.from('messages').insert({
+        // Add system message to conversation in crm_messages
+        await supabase.from('crm_messages').insert({
             conversation_id: conversationId,
-            sender: 'system',
+            direction: 'outbound',
+            role: 'system',
+            message_type: 'event',
+            status: 'delivered',
             content: `📧 Ticket enviado a eDarkStore: ${result.ticketId}\nTipo: ${ticket.type}\nPrioridad: ${ticket.priority}`,
-            message_type: 'system'
+            raw_payload: { type: 'ticket_created', ticket_id: result.ticketId }
         });
     }
 

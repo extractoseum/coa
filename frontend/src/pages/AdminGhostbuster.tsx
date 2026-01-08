@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useTheme } from '../contexts/ThemeContext';
-import { Ghost, ArrowLeft, RefreshCw, AlertTriangle, CheckCircle2, Zap, MessageCircle, Mail, Send, Download } from 'lucide-react';
+import { Ghost, ArrowLeft, RefreshCw, AlertTriangle, CheckCircle2, Zap, MessageCircle, Mail, Send, Download, Loader2, Check, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { ROUTES } from '../routes';
 
@@ -8,6 +8,14 @@ import { ROUTES } from '../routes';
 const API_URL = import.meta.env.VITE_API_URL || '';
 
 type BustChannel = 'whatsapp' | 'email' | 'both';
+type BustStatus = 'idle' | 'loading' | 'success' | 'error';
+
+interface BustState {
+    status: BustStatus;
+    channel?: BustChannel;
+    message?: string;
+    channels?: string[];
+}
 
 interface GhostAlert {
     id: string;
@@ -19,6 +27,7 @@ interface GhostAlert {
     clients: {
         name: string;
         phone: string;
+        email?: string;
     };
 }
 
@@ -28,6 +37,8 @@ const AdminGhostbuster: React.FC = () => {
     const [alerts, setAlerts] = useState<GhostAlert[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    // Track bust status per alert
+    const [bustStates, setBustStates] = useState<Record<string, BustState>>({});
 
     useEffect(() => {
         fetchData();
@@ -56,6 +67,13 @@ const AdminGhostbuster: React.FC = () => {
             both: 'WhatsApp y Email'
         };
         if (!confirm(`¿Enviar mensaje de reactivación a ${name} por ${channelLabels[channel]}?`)) return;
+
+        // Set loading state
+        setBustStates(prev => ({
+            ...prev,
+            [alertId]: { status: 'loading', channel }
+        }));
+
         try {
             const res = await fetch(`${API_URL}/api/v1/ghostbuster/bust`, {
                 method: 'POST',
@@ -67,13 +85,54 @@ const AdminGhostbuster: React.FC = () => {
             });
             const data = await res.json();
             if (data.success) {
-                alert(`Mensaje enviado por: ${data.channels?.join(', ') || channel}`);
-                fetchData();
+                // Set success state
+                setBustStates(prev => ({
+                    ...prev,
+                    [alertId]: {
+                        status: 'success',
+                        channel,
+                        channels: data.channels,
+                        message: `Enviado por: ${data.channels?.join(', ') || channel}`
+                    }
+                }));
+                // Remove from list after 2 seconds
+                setTimeout(() => {
+                    fetchData();
+                }, 2000);
             } else {
-                alert('Error: ' + data.error);
+                // Set error state
+                setBustStates(prev => ({
+                    ...prev,
+                    [alertId]: {
+                        status: 'error',
+                        channel,
+                        message: data.error || 'Error desconocido'
+                    }
+                }));
+                // Reset after 5 seconds
+                setTimeout(() => {
+                    setBustStates(prev => ({
+                        ...prev,
+                        [alertId]: { status: 'idle' }
+                    }));
+                }, 5000);
             }
         } catch (error: any) {
-            alert('Error: ' + error.message);
+            setBustStates(prev => ({
+                ...prev,
+                [alertId]: {
+                    status: 'error',
+                    channel,
+                    message: error.message || 'Error de conexión'
+                }
+            }));
+            // Reset after 5 seconds
+            setTimeout(() => {
+                setBustStates(prev => ({
+                    ...prev,
+                    [alertId]: { status: 'idle' }
+                }));
+            }, 5000);
         }
     };
 
@@ -234,26 +293,69 @@ const AdminGhostbuster: React.FC = () => {
                                             <div className="text-xs opacity-50">Vibe Check</div>
                                             <div className="text-sm">{alert.vibe_at_creation}</div>
                                         </div>
-                                        <div className="flex items-center gap-1">
-                                            <button
-                                                onClick={() => handleBustGhost(alert.id, alert.clients?.name || 'Cliente', 'whatsapp')}
-                                                className="p-2 rounded-l-lg bg-green-600 hover:bg-green-700 text-white transition-all"
-                                                title="Enviar por WhatsApp">
-                                                <MessageCircle size={18} />
-                                            </button>
-                                            <button
-                                                onClick={() => handleBustGhost(alert.id, alert.clients?.name || 'Cliente', 'email')}
-                                                className="p-2 bg-blue-600 hover:bg-blue-700 text-white transition-all"
-                                                title="Enviar por Email">
-                                                <Mail size={18} />
-                                            </button>
-                                            <button
-                                                onClick={() => handleBustGhost(alert.id, alert.clients?.name || 'Cliente', 'both')}
-                                                className="p-2 rounded-r-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-all"
-                                                title="Enviar por ambos canales">
-                                                <Send size={18} />
-                                            </button>
-                                        </div>
+
+                                        {/* Status indicator */}
+                                        {bustStates[alert.id]?.status === 'success' && (
+                                            <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-green-500/20 text-green-400 text-sm animate-pulse">
+                                                <Check size={16} />
+                                                <span>{bustStates[alert.id]?.message}</span>
+                                            </div>
+                                        )}
+
+                                        {bustStates[alert.id]?.status === 'error' && (
+                                            <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-red-500/20 text-red-400 text-sm">
+                                                <X size={16} />
+                                                <span className="max-w-[200px] truncate">{bustStates[alert.id]?.message}</span>
+                                            </div>
+                                        )}
+
+                                        {/* Action buttons - hide during success, show during loading/idle/error */}
+                                        {bustStates[alert.id]?.status !== 'success' && (
+                                            <div className="flex items-center gap-1">
+                                                <button
+                                                    onClick={() => handleBustGhost(alert.id, alert.clients?.name || 'Cliente', 'whatsapp')}
+                                                    disabled={bustStates[alert.id]?.status === 'loading'}
+                                                    className={`p-2 rounded-l-lg text-white transition-all ${
+                                                        bustStates[alert.id]?.status === 'loading' && bustStates[alert.id]?.channel === 'whatsapp'
+                                                            ? 'bg-green-800 cursor-wait'
+                                                            : 'bg-green-600 hover:bg-green-700'
+                                                    } ${bustStates[alert.id]?.status === 'loading' ? 'opacity-50' : ''}`}
+                                                    title="Enviar por WhatsApp">
+                                                    {bustStates[alert.id]?.status === 'loading' && bustStates[alert.id]?.channel === 'whatsapp'
+                                                        ? <Loader2 size={18} className="animate-spin" />
+                                                        : <MessageCircle size={18} />
+                                                    }
+                                                </button>
+                                                <button
+                                                    onClick={() => handleBustGhost(alert.id, alert.clients?.name || 'Cliente', 'email')}
+                                                    disabled={bustStates[alert.id]?.status === 'loading'}
+                                                    className={`p-2 text-white transition-all ${
+                                                        bustStates[alert.id]?.status === 'loading' && bustStates[alert.id]?.channel === 'email'
+                                                            ? 'bg-blue-800 cursor-wait'
+                                                            : 'bg-blue-600 hover:bg-blue-700'
+                                                    } ${bustStates[alert.id]?.status === 'loading' ? 'opacity-50' : ''}`}
+                                                    title="Enviar por Email">
+                                                    {bustStates[alert.id]?.status === 'loading' && bustStates[alert.id]?.channel === 'email'
+                                                        ? <Loader2 size={18} className="animate-spin" />
+                                                        : <Mail size={18} />
+                                                    }
+                                                </button>
+                                                <button
+                                                    onClick={() => handleBustGhost(alert.id, alert.clients?.name || 'Cliente', 'both')}
+                                                    disabled={bustStates[alert.id]?.status === 'loading'}
+                                                    className={`p-2 rounded-r-lg text-white transition-all ${
+                                                        bustStates[alert.id]?.status === 'loading' && bustStates[alert.id]?.channel === 'both'
+                                                            ? 'bg-indigo-800 cursor-wait'
+                                                            : 'bg-indigo-600 hover:bg-indigo-700'
+                                                    } ${bustStates[alert.id]?.status === 'loading' ? 'opacity-50' : ''}`}
+                                                    title="Enviar por ambos canales">
+                                                    {bustStates[alert.id]?.status === 'loading' && bustStates[alert.id]?.channel === 'both'
+                                                        ? <Loader2 size={18} className="animate-spin" />
+                                                        : <Send size={18} />
+                                                    }
+                                                </button>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             ))}
