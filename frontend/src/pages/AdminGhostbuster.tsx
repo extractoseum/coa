@@ -4,6 +4,9 @@ import { Ghost, ArrowLeft, RefreshCw, AlertTriangle, CheckCircle2, Zap, MessageC
 import { useNavigate } from 'react-router-dom';
 import { ROUTES } from '../routes';
 
+// API base URL for backend calls
+const API_URL = import.meta.env.VITE_API_URL || '';
+
 type BustChannel = 'whatsapp' | 'email' | 'both';
 
 interface GhostAlert {
@@ -33,7 +36,7 @@ const AdminGhostbuster: React.FC = () => {
     const fetchData = async () => {
         setIsLoading(true);
         try {
-            const res = await fetch('/api/v1/ghostbuster/alerts?status=pending', {
+            const res = await fetch(`${API_URL}/api/v1/ghostbuster/alerts?status=pending`, {
                 headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
             });
             const data = await res.json();
@@ -54,7 +57,7 @@ const AdminGhostbuster: React.FC = () => {
         };
         if (!confirm(`¿Enviar mensaje de reactivación a ${name} por ${channelLabels[channel]}?`)) return;
         try {
-            const res = await fetch('/api/v1/ghostbuster/bust', {
+            const res = await fetch(`${API_URL}/api/v1/ghostbuster/bust`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -78,7 +81,7 @@ const AdminGhostbuster: React.FC = () => {
         if (!confirm('Esto escanerá toda la base de datos. ¿Continuar?')) return;
         setIsRefreshing(true);
         try {
-            const res = await fetch('/api/v1/ghostbuster/scan', {
+            const res = await fetch(`${API_URL}/api/v1/ghostbuster/scan`, {
                 method: 'POST',
                 headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
             });
@@ -99,12 +102,12 @@ const AdminGhostbuster: React.FC = () => {
         setIsRefreshing(true);
         try {
             // First reset
-            await fetch('/api/v1/ghostbuster/reset', {
+            await fetch(`${API_URL}/api/v1/ghostbuster/reset`, {
                 method: 'POST',
                 headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
             });
             // Then scan
-            const res = await fetch('/api/v1/ghostbuster/scan', {
+            const res = await fetch(`${API_URL}/api/v1/ghostbuster/scan`, {
                 method: 'POST',
                 headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
             });
@@ -124,7 +127,7 @@ const AdminGhostbuster: React.FC = () => {
         if (!confirm('Esto sincronizará métricas de Shopify (orders_count, total_spent, tags) para todos los clientes. ¿Continuar?')) return;
         setIsRefreshing(true);
         try {
-            const res = await fetch('/api/v1/ghostbuster/sync-metrics', {
+            const res = await fetch(`${API_URL}/api/v1/ghostbuster/sync-metrics`, {
                 method: 'POST',
                 headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
             });
