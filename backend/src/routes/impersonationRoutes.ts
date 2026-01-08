@@ -21,7 +21,7 @@ router.post(
     '/start',
     requireAuth,
     requireSuperAdmin,
-    requireStepUp(5), // Must have verified within last 5 minutes
+    requireStepUp(60, false), // Must have verified within last 60 minutes, skip for super_admin
     preventCascadeImpersonation,
     startImpersonation
 );
