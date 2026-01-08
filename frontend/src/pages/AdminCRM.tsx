@@ -328,8 +328,7 @@ const AdminCRM: React.FC = () => {
                     Authorization: `Bearer ${token}`
                 },
                 body: JSON.stringify({
-                    email: client.email,
-                    phone: client.phone,
+                    client_id: client.id,
                     channel
                 })
             });
@@ -344,6 +343,7 @@ const AdminCRM: React.FC = () => {
                 setShowClientResults(false);
                 setSearchTerm('');
             } else {
+                console.error('Start conversation error:', data.error);
                 alert(`Error: ${data.error}`);
             }
         } catch (err: any) {
