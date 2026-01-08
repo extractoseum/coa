@@ -223,8 +223,8 @@ import axios from 'axios';
 import { simpleParser, ParsedMail } from 'mailparser';
 import { supabase } from '../config/supabase';
 
-// Ara's email configuration
-const ARA_EMAIL_CONFIG = {
+// Ara's email configuration - read fresh from env
+const getAraEmailConfig = () => ({
     user: process.env.ARA_EMAIL_USER || 'ara@extractoseum.com',
     clientId: process.env.ARA_CLIENT_ID,
     clientSecret: process.env.ARA_CLIENT_SECRET,
@@ -240,7 +240,11 @@ const ARA_EMAIL_CONFIG = {
         port: 993,
         tls: true
     }
-};
+});
+
+// Log OAuth config status on startup
+const ARA_EMAIL_CONFIG = getAraEmailConfig();
+console.log(`[AraEmail] Config loaded - User: ${ARA_EMAIL_CONFIG.user}, OAuth: ${!!ARA_EMAIL_CONFIG.refreshToken}, Password: ${!!ARA_EMAIL_CONFIG.password}`);
 
 // Create Ara's transporter (separate from marketing emails)
 let araTransporter: nodemailer.Transporter | null = null;
@@ -406,6 +410,7 @@ export const fetchAraEmails = async (): Promise<IncomingEmail[]> => {
     const emails: IncomingEmail[] = [];
     let accessToken = '';
     if (ARA_EMAIL_CONFIG.refreshToken) {
+        console.log('[AraEmail] Fetching OAuth access token...');
         try {
             const res = await axios.post('https://oauth2.googleapis.com/token', {
                 client_id: ARA_EMAIL_CONFIG.clientId,
@@ -414,7 +419,11 @@ export const fetchAraEmails = async (): Promise<IncomingEmail[]> => {
                 grant_type: 'refresh_token'
             });
             accessToken = res.data.access_token;
-        } catch (e: any) { console.error('[AraEmail] Token fetch error', e.message); }
+            console.log('[AraEmail] OAuth access token obtained successfully');
+        } catch (e: any) {
+            console.error('[AraEmail] OAuth token fetch error:', e.response?.data || e.message);
+            return []; // Can't proceed without token
+        }
     }
 
     const client = new ImapFlow({
@@ -651,13 +660,15 @@ export const stopEmailPolling = (): void => {
  * Poll and process new emails
  */
 const pollEmails = async (): Promise<void> => {
+    console.log('[AraEmail] Polling for new emails...');
     try {
         const emails = await fetchAraEmails();
+        console.log(`[AraEmail] Poll complete: ${emails.length} new emails found`);
         for (const email of emails) {
             await processIncomingAraEmail(email);
         }
     } catch (error: any) {
-        console.error('[AraEmail] Poll error:', error.message);
+        console.error('[AraEmail] Poll error:', error.message, error.stack);
     }
 };
 
