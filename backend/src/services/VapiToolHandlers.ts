@@ -377,6 +377,7 @@ export async function handleSearchProducts(
 
             return {
                 name: p.title,
+                description: p.description_plain, // [NEW] Full context for AI
                 price: minPrice,
                 stock: totalStock > 0 ? 'Sí' : 'No',
                 stock_quantity: totalStock, // [NEW] Explicit quantity for AI context
