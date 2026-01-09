@@ -4,6 +4,7 @@ import { normalizePhone } from '../utils/phoneUtils';
 import { vapiContextService } from './VapiContextService';
 import { handleToolCall } from './VapiToolHandlers';
 import { vapiEventLogger } from './VapiEventLogger';
+import { voiceCopilotService } from './VoiceCopilotService';
 
 const VAPI_API_KEY = process.env.VAPI_API_KEY;
 const VAPI_BASE_URL = 'https://api.vapi.ai';
@@ -327,6 +328,11 @@ export class VapiService {
                     customer_phone: context.customerPhone
                 });
 
+                // Notify copilot that tool was called (so it doesn't flag as missed)
+                if (call?.id) {
+                    voiceCopilotService.recordToolCall(call.id, functionName);
+                }
+
                 // CRITICAL: Result must be a single-line string with no line breaks
                 // Line breaks cause VAPI to fail parsing and return "No result returned"
                 const resultString = JSON.stringify(result).replace(/\n/g, ' ').replace(/\r/g, '');
@@ -412,6 +418,21 @@ export class VapiService {
             seconds_from_start: message.timestamp ? (message.timestamp - call.startedAt) / 1000 : undefined,
             raw_data: message
         });
+
+        // Feed transcript to Voice Copilot for real-time analysis
+        voiceCopilotService.processTranscript({
+            callId: call.id,
+            role: role === 'assistant' ? 'assistant' : 'user',
+            content: transcript || '',
+            isFinal,
+            metadata: {
+                conversationId: call.metadata?.conversationId,
+                clientId: call.metadata?.clientId,
+                customerPhone: call.customer?.number
+            }
+        }).catch(err => {
+            console.error(`[VapiService] Copilot transcript error:`, err.message);
+        });
     }
 
     /**
@@ -475,6 +496,12 @@ export class VapiService {
         const call = message.call;
         const report = message;
 
+        // End copilot tracking and get final report
+        const copilotReport = await voiceCopilotService.endCall(call.id);
+        if (copilotReport) {
+            console.log(`[VapiService] Copilot Report: sentiment=${copilotReport.sentiment}, actions=${copilotReport.actionsExecuted}, missed=${copilotReport.actionsMissed}`);
+        }
+
         // Log end of call report
         await vapiEventLogger.logEndOfCallReport({
             vapi_call_id: call.id,
@@ -495,6 +522,24 @@ export class VapiService {
             .eq('vapi_call_id', call.id)
             .single();
 
+        // Build enhanced summary with copilot insights
+        let summaryContent = `📞 **Llamada finalizada** (${Math.round(report.durationSeconds || 0)}s)\n\n**Resumen:** ${report.summary || 'N/A'}\n\n**Razón:** ${report.endedReason}`;
+
+        // Add copilot insights if available
+        if (copilotReport) {
+            const sentimentEmoji = copilotReport.sentiment > 0.3 ? '😊' : copilotReport.sentiment < -0.3 ? '😤' : '😐';
+            summaryContent += `\n\n**Sentimiento:** ${sentimentEmoji} (${copilotReport.sentiment.toFixed(2)})`;
+
+            if (copilotReport.actionsMissed > 0) {
+                summaryContent += `\n**⚠️ Acciones perdidas:** ${copilotReport.actionsMissed}`;
+            }
+            if (copilotReport.recommendations.length > 0) {
+                summaryContent += `\n\n**Recomendaciones:**\n${copilotReport.recommendations.map(r => `• ${r}`).join('\n')}`;
+            }
+        }
+
+        summaryContent += `\n\n[🎧 Escuchar Grabación](${report.recordingUrl})`;
+
         // Create CRM message with call summary
         if (voiceCall?.conversation_id) {
             await supabase.from('crm_messages').insert({
@@ -502,9 +547,12 @@ export class VapiService {
                 direction: 'inbound',
                 role: 'system',
                 message_type: 'call_summary',
-                content: `📞 **Llamada finalizada** (${Math.round(report.durationSeconds || 0)}s)\n\n**Resumen:** ${report.summary || 'N/A'}\n\n**Razón:** ${report.endedReason}\n\n[🎧 Escuchar Grabación](${report.recordingUrl})`,
+                content: summaryContent,
                 status: 'delivered',
-                raw_payload: report
+                raw_payload: {
+                    ...report,
+                    copilotReport
+                }
             });
         }
     }
