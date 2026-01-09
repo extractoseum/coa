@@ -30,6 +30,12 @@ export const initiateCall = async (req: Request, res: Response): Promise<void> =
         });
         res.json(call);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        console.error('[Vapi Call Error]', error.message);
+        // Check if it's an API authentication error
+        if (error.message?.includes('401') || error.response?.status === 401) {
+            res.status(500).json({ error: 'Error de autenticación con VAPI. Verifica la API key.' });
+            return;
+        }
+        res.status(500).json({ error: error.message || 'Error al iniciar llamada' });
     }
 };

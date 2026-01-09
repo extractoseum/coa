@@ -1237,8 +1237,8 @@ const AdminCRM: React.FC = () => {
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                 body: JSON.stringify({
                     content: newMessage,
-                    scheduled_for: scheduledFor,
-                    is_voice: scheduleType === 'voice'
+                    scheduledFor: scheduledFor,
+                    isVoice: scheduleType === 'voice'
                 })
             });
             if (res.ok) {
