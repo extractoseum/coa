@@ -67,19 +67,32 @@ async function getSearchMappings(): Promise<Record<string, string[]>> {
  */
 function getFallbackMappings(): Record<string, string[]> {
     return {
-        'gomitas': ['comestibles', 'gummies', 'hot bites', 'candy', 'bites'],
-        'gummies': ['comestibles', 'gummies', 'hot bites', 'candy'],
-        'comestibles': ['comestibles', 'gummies', 'edibles', 'bites'],
+        'gomitas': ['comestibles', 'gummies', 'hot bites', 'candy', 'bites', 'sour', 'extreme'],
+        'gummies': ['comestibles', 'gummies', 'hot bites', 'candy', 'sour'],
+        'comestibles': ['comestibles', 'gummies', 'edibles', 'bites', 'candy', 'sour'],
         'tintura': ['tinturas', 'aceite', 'oil', 'tintura'],
         'tinturas': ['tinturas', 'aceite', 'oil'],
         'topico': ['topicos', 'crema', 'stick', 'freezing'],
         'topicos': ['topicos', 'crema', 'stick', 'freezing'],
         'crema': ['topicos', 'crema', 'stick', 'freezing'],
         'aceite': ['tinturas', 'aceite', 'oil'],
-        'recreativo': ['comestibles', 'delta', 'hhc', 'thc', 'bites'],
+        'recreativo': ['comestibles', 'delta', 'hhc', 'thc', 'bites', 'candy', 'sour', 'gummies'],
         'cbd': ['cbd', 'cannabidiol', 'freezing'],
         'hhc': ['hhc', 'hexahidrocannabinol', 'delta'],
         'delta': ['delta', 'delta 8', 'delta 9', 'bites'],
+        // Sour/ácido mappings - critical for finding sour products
+        'acido': ['sour', 'extreme', 'candy', 'gummies'],
+        'acida': ['sour', 'extreme', 'candy', 'gummies'],
+        'acidos': ['sour', 'extreme', 'candy', 'gummies'],
+        'acidas': ['sour', 'extreme', 'candy', 'gummies'],
+        'ácido': ['sour', 'extreme', 'candy', 'gummies'],
+        'ácida': ['sour', 'extreme', 'candy', 'gummies'],
+        'ácidos': ['sour', 'extreme', 'candy', 'gummies'],
+        'ácidas': ['sour', 'extreme', 'candy', 'gummies'],
+        'sour': ['sour', 'extreme', 'candy', 'gummies'],
+        'caramelo': ['candy', 'caramel', 'cream', 'comestibles'],
+        'caramelos': ['candy', 'caramel', 'cream', 'comestibles'],
+        'dulces': ['candy', 'comestibles', 'gummies', 'bites'],
     };
 }
 
