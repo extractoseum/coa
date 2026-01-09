@@ -1569,3 +1569,203 @@ ${contextParts.length ? 'CONTEXTO DEL CLIENTE: ' + contextParts.join('. ') : ''}
     }
 };
 
+// Generate AI summary of conversation
+export const generateConversationSummary = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { conversationId } = req.params;
+
+        // Get conversation with messages
+        const { data: messages, error: msgError } = await supabase
+            .from('crm_messages')
+            .select('*')
+            .eq('conversation_id', conversationId)
+            .order('created_at', { ascending: true })
+            .limit(50);
+
+        if (msgError) {
+            res.status(500).json({ success: false, error: msgError.message });
+            return;
+        }
+
+        if (!messages || messages.length === 0) {
+            res.status(400).json({ success: false, error: 'No messages to summarize' });
+            return;
+        }
+
+        // Get conversation facts for context
+        const { data: conversation } = await supabase
+            .from('conversations')
+            .select('facts, contact_handle, channel')
+            .eq('id', conversationId)
+            .single();
+
+        // Format messages for Claude
+        const formattedMessages = messages.map((m: any) => {
+            const role = m.direction === 'inbound' ? 'Cliente' : 'Agente';
+            return `${role}: ${m.content || '[mensaje multimedia]'}`;
+        }).join('\n');
+
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': ANTHROPIC_API_KEY,
+                'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify({
+                model: 'claude-3-haiku-20240307',
+                max_tokens: 800,
+                messages: [{
+                    role: 'user',
+                    content: `Eres un asistente que resume conversaciones de soporte/ventas para una tienda de extractos naturales y productos de bienestar.
+
+CONVERSACIÓN:
+${formattedMessages}
+
+${conversation?.facts ? `DATOS DEL CLIENTE: ${JSON.stringify(conversation.facts)}` : ''}
+
+Genera un resumen estructurado con:
+1. **Resumen General** (2-3 oraciones del contexto principal)
+2. **Puntos Clave** (lista de 3-5 puntos importantes)
+3. **Estado Actual** (¿qué está esperando el cliente? ¿hay algo pendiente?)
+4. **Sentimiento** (positivo/neutral/negativo y por qué)
+5. **Próximos Pasos Sugeridos** (1-2 acciones recomendadas)
+
+Responde SOLO en español. Sé conciso y directo.`
+                }]
+            })
+        });
+
+        if (!response.ok) {
+            const errText = await response.text();
+            console.error('[Summary] Claude API error:', errText);
+            res.status(500).json({ success: false, error: 'AI service error' });
+            return;
+        }
+
+        const data = await response.json();
+        const summary = data?.content?.[0]?.text || '';
+
+        res.json({ success: true, data: { summary, messageCount: messages.length } });
+    } catch (error: any) {
+        console.error('[Summary] Error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+// Update conversation tags
+export const updateConversationTags = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { conversationId } = req.params;
+        const { tags } = req.body;
+
+        if (!Array.isArray(tags)) {
+            res.status(400).json({ success: false, error: 'Tags must be an array' });
+            return;
+        }
+
+        // Validate and clean tags
+        const cleanTags = tags.map(t => String(t).trim().toLowerCase()).filter(Boolean);
+
+        const { data, error } = await supabase
+            .from('conversations')
+            .update({ tags: cleanTags })
+            .eq('id', conversationId)
+            .select('id, tags')
+            .single();
+
+        if (error) {
+            res.status(500).json({ success: false, error: error.message });
+            return;
+        }
+
+        res.json({ success: true, data });
+    } catch (error: any) {
+        console.error('[Tags] Error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+// Get sentiment analysis for a conversation
+export const getConversationSentiment = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { conversationId } = req.params;
+
+        // Get recent messages (last 10)
+        const { data: messages, error: msgError } = await supabase
+            .from('crm_messages')
+            .select('*')
+            .eq('conversation_id', conversationId)
+            .eq('direction', 'inbound') // Only customer messages
+            .order('created_at', { ascending: false })
+            .limit(10);
+
+        if (msgError) {
+            res.status(500).json({ success: false, error: msgError.message });
+            return;
+        }
+
+        if (!messages || messages.length === 0) {
+            res.json({ success: true, data: { sentiment: 'neutral', confidence: 0, reason: 'No hay mensajes del cliente' } });
+            return;
+        }
+
+        // Format messages for analysis
+        const recentMessages = messages.reverse().map((m: any) => m.content || '').filter(Boolean).join('\n');
+
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': ANTHROPIC_API_KEY,
+                'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify({
+                model: 'claude-3-haiku-20240307',
+                max_tokens: 200,
+                messages: [{
+                    role: 'user',
+                    content: `Analiza el sentimiento de estos mensajes de un cliente:
+
+${recentMessages}
+
+Responde SOLO en formato JSON con esta estructura exacta:
+{
+  "sentiment": "positive" | "neutral" | "negative" | "frustrated" | "excited" | "confused",
+  "confidence": 0.0-1.0,
+  "emoji": "emoji apropiado",
+  "reason": "breve explicación en español (max 10 palabras)"
+}
+
+Solo el JSON, nada más.`
+                }]
+            })
+        });
+
+        if (!response.ok) {
+            res.json({ success: true, data: { sentiment: 'neutral', confidence: 0.5, emoji: '😐', reason: 'No se pudo analizar' } });
+            return;
+        }
+
+        const data = await response.json();
+        const text = data?.content?.[0]?.text || '';
+
+        // Parse JSON response
+        try {
+            const jsonMatch = text.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                const sentimentData = JSON.parse(jsonMatch[0]);
+                res.json({ success: true, data: sentimentData });
+                return;
+            }
+        } catch (e) {
+            console.error('[Sentiment] JSON parse error:', e);
+        }
+
+        res.json({ success: true, data: { sentiment: 'neutral', confidence: 0.5, emoji: '😐', reason: 'Análisis incompleto' } });
+    } catch (error: any) {
+        console.error('[Sentiment] Error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+

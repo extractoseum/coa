@@ -1,6 +1,6 @@
 
 import express from 'express';
-import { getColumns, moveConversation, handleInbound, updateColumnConfig, getConversations, createConversation, getMessages, sendMessage, archiveConversation, deleteConversation, getContactSnapshot, getClientOrders, getOrderDetails, createCoupon, searchClients, startConversationWithClient, createeDarkStoreTicket, getConversationTickets, updateTicketStatus, getClientConversation, smartComposePredict, smartComposeEnhanceAudio, smartComposeHelpWrite, sendInternalNote, getInternalNotes, submitAIFeedback, sendReplyMessage, scheduleMessage, getScheduledMessages, cancelScheduledMessage } from '../controllers/crmController';
+import { getColumns, moveConversation, handleInbound, updateColumnConfig, getConversations, createConversation, getMessages, sendMessage, archiveConversation, deleteConversation, getContactSnapshot, getClientOrders, getOrderDetails, createCoupon, searchClients, startConversationWithClient, createeDarkStoreTicket, getConversationTickets, updateTicketStatus, getClientConversation, smartComposePredict, smartComposeEnhanceAudio, smartComposeHelpWrite, sendInternalNote, getInternalNotes, submitAIFeedback, sendReplyMessage, scheduleMessage, getScheduledMessages, cancelScheduledMessage, generateConversationSummary, getConversationSentiment, updateConversationTags } from '../controllers/crmController';
 import { requireAuth, requireRole } from '../middleware/authMiddleware';
 
 const router = express.Router();
@@ -98,5 +98,12 @@ router.post('/conversations/:conversationId/messages/reply', requireAuth, requir
 router.post('/conversations/:conversationId/messages/schedule', requireAuth, requireRole('admin', 'super_admin', 'staff'), scheduleMessage);
 router.get('/conversations/:conversationId/messages/scheduled', requireAuth, requireRole('admin', 'super_admin', 'staff'), getScheduledMessages);
 router.delete('/messages/:messageId/schedule', requireAuth, requireRole('admin', 'super_admin', 'staff'), cancelScheduledMessage);
+
+// AI Summary & Sentiment Analysis
+router.get('/conversations/:conversationId/summary', requireAuth, requireRole('admin', 'super_admin', 'staff'), generateConversationSummary);
+router.get('/conversations/:conversationId/sentiment', requireAuth, requireRole('admin', 'super_admin', 'staff'), getConversationSentiment);
+
+// Conversation Tags
+router.patch('/conversations/:conversationId/tags', requireAuth, requireRole('admin', 'super_admin', 'staff'), updateConversationTags);
 
 export default router;

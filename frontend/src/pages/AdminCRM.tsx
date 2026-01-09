@@ -116,6 +116,44 @@ const AdminCRM: React.FC = () => {
     const [isResizingResourceDock, setIsResizingResourceDock] = useState(false);
     const [showCreateTicketModal, setShowCreateTicketModal] = useState(false);
 
+    // Scheduled Messages State
+    const [showScheduleModal, setShowScheduleModal] = useState(false);
+    const [scheduleDate, setScheduleDate] = useState('');
+    const [scheduleTime, setScheduleTime] = useState('');
+    const [scheduleType, setScheduleType] = useState<'text' | 'voice'>('text');
+    const [scheduledMessages, setScheduledMessages] = useState<any[]>([]);
+    const [loadingScheduled, setLoadingScheduled] = useState(false);
+
+    // AI Summary & Sentiment State
+    const [showSummaryModal, setShowSummaryModal] = useState(false);
+    const [summaryData, setSummaryData] = useState<{ summary: string; messageCount: number } | null>(null);
+    const [loadingSummary, setLoadingSummary] = useState(false);
+    const [sentimentData, setSentimentData] = useState<{ sentiment: string; confidence: number; emoji: string; reason: string } | null>(null);
+    const [loadingSentiment, setLoadingSentiment] = useState(false);
+
+    // Follow-up Reminder State
+    const [showReminderModal, setShowReminderModal] = useState(false);
+    const [reminderDate, setReminderDate] = useState('');
+    const [reminderTime, setReminderTime] = useState('10:00');
+    const [reminderNote, setReminderNote] = useState('');
+
+    // Conversation Tags State
+    const [showTagsModal, setShowTagsModal] = useState(false);
+    const [conversationTags, setConversationTags] = useState<string[]>([]);
+    const [newTagInput, setNewTagInput] = useState('');
+
+    // Predefined tags
+    const PREDEFINED_TAGS = [
+        { label: 'VIP', color: 'bg-yellow-500', icon: '⭐' },
+        { label: 'Queja', color: 'bg-red-500', icon: '😤' },
+        { label: 'Nuevo', color: 'bg-green-500', icon: '🆕' },
+        { label: 'Urgente', color: 'bg-orange-500', icon: '🔥' },
+        { label: 'Recompra', color: 'bg-blue-500', icon: '🔄' },
+        { label: 'Mayoreo', color: 'bg-purple-500', icon: '📦' },
+        { label: 'Soporte', color: 'bg-pink-500', icon: '🛠️' },
+        { label: 'Potencial', color: 'bg-cyan-500', icon: '💎' },
+    ];
+
     // Phase 62: Extract unique tags from all conversations for dynamic filtering
     const availableTags = useMemo(() => {
         const tagSet = new Set<string>();
@@ -1175,6 +1213,242 @@ const AdminCRM: React.FC = () => {
         }
     };
 
+    // Open schedule modal
+    const openScheduleModal = (type: 'text' | 'voice') => {
+        if (!newMessage.trim()) return;
+        // Set default date/time to tomorrow at 10:00
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        tomorrow.setHours(10, 0, 0, 0);
+        setScheduleDate(tomorrow.toISOString().split('T')[0]);
+        setScheduleTime('10:00');
+        setScheduleType(type);
+        setShowScheduleModal(true);
+    };
+
+    // Handle scheduling a message
+    const handleScheduleMessage = async () => {
+        if (!newMessage.trim() || !selectedConv || !scheduleDate || !scheduleTime) return;
+        setSendingMessage(true);
+        try {
+            const scheduledFor = new Date(`${scheduleDate}T${scheduleTime}`).toISOString();
+            const res = await fetch(`/api/v1/crm/conversations/${selectedConv.id}/messages/schedule`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({
+                    content: newMessage,
+                    scheduled_for: scheduledFor,
+                    is_voice: scheduleType === 'voice'
+                })
+            });
+            if (res.ok) {
+                const result = await res.json();
+                if (result.success) {
+                    setScheduledMessages([...scheduledMessages, result.data]);
+                    setNewMessage('');
+                    setShowScheduleModal(false);
+                    alert(`Mensaje programado para ${new Date(scheduledFor).toLocaleString('es-MX')}`);
+                }
+            } else {
+                const err = await res.json();
+                alert(err.error || 'Error al programar mensaje');
+            }
+        } catch (e) {
+            console.error('Error scheduling message', e);
+            alert('Error al programar mensaje');
+        } finally {
+            setSendingMessage(false);
+        }
+    };
+
+    // Fetch scheduled messages for current conversation
+    const fetchScheduledMessages = async () => {
+        if (!selectedConv) return;
+        setLoadingScheduled(true);
+        try {
+            const res = await fetch(`/api/v1/crm/conversations/${selectedConv.id}/messages/scheduled`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) {
+                const result = await res.json();
+                if (result.success) {
+                    setScheduledMessages(result.data || []);
+                }
+            }
+        } catch (e) {
+            console.error('Error fetching scheduled messages', e);
+        } finally {
+            setLoadingScheduled(false);
+        }
+    };
+
+    // Cancel a scheduled message
+    const cancelScheduledMessage = async (messageId: string) => {
+        if (!confirm('¿Cancelar este mensaje programado?')) return;
+        try {
+            const res = await fetch(`/api/v1/crm/messages/${messageId}/schedule`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) {
+                setScheduledMessages(scheduledMessages.filter(m => m.id !== messageId));
+            }
+        } catch (e) {
+            console.error('Error canceling scheduled message', e);
+        }
+    };
+
+    // Load scheduled messages when conversation changes
+    useEffect(() => {
+        if (selectedConv) {
+            fetchScheduledMessages();
+            fetchSentiment(); // Auto-fetch sentiment when conversation changes
+        } else {
+            setScheduledMessages([]);
+            setSentimentData(null);
+        }
+    }, [selectedConv?.id]);
+
+    // Fetch AI summary for conversation
+    const fetchSummary = async () => {
+        if (!selectedConv) return;
+        setLoadingSummary(true);
+        setSummaryData(null);
+        try {
+            const res = await fetch(`/api/v1/crm/conversations/${selectedConv.id}/summary`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) {
+                const result = await res.json();
+                if (result.success) {
+                    setSummaryData(result.data);
+                }
+            }
+        } catch (e) {
+            console.error('Error fetching summary', e);
+        } finally {
+            setLoadingSummary(false);
+        }
+    };
+
+    // Fetch sentiment analysis
+    const fetchSentiment = async () => {
+        if (!selectedConv) return;
+        setLoadingSentiment(true);
+        try {
+            const res = await fetch(`/api/v1/crm/conversations/${selectedConv.id}/sentiment`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) {
+                const result = await res.json();
+                if (result.success) {
+                    setSentimentData(result.data);
+                }
+            }
+        } catch (e) {
+            console.error('Error fetching sentiment', e);
+        } finally {
+            setLoadingSentiment(false);
+        }
+    };
+
+    // Open reminder modal with defaults
+    const openReminderModal = () => {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        setReminderDate(tomorrow.toISOString().split('T')[0]);
+        setReminderTime('10:00');
+        setReminderNote(`Seguimiento con ${selectedConv?.contact_handle || 'cliente'}`);
+        setShowReminderModal(true);
+    };
+
+    // Generate Google Calendar link
+    const generateCalendarLink = () => {
+        if (!reminderDate || !reminderTime || !selectedConv) return '';
+
+        const startDate = new Date(`${reminderDate}T${reminderTime}`);
+        const endDate = new Date(startDate.getTime() + 30 * 60000); // 30 min duration
+
+        // Format dates for Google Calendar (YYYYMMDDTHHmmss)
+        const formatDate = (d: Date) => d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+
+        const params = new URLSearchParams({
+            action: 'TEMPLATE',
+            text: `📞 Follow-up: ${selectedConv.contact_handle}`,
+            dates: `${formatDate(startDate)}/${formatDate(endDate)}`,
+            details: `${reminderNote}\n\nCliente: ${selectedConv.contact_handle}\nCanal: ${selectedConv.channel}\nConversación ID: ${selectedConv.id}`,
+            location: 'CRM - Extractoseum',
+        });
+
+        return `https://calendar.google.com/calendar/render?${params.toString()}`;
+    };
+
+    // Create reminder (opens Google Calendar)
+    const handleCreateReminder = () => {
+        const link = generateCalendarLink();
+        if (link) {
+            window.open(link, '_blank');
+            setShowReminderModal(false);
+        }
+    };
+
+    // Open tags modal
+    const openTagsModal = () => {
+        setConversationTags(selectedConv?.tags || []);
+        setNewTagInput('');
+        setShowTagsModal(true);
+    };
+
+    // Toggle a tag
+    const toggleTag = (tag: string) => {
+        const normalizedTag = tag.toLowerCase().trim();
+        if (conversationTags.includes(normalizedTag)) {
+            setConversationTags(conversationTags.filter(t => t !== normalizedTag));
+        } else {
+            setConversationTags([...conversationTags, normalizedTag]);
+        }
+    };
+
+    // Add custom tag
+    const addCustomTag = () => {
+        const tag = newTagInput.toLowerCase().trim();
+        if (tag && !conversationTags.includes(tag)) {
+            setConversationTags([...conversationTags, tag]);
+            setNewTagInput('');
+        }
+    };
+
+    // Save tags to server
+    const saveTags = async () => {
+        if (!selectedConv) return;
+        try {
+            const res = await fetch(`/api/v1/crm/conversations/${selectedConv.id}/tags`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ tags: conversationTags })
+            });
+            if (res.ok) {
+                // Update local state
+                setConversations(conversations.map(c =>
+                    c.id === selectedConv.id ? { ...c, tags: conversationTags } : c
+                ));
+                if (selectedConv) {
+                    setSelectedConv({ ...selectedConv, tags: conversationTags });
+                }
+                setShowTagsModal(false);
+            }
+        } catch (e) {
+            console.error('Error saving tags', e);
+        }
+    };
+
+    // Get tag color
+    const getTagStyle = (tag: string) => {
+        const predefined = PREDEFINED_TAGS.find(t => t.label.toLowerCase() === tag.toLowerCase());
+        if (predefined) return predefined.color;
+        return 'bg-gray-500';
+    };
+
     if (!isSuperAdmin) return null;
 
     // getChannelIcon moved to ../utils/crmUtils.ts
@@ -1941,8 +2215,57 @@ const AdminCRM: React.FC = () => {
                                             );
                                         })()}
                                     </div>
+                                    {/* Sentiment Indicator */}
+                                    {sentimentData && (
+                                        <div
+                                            className={`ml-2 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium transition-all ${
+                                                sentimentData.sentiment === 'positive' || sentimentData.sentiment === 'excited' ? 'bg-green-500/20 text-green-400' :
+                                                sentimentData.sentiment === 'negative' || sentimentData.sentiment === 'frustrated' ? 'bg-red-500/20 text-red-400' :
+                                                sentimentData.sentiment === 'confused' ? 'bg-orange-500/20 text-orange-400' :
+                                                'bg-gray-500/20 text-gray-400'
+                                            }`}
+                                            title={sentimentData.reason}
+                                        >
+                                            <span>{sentimentData.emoji}</span>
+                                            <span className="hidden sm:inline capitalize">{sentimentData.sentiment}</span>
+                                        </div>
+                                    )}
+                                    {loadingSentiment && (
+                                        <div className="ml-2 flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/5 text-[10px] text-gray-400">
+                                            <Loader2 size={10} className="animate-spin" />
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="flex items-center gap-1.5 px-2">
+                                    {/* AI Summary Button */}
+                                    <button
+                                        onClick={() => { setShowSummaryModal(true); fetchSummary(); }}
+                                        className="p-2 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 transition-colors"
+                                        title="Resumen AI de Conversación"
+                                    >
+                                        <Brain size={16} />
+                                    </button>
+                                    {/* Follow-up Reminder Button */}
+                                    <button
+                                        onClick={openReminderModal}
+                                        className="p-2 rounded-lg bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 transition-colors"
+                                        title="Crear Recordatorio de Seguimiento"
+                                    >
+                                        <Bell size={16} />
+                                    </button>
+                                    {/* Tags Button */}
+                                    <button
+                                        onClick={openTagsModal}
+                                        className="p-2 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 transition-colors relative"
+                                        title="Gestionar Etiquetas"
+                                    >
+                                        <Tag size={16} />
+                                        {selectedConv.tags && selectedConv.tags.length > 0 && (
+                                            <span className="absolute -top-1 -right-1 w-4 h-4 bg-cyan-500 text-white text-[9px] rounded-full flex items-center justify-center">
+                                                {selectedConv.tags.length}
+                                            </span>
+                                        )}
+                                    </button>
                                     <button
                                         onClick={async () => {
                                             if (!window.confirm(`¿Iniciar llamada de voz con ${selectedConv.contact_handle}?`)) return;
@@ -2154,6 +2477,35 @@ const AdminCRM: React.FC = () => {
                                                 >
                                                     <StickyNote size={20} />
                                                 </button>
+
+                                                {/* Schedule Message Button */}
+                                                <div className="relative group">
+                                                    <button
+                                                        onClick={() => openScheduleModal('text')}
+                                                        disabled={sendingMessage || !newMessage.trim()}
+                                                        className={`p-2 h-[44px] w-[44px] md:h-[48px] md:w-[48px] flex items-center justify-center rounded-xl transition-all ${sendingMessage || !newMessage.trim() ? 'opacity-30 grayscale cursor-not-allowed' : 'text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 shadow-lg border border-blue-500/20 active:scale-95'}`}
+                                                        title="Programar Mensaje"
+                                                    >
+                                                        <Clock size={20} />
+                                                    </button>
+                                                    {/* Quick access dropdown for voice scheduling */}
+                                                    {newMessage.trim() && (
+                                                        <div className="absolute bottom-full mb-1 right-0 hidden group-hover:flex flex-col gap-1 bg-black/90 border border-white/10 rounded-lg p-1 min-w-[140px] shadow-xl z-50">
+                                                            <button
+                                                                onClick={() => openScheduleModal('text')}
+                                                                className="flex items-center gap-2 px-3 py-2 text-xs text-white hover:bg-white/10 rounded"
+                                                            >
+                                                                <Send size={14} /> Programar Texto
+                                                            </button>
+                                                            <button
+                                                                onClick={() => openScheduleModal('voice')}
+                                                                className="flex items-center gap-2 px-3 py-2 text-xs text-pink-400 hover:bg-white/10 rounded"
+                                                            >
+                                                                <Mic size={14} /> Programar Audio
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
 
                                                 <button
                                                     onClick={handleSendVoice}
@@ -2686,6 +3038,433 @@ const AdminCRM: React.FC = () => {
                                 navigate(ROUTES.dashboard);
                             }}
                         />
+                    )}
+
+                    {/* Tags Modal */}
+                    {showTagsModal && selectedConv && (
+                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[200]" onClick={() => setShowTagsModal(false)}>
+                            <div
+                                className="bg-gray-900 border border-white/10 rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl animate-in zoom-in-95 duration-200"
+                                onClick={e => e.stopPropagation()}
+                            >
+                                <div className="flex items-center justify-between mb-6">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2 rounded-xl bg-cyan-500/20">
+                                            <Tag size={24} className="text-cyan-400" />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-lg font-bold text-white">Etiquetas</h3>
+                                            <p className="text-xs text-gray-400">Categoriza esta conversación</p>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => setShowTagsModal(false)} className="p-2 hover:bg-white/10 rounded-lg transition-colors">
+                                        <X size={20} className="text-gray-400" />
+                                    </button>
+                                </div>
+
+                                {/* Current Tags */}
+                                {conversationTags.length > 0 && (
+                                    <div className="mb-4">
+                                        <div className="text-xs font-medium text-gray-400 mb-2">Etiquetas actuales</div>
+                                        <div className="flex flex-wrap gap-2">
+                                            {conversationTags.map((tag) => (
+                                                <span
+                                                    key={tag}
+                                                    className={`px-2 py-1 rounded-full text-xs text-white flex items-center gap-1 ${getTagStyle(tag)}`}
+                                                >
+                                                    {PREDEFINED_TAGS.find(t => t.label.toLowerCase() === tag)?.icon || '🏷️'}
+                                                    {tag}
+                                                    <button onClick={() => toggleTag(tag)} className="ml-1 hover:bg-white/20 rounded-full p-0.5">
+                                                        <X size={10} />
+                                                    </button>
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Predefined Tags */}
+                                <div className="mb-4">
+                                    <div className="text-xs font-medium text-gray-400 mb-2">Etiquetas rápidas</div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {PREDEFINED_TAGS.map((tag) => {
+                                            const isSelected = conversationTags.includes(tag.label.toLowerCase());
+                                            return (
+                                                <button
+                                                    key={tag.label}
+                                                    onClick={() => toggleTag(tag.label)}
+                                                    className={`px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition-all ${
+                                                        isSelected
+                                                            ? `${tag.color} text-white`
+                                                            : 'bg-white/5 text-gray-300 hover:bg-white/10 border border-white/10'
+                                                    }`}
+                                                >
+                                                    <span>{tag.icon}</span>
+                                                    <span>{tag.label}</span>
+                                                    {isSelected && <Check size={14} className="ml-auto" />}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+
+                                {/* Custom Tag Input */}
+                                <div className="mb-6">
+                                    <div className="text-xs font-medium text-gray-400 mb-2">Agregar etiqueta personalizada</div>
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            value={newTagInput}
+                                            onChange={(e) => setNewTagInput(e.target.value)}
+                                            onKeyDown={(e) => e.key === 'Enter' && addCustomTag()}
+                                            placeholder="Ej: cliente-premium"
+                                            className="flex-1 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:border-cyan-500"
+                                        />
+                                        <button
+                                            onClick={addCustomTag}
+                                            disabled={!newTagInput.trim()}
+                                            className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-lg text-white font-medium transition-colors disabled:opacity-50"
+                                        >
+                                            <Plus size={18} />
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Action Buttons */}
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={() => setShowTagsModal(false)}
+                                        className="flex-1 px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-gray-300 transition-colors"
+                                    >
+                                        Cancelar
+                                    </button>
+                                    <button
+                                        onClick={saveTags}
+                                        className="flex-1 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-white font-medium transition-colors flex items-center justify-center gap-2"
+                                    >
+                                        <Check size={18} />
+                                        Guardar
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Follow-up Reminder Modal */}
+                    {showReminderModal && selectedConv && (
+                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[200]" onClick={() => setShowReminderModal(false)}>
+                            <div
+                                className="bg-gray-900 border border-white/10 rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl animate-in zoom-in-95 duration-200"
+                                onClick={e => e.stopPropagation()}
+                            >
+                                <div className="flex items-center justify-between mb-6">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2 rounded-xl bg-orange-500/20">
+                                            <Bell size={24} className="text-orange-400" />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-lg font-bold text-white">Recordatorio de Seguimiento</h3>
+                                            <p className="text-xs text-gray-400">Se abrirá en Google Calendar</p>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => setShowReminderModal(false)} className="p-2 hover:bg-white/10 rounded-lg transition-colors">
+                                        <X size={20} className="text-gray-400" />
+                                    </button>
+                                </div>
+
+                                {/* Client Info */}
+                                <div className="mb-4 p-3 bg-white/5 rounded-xl border border-white/10">
+                                    <div className="flex items-center gap-2 text-xs text-gray-400 mb-1">
+                                        <User size={14} /> Cliente
+                                    </div>
+                                    <p className="text-sm text-white font-medium">{selectedConv.contact_handle}</p>
+                                </div>
+
+                                {/* Date/Time Selection */}
+                                <div className="grid grid-cols-2 gap-4 mb-4">
+                                    <div>
+                                        <label className="block text-xs font-medium text-gray-400 mb-2">Fecha</label>
+                                        <input
+                                            type="date"
+                                            value={reminderDate}
+                                            onChange={(e) => setReminderDate(e.target.value)}
+                                            min={new Date().toISOString().split('T')[0]}
+                                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:border-orange-500"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-medium text-gray-400 mb-2">Hora</label>
+                                        <input
+                                            type="time"
+                                            value={reminderTime}
+                                            onChange={(e) => setReminderTime(e.target.value)}
+                                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:border-orange-500"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Quick Time Buttons */}
+                                <div className="flex flex-wrap gap-2 mb-4">
+                                    {[
+                                        { label: 'Mañana 9am', days: 1, hour: 9 },
+                                        { label: 'En 2 días', days: 2, hour: 10 },
+                                        { label: 'En 1 semana', days: 7, hour: 10 },
+                                        { label: 'En 2 semanas', days: 14, hour: 10 },
+                                    ].map((opt, i) => (
+                                        <button
+                                            key={i}
+                                            onClick={() => {
+                                                const d = new Date();
+                                                d.setDate(d.getDate() + opt.days);
+                                                d.setHours(opt.hour, 0, 0, 0);
+                                                setReminderDate(d.toISOString().split('T')[0]);
+                                                setReminderTime(`${String(opt.hour).padStart(2, '0')}:00`);
+                                            }}
+                                            className="px-3 py-1.5 text-xs bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-gray-300 transition-colors"
+                                        >
+                                            {opt.label}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {/* Note */}
+                                <div className="mb-6">
+                                    <label className="block text-xs font-medium text-gray-400 mb-2">Nota del recordatorio</label>
+                                    <textarea
+                                        value={reminderNote}
+                                        onChange={(e) => setReminderNote(e.target.value)}
+                                        rows={2}
+                                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:border-orange-500 resize-none"
+                                        placeholder="Ej: Confirmar recepción del pedido..."
+                                    />
+                                </div>
+
+                                {/* Action Buttons */}
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={() => setShowReminderModal(false)}
+                                        className="flex-1 px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-gray-300 transition-colors"
+                                    >
+                                        Cancelar
+                                    </button>
+                                    <button
+                                        onClick={handleCreateReminder}
+                                        disabled={!reminderDate || !reminderTime}
+                                        className="flex-1 px-4 py-2.5 bg-orange-600 hover:bg-orange-700 rounded-xl text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                    >
+                                        <Calendar size={18} />
+                                        Abrir en Calendar
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* AI Summary Modal */}
+                    {showSummaryModal && (
+                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[200]" onClick={() => setShowSummaryModal(false)}>
+                            <div
+                                className="bg-gray-900 border border-white/10 rounded-2xl p-6 w-full max-w-lg mx-4 shadow-2xl animate-in zoom-in-95 duration-200 max-h-[80vh] flex flex-col"
+                                onClick={e => e.stopPropagation()}
+                            >
+                                <div className="flex items-center justify-between mb-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2 rounded-xl bg-purple-500/20">
+                                            <Brain size={24} className="text-purple-400" />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-lg font-bold text-white">Resumen AI</h3>
+                                            <p className="text-xs text-gray-400">
+                                                {summaryData ? `Basado en ${summaryData.messageCount} mensajes` : 'Generando resumen...'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => setShowSummaryModal(false)} className="p-2 hover:bg-white/10 rounded-lg transition-colors">
+                                        <X size={20} className="text-gray-400" />
+                                    </button>
+                                </div>
+
+                                <div className="flex-1 overflow-y-auto">
+                                    {loadingSummary ? (
+                                        <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+                                            <Loader2 size={32} className="animate-spin mb-3" />
+                                            <p className="text-sm">Analizando conversación...</p>
+                                        </div>
+                                    ) : summaryData ? (
+                                        <div className="prose prose-invert prose-sm max-w-none">
+                                            <div className="whitespace-pre-wrap text-sm text-gray-200 leading-relaxed">
+                                                {summaryData.summary.split('\n').map((line, i) => {
+                                                    // Format markdown-like headers
+                                                    if (line.startsWith('**') && line.endsWith('**')) {
+                                                        return <h4 key={i} className="text-purple-400 font-bold mt-4 mb-2">{line.replace(/\*\*/g, '')}</h4>;
+                                                    }
+                                                    if (line.match(/^\d+\.\s\*\*/)) {
+                                                        return <h4 key={i} className="text-purple-400 font-bold mt-4 mb-2">{line.replace(/\*\*/g, '')}</h4>;
+                                                    }
+                                                    if (line.startsWith('- ')) {
+                                                        return <p key={i} className="pl-4 border-l-2 border-purple-500/30 my-1">{line.slice(2)}</p>;
+                                                    }
+                                                    return line ? <p key={i} className="my-1">{line}</p> : <br key={i} />;
+                                                })}
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="text-center py-12 text-gray-400">
+                                            <AlertCircle size={32} className="mx-auto mb-3 opacity-50" />
+                                            <p className="text-sm">No se pudo generar el resumen</p>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="flex gap-3 mt-4 pt-4 border-t border-white/10">
+                                    <button
+                                        onClick={() => setShowSummaryModal(false)}
+                                        className="flex-1 px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-gray-300 transition-colors"
+                                    >
+                                        Cerrar
+                                    </button>
+                                    <button
+                                        onClick={fetchSummary}
+                                        disabled={loadingSummary}
+                                        className="flex-1 px-4 py-2.5 bg-purple-600 hover:bg-purple-700 rounded-xl text-white font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                                    >
+                                        {loadingSummary ? <Loader2 size={18} className="animate-spin" /> : <RefreshCw size={18} />}
+                                        Regenerar
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Schedule Message Modal */}
+                    {showScheduleModal && (
+                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[200]" onClick={() => setShowScheduleModal(false)}>
+                            <div
+                                className="bg-gray-900 border border-white/10 rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl animate-in zoom-in-95 duration-200"
+                                onClick={e => e.stopPropagation()}
+                            >
+                                <div className="flex items-center justify-between mb-6">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2 rounded-xl bg-blue-500/20">
+                                            <Clock size={24} className="text-blue-400" />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-lg font-bold text-white">Programar Mensaje</h3>
+                                            <p className="text-xs text-gray-400">
+                                                {scheduleType === 'voice' ? 'Nota de voz programada' : 'Mensaje de texto programado'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => setShowScheduleModal(false)} className="p-2 hover:bg-white/10 rounded-lg transition-colors">
+                                        <X size={20} className="text-gray-400" />
+                                    </button>
+                                </div>
+
+                                {/* Message Preview */}
+                                <div className="mb-4 p-3 bg-white/5 rounded-xl border border-white/10">
+                                    <div className="flex items-center gap-2 text-xs text-gray-400 mb-2">
+                                        {scheduleType === 'voice' ? <Mic size={14} className="text-pink-400" /> : <Send size={14} />}
+                                        <span>Vista previa del mensaje:</span>
+                                    </div>
+                                    <p className="text-sm text-gray-200 line-clamp-3">{newMessage}</p>
+                                </div>
+
+                                {/* Date/Time Selection */}
+                                <div className="grid grid-cols-2 gap-4 mb-6">
+                                    <div>
+                                        <label className="block text-xs font-medium text-gray-400 mb-2">Fecha</label>
+                                        <input
+                                            type="date"
+                                            value={scheduleDate}
+                                            onChange={(e) => setScheduleDate(e.target.value)}
+                                            min={new Date().toISOString().split('T')[0]}
+                                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-medium text-gray-400 mb-2">Hora</label>
+                                        <input
+                                            type="time"
+                                            value={scheduleTime}
+                                            onChange={(e) => setScheduleTime(e.target.value)}
+                                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Quick Time Buttons */}
+                                <div className="flex flex-wrap gap-2 mb-6">
+                                    {[
+                                        { label: 'En 1 hora', hours: 1 },
+                                        { label: 'Mañana 9am', tomorrow: true, hour: 9 },
+                                        { label: 'Mañana 2pm', tomorrow: true, hour: 14 },
+                                        { label: 'En 2 días', days: 2 },
+                                    ].map((opt, i) => (
+                                        <button
+                                            key={i}
+                                            onClick={() => {
+                                                const d = new Date();
+                                                if (opt.hours) d.setHours(d.getHours() + opt.hours);
+                                                if (opt.days) d.setDate(d.getDate() + opt.days);
+                                                if (opt.tomorrow) {
+                                                    d.setDate(d.getDate() + 1);
+                                                    d.setHours(opt.hour || 9, 0, 0, 0);
+                                                }
+                                                setScheduleDate(d.toISOString().split('T')[0]);
+                                                setScheduleTime(d.toTimeString().slice(0, 5));
+                                            }}
+                                            className="px-3 py-1.5 text-xs bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-gray-300 transition-colors"
+                                        >
+                                            {opt.label}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {/* Scheduled Messages List */}
+                                {scheduledMessages.length > 0 && (
+                                    <div className="mb-4">
+                                        <div className="text-xs font-medium text-gray-400 mb-2 flex items-center gap-2">
+                                            <Calendar size={14} />
+                                            Mensajes programados ({scheduledMessages.length})
+                                        </div>
+                                        <div className="max-h-32 overflow-y-auto space-y-2">
+                                            {scheduledMessages.map((msg) => (
+                                                <div key={msg.id} className="flex items-center justify-between p-2 bg-white/5 rounded-lg text-xs">
+                                                    <div className="flex items-center gap-2 min-w-0">
+                                                        {msg.message_type === 'audio' ? <Mic size={12} className="text-pink-400 shrink-0" /> : <Send size={12} className="text-blue-400 shrink-0" />}
+                                                        <span className="text-gray-300 truncate">{msg.content?.slice(0, 30)}...</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 shrink-0">
+                                                        <span className="text-gray-500">{new Date(msg.scheduled_for).toLocaleString('es-MX', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                                                        <button onClick={() => cancelScheduledMessage(msg.id)} className="p-1 hover:bg-red-500/20 rounded text-red-400">
+                                                            <X size={12} />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Action Buttons */}
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={() => setShowScheduleModal(false)}
+                                        className="flex-1 px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-gray-300 transition-colors"
+                                    >
+                                        Cancelar
+                                    </button>
+                                    <button
+                                        onClick={handleScheduleMessage}
+                                        disabled={sendingMessage || !scheduleDate || !scheduleTime}
+                                        className="flex-1 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 rounded-xl text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                    >
+                                        {sendingMessage ? <Loader2 size={18} className="animate-spin" /> : <Clock size={18} />}
+                                        Programar
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     )}
                 </div>
             </AppLayout>
