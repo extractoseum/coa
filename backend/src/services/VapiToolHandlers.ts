@@ -67,8 +67,8 @@ async function getSearchMappings(): Promise<Record<string, string[]>> {
  */
 function getFallbackMappings(): Record<string, string[]> {
     return {
-        'gomitas': ['comestibles', 'gummies', 'hot bites', 'candy', 'bites', 'sour', 'extreme'],
-        'gummies': ['comestibles', 'gummies', 'hot bites', 'candy', 'sour'],
+        'gomitas': ['gummies', 'comestibles', 'sour', 'extreme'],
+        'gummies': ['gummies', 'comestibles', 'sour', 'extreme'],
         'comestibles': ['comestibles', 'gummies', 'edibles', 'bites', 'candy', 'sour'],
         'tintura': ['tinturas', 'aceite', 'oil', 'tintura'],
         'tinturas': ['tinturas', 'aceite', 'oil'],
@@ -76,7 +76,7 @@ function getFallbackMappings(): Record<string, string[]> {
         'topicos': ['topicos', 'crema', 'stick', 'freezing'],
         'crema': ['topicos', 'crema', 'stick', 'freezing'],
         'aceite': ['tinturas', 'aceite', 'oil'],
-        'recreativo': ['comestibles', 'delta', 'hhc', 'thc', 'bites', 'candy', 'sour', 'gummies'],
+        'recreativo': ['comestibles', 'delta', 'hhc', 'thc', 'candy', 'sour', 'gummies'],
         'cbd': ['cbd', 'cannabidiol', 'freezing'],
         'hhc': ['hhc', 'hexahidrocannabinol', 'delta'],
         'delta': ['delta', 'delta 8', 'delta 9', 'bites'],
@@ -231,6 +231,18 @@ export async function handleSearchProducts(
         let usedMapping = false;
 
         if (query) {
+            // [PRIORITY PASS] Search for the literal query in Title first
+            const { data: literalResults } = await supabase
+                .from('products')
+                .select('id, title, handle, product_type, description_plain, variants, status')
+                .eq('status', 'active')
+                .ilike('title', `%${queryLower}%`)
+                .limit(5);
+
+            if (literalResults && literalResults.length > 0) {
+                products = [...literalResults];
+            }
+
             // Split query into words and collect all expanded terms
             const queryWords = queryLower.split(/\s+/).filter(w => w.length > 2);
             let expandedTerms: string[] = [];
