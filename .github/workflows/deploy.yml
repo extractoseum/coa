@@ -203,6 +203,18 @@ jobs:
               echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" >> .env
             fi
 
+            # Update ElevenLabs Voice ID
+            if [ -n "${{ secrets.ELEVENLABS_VOICE_ID }}" ]; then
+              sed -i '/^ELEVENLABS_VOICE_ID=/d' .env 2>/dev/null || true
+              echo "ELEVENLABS_VOICE_ID=${{ secrets.ELEVENLABS_VOICE_ID }}" >> .env
+            fi
+
+            # Update Deepgram API Key
+            if [ -n "${{ secrets.DEEPGRAM_API_KEY }}" ]; then
+              sed -i '/^DEEPGRAM_API_KEY=/d' .env 2>/dev/null || true
+              echo "DEEPGRAM_API_KEY=${{ secrets.DEEPGRAM_API_KEY }}" >> .env
+            fi
+
             npm install --omit=dev
             pm2 restart coa-backend
           timeout: 120s

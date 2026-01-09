@@ -222,15 +222,19 @@ router.post('/end/:callSid', async (req: Request, res: Response) => {
 router.get('/status', (req: Request, res: Response) => {
     const twilioConfigured = !!(process.env.TWILIO_ACCOUNT_SID || process.env.ACCOUNT_SID);
     const claudeConfigured = !!process.env.ANTHROPIC_API_KEY;
+    const deepgramConfigured = !!process.env.DEEPGRAM_API_KEY;
+    const elevenLabsVoiceId = process.env.ELEVENLABS_VOICE_ID || 'EXAVITQu4vr4xnSDxMaL';
 
     res.json({
         service: 'VoiceCallService',
-        provider: 'Twilio + Claude',
+        provider: 'Twilio + Deepgram + Claude + ElevenLabs',
         activeCalls: voiceCallService.getActiveCallCount(),
-        configured: twilioConfigured && claudeConfigured,
+        configured: twilioConfigured && claudeConfigured && deepgramConfigured,
         debug: {
             twilio: twilioConfigured,
-            claude: claudeConfigured
+            claude: claudeConfigured,
+            deepgram: deepgramConfigured,
+            elevenLabsVoiceId: elevenLabsVoiceId.substring(0, 8) + '...' // Partial for security
         }
     });
 });
