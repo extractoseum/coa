@@ -229,6 +229,7 @@ export async function handleSearchProducts(
         let products: any[] = [];
         const queryLower = (query || '').toLowerCase().trim();
         let usedMapping = false;
+        let expandedTerms: string[] = []; // [MOVING SCOPE] So scoring can see it
 
         if (query) {
             // [PRIORITY PASS] Search for the literal query in Title first
@@ -245,7 +246,6 @@ export async function handleSearchProducts(
 
             // Split query into words and collect all expanded terms
             const queryWords = queryLower.split(/\s+/).filter(w => w.length > 2);
-            let expandedTerms: string[] = [];
 
             // First try exact match for full query
             if (searchMappings[queryLower]) {
@@ -351,7 +351,42 @@ export async function handleSearchProducts(
             );
         }
 
-        console.log(`[VapiTools] Found ${products.length} products after broad search`);
+        // Score and sort all results
+        const scoredProducts = products.map(p => {
+            let score = 0;
+            const titleLower = p.title.toLowerCase();
+            const typeLower = (p.product_type || '').toLowerCase();
+
+            // 1. Literal Query Match (Highest priority)
+            if (queryLower) {
+                if (titleLower.includes(queryLower)) score += 200;
+                if (typeLower.includes(queryLower)) score += 100;
+            }
+
+            // 2. Expanded Term Match
+            for (const term of expandedTerms) {
+                if (titleLower.includes(term)) score += 50;
+                if (typeLower.includes(term)) score += 20;
+            }
+
+            // 3. Exact HHC product boost
+            if (queryLower === 'hhc' && (titleLower === 'hexahidrocannabinol (hhc)' || titleLower.includes('hhc soluble'))) {
+                score += 1000;
+            }
+
+            // 4. Stock Availability (Small boost to break ties)
+            const totalStock = (p.variants || []).reduce((sum: number, v: any) => sum + (v.inventory_quantity || 0), 0);
+            if (totalStock > 0) score += 5;
+
+            return { ...p, _score: score };
+        });
+
+        // Sort by score and take top 10
+        products = scoredProducts
+            .sort((a, b) => (b as any)._score - (a as any)._score)
+            .slice(0, 10);
+
+        console.log(`[VapiTools] Found ${products.length} products after filtering/ranking.`);
 
         // Update mapping stats for learning (non-blocking)
         if (usedMapping && queryLower) {
