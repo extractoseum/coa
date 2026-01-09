@@ -176,41 +176,54 @@ export class VoiceCallService {
     async handleIncomingCall(callSid: string, from: string, to: string): Promise<string> {
         console.log(`[VoiceCall] Incoming call ${callSid} from ${from}`);
 
-        // Look up customer context
-        const context = await this.getCustomerContext(from);
-
-        // Create session
-        const session: CallSession = {
-            callSid,
-            customerPhone: from,
-            conversationId: context.conversationId,
-            clientId: context.clientId,
-            messages: [],
-            createdAt: new Date()
-        };
-        activeCalls.set(callSid, session);
-
-        // Log call in database (non-blocking)
         try {
-            await supabase.from('voice_calls').insert({
-                vapi_call_id: callSid,
-                conversation_id: context.conversationId,
-                direction: 'inbound',
-                phone_number: from,
-                status: 'in-progress',
-                started_at: new Date().toISOString()
-            });
-        } catch (dbError: any) {
-            console.warn('[VoiceCall] Failed to log call to DB:', dbError.message);
-            // Continue anyway - don't break the call
+            // Look up customer context (with fallback)
+            let context: { clientId?: string; clientName?: string; conversationId?: string } = {};
+            try {
+                context = await this.getCustomerContext(from);
+            } catch (ctxError: any) {
+                console.warn('[VoiceCall] Failed to get context:', ctxError.message);
+            }
+
+            // Create session
+            const session: CallSession = {
+                callSid,
+                customerPhone: from,
+                conversationId: context.conversationId,
+                clientId: context.clientId,
+                messages: [],
+                createdAt: new Date()
+            };
+            activeCalls.set(callSid, session);
+
+            // Log call in database (non-blocking, don't await)
+            (async () => {
+                try {
+                    await supabase.from('voice_calls').insert({
+                        vapi_call_id: callSid,
+                        conversation_id: context.conversationId,
+                        direction: 'inbound',
+                        phone_number: from,
+                        status: 'in-progress',
+                        started_at: new Date().toISOString()
+                    });
+                    console.log('[VoiceCall] Call logged to DB');
+                } catch (dbError: any) {
+                    console.warn('[VoiceCall] Failed to log call to DB:', dbError.message);
+                }
+            })();
+
+            // Generate personalized greeting
+            const greeting = context.clientName
+                ? `¡Hola ${context.clientName.split(' ')[0]}! Soy Ara de Extractos EUM.`
+                : '¡Hola! Soy Ara de Extractos EUM. ¿Con quién tengo el gusto?';
+
+            return this.generateGreetingTwiML(greeting, callSid);
+        } catch (error: any) {
+            console.error('[VoiceCall] handleIncomingCall fatal error:', error.message, error.stack);
+            // Return a simple greeting anyway
+            return this.generateGreetingTwiML('¡Hola! Soy Ara de Extractos EUM. ¿En qué puedo ayudarte?', callSid);
         }
-
-        // Generate personalized greeting
-        const greeting = context.clientName
-            ? `¡Hola ${context.clientName.split(' ')[0]}! Soy Ara de Extractos EUM.`
-            : '¡Hola! Soy Ara de Extractos EUM. ¿Con quién tengo el gusto?';
-
-        return this.generateGreetingTwiML(greeting, callSid);
     }
 
     /**
