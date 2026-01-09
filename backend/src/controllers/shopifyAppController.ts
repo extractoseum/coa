@@ -209,6 +209,11 @@ export const handleCallback = async (req: Request, res: Response) => {
  * GET /api/v1/shopify-app/session
  */
 export const getSessionStatus = async (req: Request, res: Response) => {
+    // Set CORS headers for cross-origin requests from Shopify storefront
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
     try {
         const isImpersonating = req.isImpersonating || false;
         const sessionId = req.impersonationSessionId;
@@ -257,6 +262,11 @@ export const getSessionStatus = async (req: Request, res: Response) => {
  * GET /api/v1/shopify-app/products?query=xxx
  */
 export const searchProductsWidget = async (req: Request, res: Response) => {
+    // Set CORS headers for cross-origin requests from Shopify storefront
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
     try {
         const { query } = req.query;
 
@@ -280,6 +290,16 @@ export const searchProductsWidget = async (req: Request, res: Response) => {
  * POST /api/v1/shopify-app/draft-order
  */
 export const createDraftOrderWidget = async (req: Request, res: Response) => {
+    // Set CORS headers for cross-origin requests from Shopify storefront
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+    // Handle preflight requests
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
+
     try {
         const { items, customerId } = req.body;
 
@@ -384,6 +404,16 @@ export const registerScriptTag = async (req: Request, res: Response) => {
  * GET /api/v1/shopify-app/widget.js
  */
 export const getWidgetScript = async (req: Request, res: Response) => {
+    // Set CORS headers to allow the widget to be loaded from Shopify storefront
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+    // Handle preflight requests
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
+
     // This serves the Sales Agent widget that gets injected into Shopify storefront
     const widgetScript = `
 (function() {
