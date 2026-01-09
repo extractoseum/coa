@@ -227,10 +227,36 @@ export async function handleSearchProducts(
         let usedMapping = false;
 
         if (query) {
-            // Get expanded search terms from dynamic mappings
-            const expandedTerms = searchMappings[queryLower] || [queryLower];
-            usedMapping = !!searchMappings[queryLower];
-            console.log(`[VapiTools] Expanded search terms:`, expandedTerms);
+            // Split query into words and collect all expanded terms
+            const queryWords = queryLower.split(/\s+/).filter(w => w.length > 2);
+            let expandedTerms: string[] = [];
+
+            // First try exact match for full query
+            if (searchMappings[queryLower]) {
+                expandedTerms.push(...searchMappings[queryLower]);
+                usedMapping = true;
+            }
+
+            // Then expand each word individually
+            for (const word of queryWords) {
+                if (searchMappings[word]) {
+                    expandedTerms.push(...searchMappings[word]);
+                    usedMapping = true;
+                } else {
+                    // Include the original word too
+                    expandedTerms.push(word);
+                }
+            }
+
+            // Deduplicate terms
+            expandedTerms = [...new Set(expandedTerms)];
+
+            // If no mapping found at all, just use the original words
+            if (expandedTerms.length === 0) {
+                expandedTerms = queryWords.length > 0 ? queryWords : [queryLower];
+            }
+
+            console.log(`[VapiTools] Expanded search terms from "${queryLower}":`, expandedTerms);
 
             // Try each term until we find results
             for (const term of expandedTerms) {
@@ -491,10 +517,14 @@ export async function handleLookupOrder(
     const { order_number } = args;
     const { clientId, customerPhone } = context;
 
+    console.log(`[VapiTools] lookup_order: order_number=${order_number}, clientId=${clientId}, customerPhone=${customerPhone}`);
+
     try {
         let order;
+        let searchMethod = '';
 
         if (order_number) {
+            searchMethod = 'order_number';
             // Search by order number
             const { data } = await supabase
                 .from('orders')
@@ -504,6 +534,7 @@ export async function handleLookupOrder(
                 .maybeSingle();
             order = data;
         } else if (clientId) {
+            searchMethod = 'clientId';
             // Get latest order for client
             const { data } = await supabase
                 .from('orders')
@@ -514,8 +545,11 @@ export async function handleLookupOrder(
                 .maybeSingle();
             order = data;
         } else if (customerPhone) {
+            searchMethod = 'customerPhone';
             // Try to find client by phone first
             const cleanPhone = cleanupPhone(customerPhone);
+            console.log(`[VapiTools] lookup_order: searching client by phone ${cleanPhone}`);
+
             const { data: client } = await supabase
                 .from('clients')
                 .select('id')
@@ -524,6 +558,7 @@ export async function handleLookupOrder(
                 .maybeSingle();
 
             if (client) {
+                console.log(`[VapiTools] lookup_order: found client ${client.id}, searching orders`);
                 const { data } = await supabase
                     .from('orders')
                     .select('*')
@@ -532,13 +567,23 @@ export async function handleLookupOrder(
                     .limit(1)
                     .maybeSingle();
                 order = data;
+            } else {
+                console.log(`[VapiTools] lookup_order: no client found for phone ${cleanPhone}`);
             }
+        } else {
+            searchMethod = 'none';
+            console.log(`[VapiTools] lookup_order: no search criteria available`);
         }
 
+        console.log(`[VapiTools] lookup_order: searchMethod=${searchMethod}, found=${!!order}`);
+
         if (!order) {
+            const noContextMsg = !order_number && !clientId && !customerPhone
+                ? 'No tengo suficiente información para buscar tu pedido. ¿Me puedes dar el número de orden?'
+                : 'No encontré el pedido. ¿Tienes el número de orden? Lo encuentras en el correo de confirmación.';
             return {
                 success: false,
-                message: 'No encontré el pedido. ¿Tienes el número de orden? Lo encuentras en el correo de confirmación.'
+                message: noContextMsg
             };
         }
 

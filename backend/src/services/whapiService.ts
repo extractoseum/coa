@@ -128,10 +128,18 @@ export const sendWhatsAppMessage = async (msg: WhatsAppMessage, customToken?: st
         return { sent: false, error: 'WhatsApp no configurado (Token faltante)' };
     }
 
+    // Validate inputs
+    if (!msg.to) {
+        return { sent: false, error: 'Número de teléfono no proporcionado' };
+    }
+    if (!msg.body) {
+        return { sent: false, error: 'Mensaje vacío' };
+    }
+
     try {
         const phone = normalizePhone(msg.to, 'whapi');
 
-        console.log(`[Whapi] Sending to ${phone} using token ${activeToken.substring(0, 5)}...`);
+        console.log(`[Whapi] Sending to ${phone} using token ${activeToken?.substring(0, 5) || 'NONE'}...`);
 
         const response = await axios.post(`${WHAPI_BASE_URL}/messages/text`, {
             to: phone,
