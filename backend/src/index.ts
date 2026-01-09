@@ -134,6 +134,9 @@ app.use(express.json({
     }
 }));
 
+// Support form-urlencoded for Twilio Webhooks
+app.use(express.urlencoded({ extended: true }));
+
 // Routes
 app.get('/', (req, res) => {
     res.send('🌿 EUM v2.0 Backend is Running');

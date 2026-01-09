@@ -15,6 +15,7 @@ import WebSocket from 'ws';
 import { ElevenLabsService } from './ElevenLabsService';
 import { supabase } from '../config/supabase';
 import { handleToolCall } from './VapiToolHandlers';
+import { logger } from '../utils/Logger';
 import Anthropic from '@anthropic-ai/sdk';
 
 // Twilio config - support both naming conventions
@@ -174,15 +175,17 @@ export class VoiceCallService {
      * Handle incoming call webhook from Twilio
      */
     async handleIncomingCall(callSid: string, from: string, to: string): Promise<string> {
-        console.log(`[VoiceCall] Incoming call ${callSid} from ${from}`);
+        logger.info(`Incoming call started`, { correlation_id: callSid, from, to, service: 'VoiceCallService' });
+
 
         try {
             // Look up customer context (with fallback)
             let context: { clientId?: string; clientName?: string; conversationId?: string } = {};
             try {
                 context = await this.getCustomerContext(from);
+                logger.info(`Customer context recovered`, { correlation_id: callSid, clientId: context.clientId, clientName: context.clientName });
             } catch (ctxError: any) {
-                console.warn('[VoiceCall] Failed to get context:', ctxError.message);
+                logger.warn('Failed to get context', ctxError, { correlation_id: callSid });
             }
 
             // Create session
@@ -207,9 +210,9 @@ export class VoiceCallService {
                         status: 'in-progress',
                         started_at: new Date().toISOString()
                     });
-                    console.log('[VoiceCall] Call logged to DB');
+                    logger.debug('Call logged to DB', { correlation_id: callSid });
                 } catch (dbError: any) {
-                    console.warn('[VoiceCall] Failed to log call to DB:', dbError.message);
+                    logger.error('Failed to log call to DB', dbError, { correlation_id: callSid });
                 }
             })();
 
@@ -220,7 +223,7 @@ export class VoiceCallService {
 
             return this.generateGreetingTwiML(greeting, callSid);
         } catch (error: any) {
-            console.error('[VoiceCall] handleIncomingCall fatal error:', error.message, error.stack);
+            logger.error('handleIncomingCall fatal error', error, { correlation_id: callSid });
             // Return a simple greeting anyway
             return this.generateGreetingTwiML('¡Hola! Soy Ara de Extractos EUM. ¿En qué puedo ayudarte?', callSid);
         }
@@ -230,11 +233,11 @@ export class VoiceCallService {
      * Handle speech input from Twilio Gather
      */
     async handleSpeechInput(callSid: string, speechResult: string): Promise<string> {
-        console.log(`[VoiceCall] Speech from ${callSid}: "${speechResult}"`);
+        logger.info(`Received speech input`, { correlation_id: callSid, speech: speechResult });
 
         const session = activeCalls.get(callSid);
         if (!session) {
-            console.error(`[VoiceCall] No session for ${callSid}`);
+            logger.error(`No active session found for call`, null, { correlation_id: callSid });
             return this.generateErrorTwiML();
         }
 
@@ -252,7 +255,7 @@ export class VoiceCallService {
             return this.generateResponseTwiML(response, callSid);
 
         } catch (error: any) {
-            console.error(`[VoiceCall] Error processing speech:`, error.message);
+            logger.error('Error processing speech', error, { correlation_id: callSid });
             return this.generateResponseTwiML(
                 'Disculpa, tuve un problema técnico. ¿Podrías repetir tu pregunta?',
                 callSid
@@ -303,7 +306,7 @@ export class VoiceCallService {
                 finalResponse += block.text;
             } else if (block.type === 'tool_use') {
                 // Execute tool
-                console.log(`[VoiceCall] Tool call: ${block.name}`, block.input);
+                logger.info(`Executing tool: ${block.name}`, { correlation_id: session.callSid, input: block.input });
 
                 const toolResult = await handleToolCall(
                     block.name,
@@ -314,6 +317,8 @@ export class VoiceCallService {
                         customerPhone: session.customerPhone
                     }
                 );
+
+                logger.debug(`Tool execution result`, { correlation_id: session.callSid, tool: block.name, result: toolResult });
 
                 // Get follow-up response from Claude with tool result
                 const followUp = await anthropic.messages.create({
@@ -439,7 +444,7 @@ export class VoiceCallService {
             };
 
         } catch (error: any) {
-            console.error('[VoiceCall] Error getting context:', error.message);
+            logger.error('Error getting context', error);
             return {};
         }
     }
@@ -469,7 +474,7 @@ export class VoiceCallService {
                 statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed']
             });
 
-            console.log(`[VoiceCall] Outbound call initiated: ${call.sid}`);
+            logger.info(`Outbound call initiated`, { correlation_id: call.sid, to: params.phoneNumber });
 
             // Create session
             const session: CallSession = {
@@ -494,7 +499,7 @@ export class VoiceCallService {
             return { success: true, callSid: call.sid };
 
         } catch (error: any) {
-            console.error('[VoiceCall] Outbound call error:', error.message);
+            logger.error('Outbound call failed', error);
             return { success: false, error: error.message };
         }
     }
@@ -503,7 +508,7 @@ export class VoiceCallService {
      * Handle call status updates
      */
     async handleStatusCallback(callSid: string, status: string): Promise<void> {
-        console.log(`[VoiceCall] Status update for ${callSid}: ${status}`);
+        logger.info(`Call status update: ${status}`, { correlation_id: callSid });
 
         // Update database
         await supabase
@@ -530,7 +535,7 @@ export class VoiceCallService {
             await twilioClient.calls(callSid).update({ status: 'completed' });
             activeCalls.delete(callSid);
         } catch (error: any) {
-            console.error(`[VoiceCall] Error ending call ${callSid}:`, error.message);
+            logger.error(`Error ending call`, error, { correlation_id: callSid });
         }
     }
 
