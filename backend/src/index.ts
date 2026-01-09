@@ -39,6 +39,7 @@ import driftRoutes from './routes/driftRoutes'; // NEW: Drift Bot Mission Contro
 import oracleRoutes from './routes/oracleRoutes';
 import ghostbusterRoutes from './routes/ghostbusterRoutes'; // NEW: Oracle Predictive Restocking
 import impersonationRoutes from './routes/impersonationRoutes'; // NEW: User Impersonation
+import productRoutes from './routes/productRoutes'; // NEW: Sales Agent Product Search
 
 import { initCronJobs } from './services/cronService';
 import { startEmailPolling } from './services/emailService';
@@ -173,6 +174,7 @@ app.use('/api/v1/drift', driftRoutes); // NEW: Drift Bot
 app.use('/api/v1/oracle', oracleRoutes);
 app.use('/api/v1/ghostbuster', ghostbusterRoutes); // NEW: Oracle Predictive Restocking
 app.use('/api/v1/impersonation', impersonationRoutes); // NEW: User Impersonation
+app.use('/api/v1/products', productRoutes); // NEW: Sales Agent Product Search
 
 // Telemetry Logs Endpoint (Surgical Injection)
 app.use('/api/v1/logs', logsRoutes); // Telemetry Logs

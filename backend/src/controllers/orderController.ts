@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { supabase } from '../config/supabase';
 import { updateOrderTracking } from '../services/trackingService';
+import { createShopifyDraftOrder } from '../services/shopifyService';
 import { logger } from '../utils/Logger';
 
 /**
@@ -71,5 +72,30 @@ export const refreshOrderTracking = async (req: Request, res: Response) => {
     } catch (error: any) {
         logger.error('[Tracking] Error refreshing tracking:', error, { correlation_id: req.correlationId });
         res.status(500).json({ success: false, error: 'Error refreshing tracking' });
+    }
+};
+
+/**
+ * Create a Shopify Draft Order (Admin/Sales Agent Feature)
+ */
+export const createDraftOrder = async (req: Request, res: Response) => {
+    try {
+        const { items, customerId } = req.body;
+
+        // Basic validation
+        if (!items || !Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({ success: false, error: 'Items required' });
+        }
+
+        const invoiceUrl = await createShopifyDraftOrder(items, customerId);
+
+        if (invoiceUrl) {
+            res.json({ success: true, invoiceUrl });
+        } else {
+            res.status(500).json({ success: false, error: 'Failed to create draft order' });
+        }
+    } catch (error: any) {
+        logger.error('[Orders] Error creating draft:', error, { correlation_id: req.correlationId });
+        res.status(500).json({ success: false, error: error.message });
     }
 };

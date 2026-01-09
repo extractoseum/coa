@@ -292,26 +292,35 @@ export const getShopifyOrderById = async (orderId: string | number): Promise<any
 /**
  * Creates a Draft Order in Shopify and returns the invoice URL
  */
-export const createShopifyDraftOrder = async (items: Array<{ variantId: string | number, quantity: number }>): Promise<string | null> => {
+export const createShopifyDraftOrder = async (items: Array<{ variantId: string | number, quantity: number }>, customerId?: string | number): Promise<string | null> => {
     if (!isShopifyConfigured()) {
         throw new Error('Shopify not configured');
     }
 
     try {
-        console.log('[ShopifyService] Creating Draft Order for items:', items);
+        console.log(`[ShopifyService] Creating Draft Order for items: ${items.length}, customer: ${customerId || 'guest'}`);
+
+        const draftOrderPayload: any = {
+            line_items: items.map(item => ({
+                variant_id: item.variantId,
+                quantity: item.quantity
+            }))
+        };
+
+        if (customerId) {
+            draftOrderPayload.customer = { id: customerId };
+            draftOrderPayload.use_customer_default_address = true;
+        }
 
         const payload = {
-            draft_order: {
-                line_items: items.map(item => ({
-                    variant_id: item.variantId,
-                    quantity: item.quantity
-                }))
-            }
+            draft_order: draftOrderPayload
         };
 
         const response = await shopifyApi.post(`${getBaseUrl()}/draft_orders.json`, payload);
         const draftOrder = response.data.draft_order;
 
+        // If invoice_url is missing (sometimes happens depending on shopify version/permissions), we can construct it or try to finalize.
+        // Ideally it's returned.
         if (draftOrder && draftOrder.invoice_url) {
             console.log('[ShopifyService] Draft Order created:', draftOrder.id, draftOrder.invoice_url);
             return draftOrder.invoice_url;
@@ -320,7 +329,7 @@ export const createShopifyDraftOrder = async (items: Array<{ variantId: string |
         return null;
     } catch (error: any) {
         console.error('[ShopifyService] Error creating Draft Order:', error.response?.data || error.message);
-        throw new Error(`Error creates checkout: ${error.message}`);
+        throw new Error(`Error creating checkout: ${error.message}`);
     }
 };
 

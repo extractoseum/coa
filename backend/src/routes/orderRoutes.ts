@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getMyOrders, getOrderTrackingDetail, refreshOrderTracking } from '../controllers/orderController';
+import { getMyOrders, getOrderTrackingDetail, refreshOrderTracking, createDraftOrder } from '../controllers/orderController';
 import { requireAuth } from '../middleware/authMiddleware';
 
 const router = Router();
@@ -15,5 +15,8 @@ router.get('/:id/tracking', getOrderTrackingDetail);
 
 // Refresh tracking
 router.post('/:id/tracking/refresh', refreshOrderTracking);
+
+// Create Draft Order (Sales Agent)
+router.post('/draft', createDraftOrder);
 
 export default router;

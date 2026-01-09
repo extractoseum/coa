@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
-import { AlertTriangle, LogOut, Clock, User } from 'lucide-react';
+import { AlertTriangle, LogOut, Clock, User, ShoppingBag } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import SalesOrderModal from './SalesOrderModal';
 
 export default function ImpersonationBanner() {
     const { impersonation, endImpersonation, client } = useAuth();
     const [loading, setLoading] = useState(false);
     const [timeRemaining, setTimeRemaining] = useState('');
+    const [showSalesModal, setShowSalesModal] = useState(false);
 
     // Calculate time remaining
     useEffect(() => {
@@ -49,6 +51,14 @@ export default function ImpersonationBanner() {
         <div className="fixed top-0 left-0 right-0 z-[100] bg-gradient-to-r from-red-600 to-orange-600 text-white shadow-lg">
             <div className="max-w-7xl mx-auto px-4 py-2 flex items-center justify-between">
                 <div className="flex items-center gap-3">
+                    {/* Sales Agent Trigger */}
+                    <button
+                        onClick={() => setShowSalesModal(true)}
+                        className="mr-4 px-3 py-1 bg-white/20 hover:bg-white/30 text-white rounded-lg flex items-center gap-2 font-medium transition-colors"
+                    >
+                        <ShoppingBag className="w-4 h-4" />
+                        <span className="hidden md:inline">Crear Pedido</span>
+                    </button>
                     <AlertTriangle className="w-5 h-5 animate-pulse" />
                     <div className="flex items-center gap-2">
                         <User className="w-4 h-4" />
@@ -85,6 +95,11 @@ export default function ImpersonationBanner() {
                     </button>
                 </div>
             </div>
+
+            {/* Sales Modal */}
+            {showSalesModal && (
+                <SalesOrderModal onClose={() => setShowSalesModal(false)} />
+            )}
         </div>
     );
 }
