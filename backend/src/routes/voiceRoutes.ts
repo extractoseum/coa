@@ -255,4 +255,83 @@ router.get('/test-incoming', async (req: Request, res: Response) => {
     }
 });
 
+/**
+ * GET /api/voice/debug-client
+ * Debug client lookup by phone number
+ */
+router.get('/debug-client', async (req: Request, res: Response) => {
+    const { phone } = req.query;
+
+    if (!phone || typeof phone !== 'string') {
+        res.json({ error: 'Missing phone parameter. Use ?phone=3327177432' });
+        return;
+    }
+
+    const { supabase } = await import('../config/supabase');
+
+    // Clean phone same way as VoiceCallService
+    const cleanPhone = phone.replace(/\D/g, '').slice(-10);
+
+    // Try different search methods
+    const results: any = {
+        input: phone,
+        cleanedPhone: cleanPhone,
+        searches: []
+    };
+
+    // Search 1: ilike with %cleanPhone%
+    const { data: search1, error: err1 } = await supabase
+        .from('clients')
+        .select('id, name, phone, email')
+        .ilike('phone', `%${cleanPhone}%`)
+        .limit(5);
+
+    results.searches.push({
+        method: `ilike phone '%${cleanPhone}%'`,
+        found: search1?.length || 0,
+        data: search1,
+        error: err1?.message
+    });
+
+    // Search 2: or with 52 prefix
+    const { data: search2, error: err2 } = await supabase
+        .from('clients')
+        .select('id, name, phone, email')
+        .or(`phone.ilike.%${cleanPhone}%,phone.ilike.%52${cleanPhone}%`)
+        .limit(5);
+
+    results.searches.push({
+        method: `or phone contains ${cleanPhone} or 52${cleanPhone}`,
+        found: search2?.length || 0,
+        data: search2,
+        error: err2?.message
+    });
+
+    // Search 3: Get sample of clients to see phone formats
+    const { data: sample } = await supabase
+        .from('clients')
+        .select('id, name, phone')
+        .not('phone', 'is', null)
+        .limit(10);
+
+    results.samplePhoneFormats = sample?.map(c => ({
+        name: c.name?.substring(0, 15),
+        phone: c.phone
+    }));
+
+    // Search 4: Direct text search
+    const { data: search4 } = await supabase
+        .from('clients')
+        .select('id, name, phone')
+        .textSearch('phone', cleanPhone);
+
+    results.searches.push({
+        method: `textSearch ${cleanPhone}`,
+        found: search4?.length || 0,
+        data: search4
+    });
+
+    res.json(results);
+});
+
 export default router;
