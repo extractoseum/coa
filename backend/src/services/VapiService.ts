@@ -103,6 +103,13 @@ export class VapiService {
             };
         }
 
+        console.log(`[VapiService] Call request:`, JSON.stringify({
+            phoneNumberId: callRequest.phoneNumberId,
+            customerNumber: callRequest.customer?.number,
+            assistantId: callRequest.assistantId,
+            hasOverrides: !!callRequest.assistantOverrides
+        }));
+
         const response = await vapiApi.post('/call', callRequest);
 
         // Track in DB

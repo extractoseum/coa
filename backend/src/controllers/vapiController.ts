@@ -30,12 +30,27 @@ export const initiateCall = async (req: Request, res: Response): Promise<void> =
         });
         res.json(call);
     } catch (error: any) {
-        console.error('[Vapi Call Error]', error.message);
+        // Log full error details for debugging
+        console.error('[Vapi Call Error]', {
+            message: error.message,
+            status: error.response?.status,
+            data: error.response?.data,
+            phoneNumber: req.body.phoneNumber
+        });
+
         // Check if it's an API authentication error
         if (error.message?.includes('401') || error.response?.status === 401) {
             res.status(500).json({ error: 'Error de autenticación con VAPI. Verifica la API key.' });
             return;
         }
+
+        // Return detailed error for 400 responses
+        if (error.response?.status === 400) {
+            const vapiError = error.response?.data?.message || error.response?.data?.error || 'Bad request to VAPI';
+            res.status(400).json({ error: `VAPI Error: ${vapiError}` });
+            return;
+        }
+
         res.status(500).json({ error: error.message || 'Error al iniciar llamada' });
     }
 };
