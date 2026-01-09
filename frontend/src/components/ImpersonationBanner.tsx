@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
-import { AlertTriangle, LogOut, Clock, User, ShoppingBag } from 'lucide-react';
+import { AlertTriangle, LogOut, Clock, User, ShoppingBag, ExternalLink } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import SalesAgentPanel from './SalesAgentPanel';
+
+const SHOPIFY_STORE_URL = 'https://extractoseum.com';
 
 export default function ImpersonationBanner() {
     const { impersonation, endImpersonation, client } = useAuth();
@@ -45,6 +47,15 @@ export default function ImpersonationBanner() {
         }
     };
 
+    // Open Shopify store with impersonation token in URL
+    const handleOpenStore = () => {
+        const token = localStorage.getItem('token');
+        if (token) {
+            // Open store with token parameter for widget to detect
+            window.open(`${SHOPIFY_STORE_URL}?eum_token=${encodeURIComponent(token)}`, '_blank');
+        }
+    };
+
     if (!impersonation.isImpersonating) return null;
 
     return (
@@ -55,10 +66,18 @@ export default function ImpersonationBanner() {
                         {/* Sales Agent Trigger */}
                         <button
                             onClick={() => setShowSalesModal(true)}
-                            className="mr-4 px-3 py-1 bg-white/20 hover:bg-white/30 text-white rounded-lg flex items-center gap-2 font-medium transition-colors"
+                            className="px-3 py-1 bg-white/20 hover:bg-white/30 text-white rounded-lg flex items-center gap-2 font-medium transition-colors"
                         >
                             <ShoppingBag className="w-4 h-4" />
                             <span className="hidden md:inline">Crear Pedido</span>
+                        </button>
+                        {/* Open Store Button */}
+                        <button
+                            onClick={handleOpenStore}
+                            className="mr-4 px-3 py-1 bg-green-500/30 hover:bg-green-500/50 text-white rounded-lg flex items-center gap-2 font-medium transition-colors"
+                        >
+                            <ExternalLink className="w-4 h-4" />
+                            <span className="hidden md:inline">Abrir Tienda</span>
                         </button>
                         <AlertTriangle className="w-5 h-5 animate-pulse" />
                         <div className="flex items-center gap-2">

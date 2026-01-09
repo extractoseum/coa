@@ -439,6 +439,94 @@ export const getContactSnapshot = async (req: Request, res: Response): Promise<v
     }
 };
 
+/**
+ * Get conversation and messages for a specific client (by client_id)
+ * Used by Sales Agent Panel during impersonation
+ */
+export const getClientConversation = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { clientId } = req.params;
+
+        if (!clientId) {
+            res.status(400).json({ success: false, error: 'Missing clientId' });
+            return;
+        }
+
+        // 1. Get client info (phone/email)
+        const { data: client, error: clientError } = await supabase
+            .from('clients')
+            .select('id, phone, email, name')
+            .eq('id', clientId)
+            .single();
+
+        if (clientError || !client) {
+            res.status(404).json({ success: false, error: 'Client not found' });
+            return;
+        }
+
+        // 2. Find conversation by phone or email
+        let conversation = null;
+
+        // Try by phone first (most common for WhatsApp)
+        if (client.phone) {
+            const cleanPhone = client.phone.replace(/\D/g, '');
+            const { data: convByPhone } = await supabase
+                .from('conversations')
+                .select('*')
+                .or(`contact_handle.ilike.%${cleanPhone.slice(-10)}`)
+                .order('last_message_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            if (convByPhone) {
+                conversation = convByPhone;
+            }
+        }
+
+        // If no conversation by phone, try email
+        if (!conversation && client.email) {
+            const { data: convByEmail } = await supabase
+                .from('conversations')
+                .select('*')
+                .eq('contact_handle', client.email)
+                .order('last_message_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            if (convByEmail) {
+                conversation = convByEmail;
+            }
+        }
+
+        if (!conversation) {
+            res.json({
+                success: true,
+                data: {
+                    client,
+                    conversation: null,
+                    messages: []
+                }
+            });
+            return;
+        }
+
+        // 3. Get messages for this conversation
+        const messages = await crmService.getMessages(conversation.id);
+
+        res.json({
+            success: true,
+            data: {
+                client,
+                conversation,
+                messages
+            }
+        });
+    } catch (error: any) {
+        console.error('[CRM] getClientConversation error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
 export const getClientOrders = async (req: Request, res: Response): Promise<void> => {
     try {
         const { handle } = req.params;

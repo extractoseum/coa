@@ -392,11 +392,30 @@ export const getWidgetScript = async (req: Request, res: Response) => {
     const API_BASE = '${APP_URL}/api/v1/shopify-app';
     const COA_DOMAIN = '${APP_URL}';
 
+    // Get token from URL parameter or localStorage
+    function getToken() {
+        // First check URL parameter (from "Abrir Tienda" button)
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlToken = urlParams.get('eum_token');
+        if (urlToken) {
+            // Store it for future page navigations
+            localStorage.setItem('eum_sales_agent_token', urlToken);
+            // Clean up URL (remove token from visible URL)
+            const cleanUrl = window.location.href.split('?')[0];
+            const otherParams = new URLSearchParams(window.location.search);
+            otherParams.delete('eum_token');
+            const newUrl = otherParams.toString() ? cleanUrl + '?' + otherParams.toString() : cleanUrl;
+            window.history.replaceState({}, '', newUrl);
+            return urlToken;
+        }
+        // Fallback to localStorage
+        return localStorage.getItem('eum_sales_agent_token');
+    }
+
     // Check if we should show the widget
     async function checkSession() {
         try {
-            // Get token from localStorage (shared via postMessage from COA app)
-            const token = localStorage.getItem('eum_sales_agent_token');
+            const token = getToken();
             if (!token) return null;
 
             const res = await fetch(API_BASE + '/session', {

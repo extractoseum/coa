@@ -1,6 +1,6 @@
 
 import express from 'express';
-import { getColumns, moveConversation, handleInbound, updateColumnConfig, getConversations, createConversation, getMessages, sendMessage, archiveConversation, deleteConversation, getContactSnapshot, getClientOrders, getOrderDetails, createCoupon, searchClients, startConversationWithClient, createeDarkStoreTicket, getConversationTickets, updateTicketStatus } from '../controllers/crmController';
+import { getColumns, moveConversation, handleInbound, updateColumnConfig, getConversations, createConversation, getMessages, sendMessage, archiveConversation, deleteConversation, getContactSnapshot, getClientOrders, getOrderDetails, createCoupon, searchClients, startConversationWithClient, createeDarkStoreTicket, getConversationTickets, updateTicketStatus, getClientConversation } from '../controllers/crmController';
 import { requireAuth, requireRole } from '../middleware/authMiddleware';
 
 const router = express.Router();
@@ -32,6 +32,9 @@ router.post('/coupons', requireAuth, requireRole('admin', 'super_admin', 'staff'
 // Client search and conversation initiation
 router.get('/clients/search', requireAuth, requireRole('admin', 'super_admin', 'staff'), searchClients);
 router.post('/clients/start-conversation', requireAuth, requireRole('admin', 'super_admin', 'staff'), startConversationWithClient);
+
+// Get conversation and messages for a specific client (used by Sales Agent Panel during impersonation)
+router.get('/clients/:clientId/conversation', requireAuth, getClientConversation);
 
 // eDarkStore Ticket System
 router.post('/tickets/edarkstore', requireAuth, requireRole('admin', 'super_admin', 'staff'), createeDarkStoreTicket);

@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { X, ShoppingCart, Search, Plus, Trash2, Link as LinkIcon, User, Package, ExternalLink } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { X, ShoppingCart, Search, Plus, Trash2, Link as LinkIcon, User, Package, ExternalLink, MessageCircle, Send, Loader2 } from 'lucide-react';
 import { authFetch } from '../contexts/AuthContext';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -26,6 +26,20 @@ interface CartItem {
     quantity: number;
 }
 
+interface Message {
+    id: string;
+    content: string;
+    direction: 'inbound' | 'outbound';
+    created_at: string;
+    type?: string;
+}
+
+interface Conversation {
+    id: string;
+    contact_handle: string;
+    channel: string;
+}
+
 interface SalesAgentPanelProps {
     onClose: () => void;
 }
@@ -39,10 +53,68 @@ export default function SalesAgentPanel({ onClose }: SalesAgentPanelProps) {
     const [linkLoading, setLinkLoading] = useState(false);
     const [invoiceUrl, setInvoiceUrl] = useState<string | null>(null);
     const [error, setError] = useState('');
-    const [activeTab, setActiveTab] = useState<'search' | 'cart'>('search');
+    const [activeTab, setActiveTab] = useState<'chat' | 'search' | 'cart'>('chat');
 
-    // Switch to cart tab automatically when adding item if specific UX desired, but maybe just show badge.
-    // Or keep them stacked.
+    // Chat state
+    const [messages, setMessages] = useState<Message[]>([]);
+    const [conversation, setConversation] = useState<Conversation | null>(null);
+    const [chatLoading, setChatLoading] = useState(true);
+    const [newMessage, setNewMessage] = useState('');
+    const [sendingMessage, setSendingMessage] = useState(false);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    // Scroll to bottom when new messages arrive
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    };
+
+    useEffect(() => {
+        if (activeTab === 'chat') {
+            scrollToBottom();
+        }
+    }, [messages, activeTab]);
+
+    // Load conversation and messages for impersonated client
+    useEffect(() => {
+        const loadConversation = async () => {
+            if (!client?.id) return;
+            setChatLoading(true);
+            try {
+                const res = await authFetch(`/api/v1/crm/clients/${client.id}/conversation`);
+                const data = await res.json();
+                if (data.success && data.data) {
+                    setConversation(data.data.conversation);
+                    setMessages(data.data.messages || []);
+                }
+            } catch (err) {
+                console.error('Error loading conversation:', err);
+            } finally {
+                setChatLoading(false);
+            }
+        };
+        loadConversation();
+    }, [client?.id]);
+
+    // Send message to conversation
+    const handleSendMessage = async () => {
+        if (!newMessage.trim() || !conversation?.id) return;
+        setSendingMessage(true);
+        try {
+            const res = await authFetch(`/api/v1/crm/conversations/${conversation.id}/messages`, {
+                method: 'POST',
+                body: JSON.stringify({ content: newMessage, role: 'assistant' })
+            });
+            const data = await res.json();
+            if (data.success) {
+                setMessages([...messages, data.data]);
+                setNewMessage('');
+            }
+        } catch (err) {
+            console.error('Error sending message:', err);
+        } finally {
+            setSendingMessage(false);
+        }
+    };
 
     useEffect(() => {
         const timer = setTimeout(async () => {
@@ -145,6 +217,16 @@ export default function SalesAgentPanel({ onClose }: SalesAgentPanelProps) {
                 {/* Tabs / Navigation */}
                 <div className="flex p-2 gap-2 border-b border-white/10">
                     <button
+                        onClick={() => setActiveTab('chat')}
+                        className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'chat' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
+                    >
+                        <MessageCircle className="w-4 h-4" />
+                        Chat
+                        {messages.length > 0 && (
+                            <span className="bg-green-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{messages.length}</span>
+                        )}
+                    </button>
+                    <button
                         onClick={() => setActiveTab('search')}
                         className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === 'search' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
                     >
@@ -165,6 +247,80 @@ export default function SalesAgentPanel({ onClose }: SalesAgentPanelProps) {
 
                 {/* Main Content Area */}
                 <div className="flex-1 overflow-hidden flex flex-col">
+
+                    {/* CHAT TAB */}
+                    {activeTab === 'chat' && (
+                        <div className="flex-1 flex flex-col overflow-hidden">
+                            {/* Messages Area */}
+                            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                                {chatLoading ? (
+                                    <div className="flex items-center justify-center h-full">
+                                        <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
+                                    </div>
+                                ) : messages.length === 0 ? (
+                                    <div className="flex flex-col items-center justify-center h-full text-gray-500">
+                                        <MessageCircle className="w-12 h-12 mb-3 opacity-20" />
+                                        <p className="text-sm">Sin historial de conversación</p>
+                                        <p className="text-xs opacity-60 mt-1">Este cliente no tiene mensajes</p>
+                                    </div>
+                                ) : (
+                                    <>
+                                        {messages.map((msg) => (
+                                            <div
+                                                key={msg.id}
+                                                className={`flex flex-col ${msg.direction === 'outbound' ? 'items-end' : 'items-start'}`}
+                                            >
+                                                <div
+                                                    className={`max-w-[85%] rounded-2xl p-3 text-sm ${
+                                                        msg.direction === 'outbound'
+                                                            ? 'bg-blue-500/20 border border-blue-500/30 rounded-br-none'
+                                                            : 'bg-white/5 border border-white/10 rounded-bl-none'
+                                                    }`}
+                                                >
+                                                    <div className="whitespace-pre-wrap leading-relaxed text-white">
+                                                        {msg.content}
+                                                    </div>
+                                                </div>
+                                                <span className="text-[9px] opacity-30 mt-1 font-mono px-1">
+                                                    {msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--'}
+                                                    {' • '}
+                                                    {msg.direction === 'outbound' ? 'AGENTE' : 'CLIENTE'}
+                                                </span>
+                                            </div>
+                                        ))}
+                                        <div ref={messagesEndRef} />
+                                    </>
+                                )}
+                            </div>
+
+                            {/* Message Input */}
+                            {conversation && (
+                                <div className="p-3 border-t border-white/10 bg-gray-800/50">
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            value={newMessage}
+                                            onChange={(e) => setNewMessage(e.target.value)}
+                                            onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSendMessage())}
+                                            placeholder="Escribe un mensaje..."
+                                            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                                        />
+                                        <button
+                                            onClick={handleSendMessage}
+                                            disabled={sendingMessage || !newMessage.trim()}
+                                            className="p-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+                                        >
+                                            {sendingMessage ? (
+                                                <Loader2 className="w-5 h-5 animate-spin" />
+                                            ) : (
+                                                <Send className="w-5 h-5" />
+                                            )}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     {/* SEARCH TAB */}
                     {activeTab === 'search' && (
