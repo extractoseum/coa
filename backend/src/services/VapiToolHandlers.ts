@@ -93,6 +93,18 @@ function getFallbackMappings(): Record<string, string[]> {
         'caramelo': ['candy', 'caramel', 'cream', 'comestibles'],
         'caramelos': ['candy', 'caramel', 'cream', 'comestibles'],
         'dulces': ['candy', 'comestibles', 'gummies', 'bites'],
+        // Efecto mappings - energizante vs relajante
+        'energizante': ['sour', 'extreme', 'gummies', 'candy', 'hot bites', 'delta', 'hhc'],
+        'energizantes': ['sour', 'extreme', 'gummies', 'candy', 'hot bites', 'delta', 'hhc'],
+        'energia': ['sour', 'extreme', 'gummies', 'candy', 'delta', 'hhc'],
+        'activo': ['sour', 'extreme', 'gummies', 'candy', 'delta'],
+        'activar': ['sour', 'extreme', 'gummies', 'candy', 'delta', 'hhc'],
+        'foco': ['sour', 'extreme', 'gummies', 'candy', 'delta'],
+        'concentracion': ['sour', 'extreme', 'gummies', 'candy'],
+        'relajante': ['cream', 'candy', 'caramel', 'cbd', 'tintura'],
+        'relajar': ['cream', 'candy', 'caramel', 'cbd', 'tintura'],
+        'dormir': ['cream', 'candy', 'cbn', 'cbd', 'tintura'],
+        'extreme': ['sour', 'extreme', 'gummies', 'candy'],
     };
 }
 

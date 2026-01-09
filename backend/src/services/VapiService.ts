@@ -2,7 +2,26 @@
 import axios from 'axios';
 import { supabase } from '../config/supabase';
 import { normalizePhone } from '../utils/phoneUtils';
-import { handleToolCall } from './VapiToolHandlers';
+import { VapiReplicaService } from './VapiReplicaService';
+const vapiReplica = new VapiReplicaService();
+
+// ... imports
+
+// ... inside handleToolCalls loop
+
+// Execute via centralized handler
+let result;
+if (functionName === 'consult_crm') {
+    console.log(`[VapiService] Replican Brain Activated for transcript: "${parsedArgs.transcript}"`);
+    result = await vapiReplica.handleConsultCRM(parsedArgs.transcript, {
+        conversationId: context.conversationId,
+        clientId: context.clientId,
+        customerPhone: context.customerPhone
+    });
+} else {
+    result = await handleToolCall(functionName, parsedArgs, context);
+}
+
 
 const VAPI_API_KEY = process.env.VAPI_API_KEY;
 const VAPI_BASE_URL = 'https://api.vapi.ai';
@@ -361,7 +380,17 @@ export class VapiService {
                     : functionArgs || {};
 
                 // Execute via centralized handler
-                const result = await handleToolCall(functionName, parsedArgs, context);
+                let result;
+                if (functionName === 'consult_crm') {
+                    console.log(`[VapiService] Replican Brain Activated for transcript: "${parsedArgs.transcript}"`);
+                    result = await vapiReplica.handleConsultCRM(parsedArgs.transcript, {
+                        conversationId: context.conversationId,
+                        clientId: context.clientId,
+                        customerPhone: context.customerPhone
+                    });
+                } else {
+                    result = await handleToolCall(functionName, parsedArgs, context);
+                }
                 const duration = Date.now() - startTime;
 
                 console.log(`[VapiService] Tool success (${duration}ms)`);
