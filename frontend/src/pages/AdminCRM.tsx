@@ -623,7 +623,11 @@ const AdminCRM: React.FC = () => {
                 },
                 (payload: any) => {
                     if (payload.eventType === 'INSERT') {
-                        setMessages((prev) => [...prev, payload.new]);
+                        setMessages((prev) => {
+                            // Avoid duplicates
+                            if (prev.some(m => m.id === payload.new.id)) return prev;
+                            return [...prev, payload.new];
+                        });
                         setTimeout(scrollToBottom, 200);
                     } else if (payload.eventType === 'UPDATE') {
                         setMessages((prev) => prev.map(m => m.id === payload.new.id ? payload.new : m));
@@ -636,6 +640,40 @@ const AdminCRM: React.FC = () => {
             supabase.removeChannel(channel);
         };
     }, [selectedConv]);
+
+    // Polling fallback: fetch new messages every 3 seconds as backup to Realtime
+    useEffect(() => {
+        if (!selectedConv || !token) return;
+
+        const pollMessages = async () => {
+            try {
+                const res = await fetch(`/api/v1/crm/conversations/${selectedConv.id}/messages`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                const data = await res.json();
+                if (data.success && data.data) {
+                    const newMsgs = data.data;
+                    setMessages((prev: any[]) => {
+                        // Check if there are genuinely new messages by comparing the last message ID
+                        const prevLastId = prev.length > 0 ? prev[prev.length - 1]?.id : null;
+                        const newLastId = newMsgs.length > 0 ? newMsgs[newMsgs.length - 1]?.id : null;
+
+                        // If different count or different last message, update
+                        if (newMsgs.length !== prev.length || prevLastId !== newLastId) {
+                            setTimeout(scrollToBottom, 200);
+                            return newMsgs;
+                        }
+                        return prev;
+                    });
+                }
+            } catch (err) {
+                console.error('Polling error:', err);
+            }
+        };
+
+        const interval = setInterval(pollMessages, 3000);
+        return () => clearInterval(interval);
+    }, [selectedConv, token]);
 
     // Customer 360 Fetcher
     useEffect(() => {

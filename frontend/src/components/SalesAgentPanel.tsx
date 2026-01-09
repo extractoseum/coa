@@ -117,7 +117,11 @@ export default function SalesAgentPanel({ onClose }: SalesAgentPanelProps) {
                 },
                 (payload: any) => {
                     if (payload.eventType === 'INSERT') {
-                        setMessages((prev) => [...prev, payload.new]);
+                        setMessages((prev) => {
+                            // Avoid duplicates
+                            if (prev.some(m => m.id === payload.new.id)) return prev;
+                            return [...prev, payload.new];
+                        });
                         setTimeout(scrollToBottom, 200);
                     } else if (payload.eventType === 'UPDATE') {
                         setMessages((prev) => prev.map(m => m.id === payload.new.id ? payload.new : m));
@@ -130,6 +134,38 @@ export default function SalesAgentPanel({ onClose }: SalesAgentPanelProps) {
             supabase.removeChannel(channel);
         };
     }, [conversation?.id]);
+
+    // Polling fallback: fetch new messages every 3 seconds as backup to Realtime
+    useEffect(() => {
+        if (!conversation?.id || !client?.id) return;
+
+        const pollMessages = async () => {
+            try {
+                const res = await authFetch(`/api/v1/crm/clients/${client.id}/conversation`);
+                const data = await res.json();
+                if (data.success && data.data?.messages) {
+                    const newMsgs = data.data.messages;
+                    setMessages((prev) => {
+                        // Check if there are genuinely new messages by comparing the last message ID
+                        const prevLastId = prev.length > 0 ? prev[prev.length - 1]?.id : null;
+                        const newLastId = newMsgs.length > 0 ? newMsgs[newMsgs.length - 1]?.id : null;
+
+                        // If different count or different last message, update
+                        if (newMsgs.length !== prev.length || prevLastId !== newLastId) {
+                            setTimeout(scrollToBottom, 200);
+                            return newMsgs;
+                        }
+                        return prev;
+                    });
+                }
+            } catch (err) {
+                console.error('Polling error:', err);
+            }
+        };
+
+        const interval = setInterval(pollMessages, 3000);
+        return () => clearInterval(interval);
+    }, [conversation?.id, client?.id]);
 
     // Send message to conversation
     const handleSendMessage = async () => {
