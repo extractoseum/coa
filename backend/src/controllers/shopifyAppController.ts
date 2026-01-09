@@ -487,91 +487,112 @@ export const getWidgetScript = async (req: Request, res: Response) => {
 
     // Create the floating widget
     function createWidget(session) {
+        // Create toggle button OUTSIDE the widget so it stays visible
+        const toggle = document.createElement('div');
+        toggle.id = 'eum-sales-agent-toggle';
+        toggle.innerHTML = 'Sales Agent';
+        document.body.appendChild(toggle);
+
+        // Create the main widget panel
         const widget = document.createElement('div');
         widget.id = 'eum-sales-agent-widget';
         widget.innerHTML = \`
             <style>
+                #eum-sales-agent-toggle {
+                    position: fixed !important;
+                    top: 50% !important;
+                    right: 0 !important;
+                    transform: translateY(-50%) !important;
+                    background: linear-gradient(135deg, #dc2626, #ea580c) !important;
+                    color: white !important;
+                    padding: 16px 10px !important;
+                    border-radius: 8px 0 0 8px !important;
+                    cursor: pointer !important;
+                    z-index: 2147483647 !important;
+                    writing-mode: vertical-rl !important;
+                    font-weight: bold !important;
+                    font-size: 14px !important;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+                    box-shadow: -2px 0 10px rgba(0,0,0,0.3) !important;
+                    text-transform: uppercase !important;
+                    letter-spacing: 1px !important;
+                }
+                #eum-sales-agent-toggle:hover {
+                    padding-right: 14px !important;
+                }
                 #eum-sales-agent-widget {
-                    position: fixed;
-                    top: 0;
-                    right: 0;
-                    width: 400px;
-                    height: 100vh;
-                    background: #1a1a2e;
-                    color: white;
-                    box-shadow: -4px 0 20px rgba(0,0,0,0.3);
-                    z-index: 999999;
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                    display: flex;
-                    flex-direction: column;
-                    transform: translateX(100%);
-                    transition: transform 0.3s ease;
+                    position: fixed !important;
+                    top: 0 !important;
+                    right: 0 !important;
+                    width: 400px !important;
+                    height: 100vh !important;
+                    background: #1a1a2e !important;
+                    color: white !important;
+                    box-shadow: -4px 0 20px rgba(0,0,0,0.3) !important;
+                    z-index: 2147483646 !important;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+                    display: flex !important;
+                    flex-direction: column !important;
+                    transform: translateX(100%) !important;
+                    transition: transform 0.3s ease !important;
                 }
                 #eum-sales-agent-widget.open {
-                    transform: translateX(0);
+                    transform: translateX(0) !important;
                 }
-                #eum-sales-agent-toggle {
-                    position: fixed;
-                    top: 50%;
-                    right: 0;
-                    transform: translateY(-50%);
-                    background: linear-gradient(135deg, #dc2626, #ea580c);
-                    color: white;
-                    padding: 12px 8px;
-                    border-radius: 8px 0 0 8px;
-                    cursor: pointer;
-                    z-index: 999998;
-                    writing-mode: vertical-rl;
-                    font-weight: bold;
-                    font-size: 12px;
+                #eum-sales-agent-widget.open + #eum-sales-agent-toggle,
+                #eum-sales-agent-widget.open ~ #eum-sales-agent-toggle {
+                    right: 400px !important;
                 }
                 .eum-header {
-                    background: linear-gradient(135deg, #dc2626, #ea580c);
-                    padding: 16px;
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
+                    background: linear-gradient(135deg, #dc2626, #ea580c) !important;
+                    padding: 16px !important;
+                    display: flex !important;
+                    justify-content: space-between !important;
+                    align-items: center !important;
                 }
                 .eum-content {
-                    flex: 1;
-                    overflow-y: auto;
-                    padding: 16px;
+                    flex: 1 !important;
+                    overflow-y: auto !important;
+                    padding: 16px !important;
                 }
                 .eum-search {
-                    width: 100%;
-                    padding: 12px;
-                    background: rgba(255,255,255,0.1);
-                    border: 1px solid rgba(255,255,255,0.2);
-                    border-radius: 8px;
-                    color: white;
-                    margin-bottom: 16px;
+                    width: 100% !important;
+                    padding: 12px !important;
+                    background: rgba(255,255,255,0.1) !important;
+                    border: 1px solid rgba(255,255,255,0.2) !important;
+                    border-radius: 8px !important;
+                    color: white !important;
+                    margin-bottom: 16px !important;
+                    box-sizing: border-box !important;
+                }
+                .eum-search::placeholder {
+                    color: rgba(255,255,255,0.5) !important;
                 }
                 .eum-product {
-                    background: rgba(255,255,255,0.05);
-                    padding: 12px;
-                    border-radius: 8px;
-                    margin-bottom: 8px;
+                    background: rgba(255,255,255,0.05) !important;
+                    padding: 12px !important;
+                    border-radius: 8px !important;
+                    margin-bottom: 8px !important;
                 }
                 .eum-cart {
-                    border-top: 1px solid rgba(255,255,255,0.1);
-                    padding: 16px;
-                    background: rgba(0,0,0,0.2);
+                    border-top: 1px solid rgba(255,255,255,0.1) !important;
+                    padding: 16px !important;
+                    background: rgba(0,0,0,0.2) !important;
                 }
                 .eum-btn {
-                    width: 100%;
-                    padding: 12px;
-                    background: #3b82f6;
-                    color: white;
-                    border: none;
-                    border-radius: 8px;
-                    cursor: pointer;
-                    font-weight: bold;
+                    width: 100% !important;
+                    padding: 12px !important;
+                    background: #3b82f6 !important;
+                    color: white !important;
+                    border: none !important;
+                    border-radius: 8px !important;
+                    cursor: pointer !important;
+                    font-weight: bold !important;
                 }
                 .eum-btn:hover {
-                    background: #2563eb;
+                    background: #2563eb !important;
                 }
             </style>
-            <div id="eum-sales-agent-toggle">Sales Agent</div>
             <div class="eum-header">
                 <div>
                     <div style="font-weight: bold;">Sales Agent Mode</div>
@@ -591,9 +612,15 @@ export const getWidgetScript = async (req: Request, res: Response) => {
         \`;
         document.body.appendChild(widget);
 
-        // Toggle widget
-        document.getElementById('eum-sales-agent-toggle').onclick = function() {
+        // Toggle widget on click
+        toggle.onclick = function() {
             widget.classList.toggle('open');
+            // Move toggle with panel
+            if (widget.classList.contains('open')) {
+                toggle.style.right = '400px';
+            } else {
+                toggle.style.right = '0';
+            }
         };
 
         // Search functionality
