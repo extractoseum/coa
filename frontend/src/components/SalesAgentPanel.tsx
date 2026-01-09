@@ -2,6 +2,12 @@ import { useState, useEffect, useRef } from 'react';
 import { X, ShoppingCart, Search, Plus, Trash2, Link as LinkIcon, User, Package, ExternalLink, MessageCircle, Send, Loader2 } from 'lucide-react';
 import { authFetch } from '../contexts/AuthContext';
 import { useAuth } from '../contexts/AuthContext';
+import { createClient } from '@supabase/supabase-js';
+
+// Supabase client for realtime subscriptions
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://placeholder.supabase.co';
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'placeholder-key';
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 interface Product {
     id: number;
@@ -94,6 +100,36 @@ export default function SalesAgentPanel({ onClose }: SalesAgentPanelProps) {
         };
         loadConversation();
     }, [client?.id]);
+
+    // Realtime subscription for live messages
+    useEffect(() => {
+        if (!conversation?.id) return;
+
+        const channel = supabase
+            .channel(`sales_agent_messages_${conversation.id}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'crm_messages',
+                    filter: `conversation_id=eq.${conversation.id}`
+                },
+                (payload: any) => {
+                    if (payload.eventType === 'INSERT') {
+                        setMessages((prev) => [...prev, payload.new]);
+                        setTimeout(scrollToBottom, 200);
+                    } else if (payload.eventType === 'UPDATE') {
+                        setMessages((prev) => prev.map(m => m.id === payload.new.id ? payload.new : m));
+                    }
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [conversation?.id]);
 
     // Send message to conversation
     const handleSendMessage = async () => {
