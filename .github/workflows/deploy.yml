@@ -172,6 +172,8 @@ jobs:
               sed -i '/^VAPI_PRIVATE_KEY=/d' .env 2>/dev/null || true
               sed -i '/^VAPI_PUBLIC_KEY=/d' .env 2>/dev/null || true
               sed -i '/^VAPI_API_KEY=/d' .env 2>/dev/null || true
+              sed -i '/^VAPI_PHONE_NUMBER_ID=/d' .env 2>/dev/null || true
+              sed -i '/^VAPI_DEFAULT_ASSISTANT_ID=/d' .env 2>/dev/null || true
               sed -i '/^# VAPI/d' .env 2>/dev/null || true
 
               echo "" >> .env
@@ -179,6 +181,8 @@ jobs:
               echo "VAPI_PRIVATE_KEY=${{ secrets.VAPI_PRIVATE_KEY }}" >> .env
               echo "VAPI_PUBLIC_KEY=${{ secrets.VAPI_PUBLIC_KEY }}" >> .env
               echo "VAPI_API_KEY=${{ secrets.VAPI_PRIVATE_KEY }}" >> .env
+              echo "VAPI_PHONE_NUMBER_ID=${{ secrets.VAPI_PHONE_NUMBER_ID }}" >> .env
+              echo "VAPI_DEFAULT_ASSISTANT_ID=${{ secrets.VAPI_DEFAULT_ASSISTANT_ID }}" >> .env
             fi
 
             npm install --omit=dev

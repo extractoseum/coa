@@ -1,9 +1,15 @@
 import axios from 'axios';
 import { supabase } from '../config/supabase';
-import { normalizePhone, cleanupPhone } from '../utils/phoneUtils';
+import { normalizePhone } from '../utils/phoneUtils';
+import { vapiContextService } from './VapiContextService';
+import { handleToolCall } from './VapiToolHandlers';
 
 const VAPI_API_KEY = process.env.VAPI_API_KEY;
 const VAPI_BASE_URL = 'https://api.vapi.ai';
+
+// Phone number IDs for different countries
+const VAPI_PHONE_MX = process.env.VAPI_PHONE_NUMBER_ID || process.env.VAPI_PHONE_NUMBER_ID_MX;
+const VAPI_PHONE_US = process.env.VAPI_PHONE_NUMBER_ID_US;
 
 const vapiApi = axios.create({
     baseURL: VAPI_BASE_URL,
@@ -16,7 +22,19 @@ const vapiApi = axios.create({
 export class VapiService {
 
     /**
-     * Initiate outbound call to customer
+     * Determine which VAPI phone number to use based on destination
+     */
+    private getPhoneNumberId(destinationPhone: string): string {
+        // If phone starts with +1, use US number if available
+        if (destinationPhone.startsWith('+1') && VAPI_PHONE_US) {
+            return VAPI_PHONE_US;
+        }
+        // Default to MX number
+        return VAPI_PHONE_MX || '';
+    }
+
+    /**
+     * Initiate outbound call to customer with context injection
      */
     async createCall(params: {
         phoneNumber: string;
@@ -28,20 +46,63 @@ export class VapiService {
         // Normalize phone (ensure it has + if missing, or handle Mexico specific)
         const normalizedPhone = normalizePhone(params.phoneNumber, 'vapi');
 
-        console.log(`[VapiService] Initiating call to ${normalizedPhone} (Conv: ${params.conversationId})`);
+        // Determine which VAPI phone to use
+        const phoneNumberId = this.getPhoneNumberId(normalizedPhone);
+        if (!phoneNumberId) {
+            throw new Error('VAPI_PHONE_NUMBER_ID not configured. Add it to GitHub Secrets and redeploy.');
+        }
 
-        const response = await vapiApi.post('/call', {
-            phoneNumberId: process.env.VAPI_PHONE_NUMBER_ID,
+        console.log(`[VapiService] Initiating call to ${normalizedPhone} (Conv: ${params.conversationId}) using phone ${phoneNumberId.substring(0, 8)}...`);
+
+        // Build context for the call
+        let contextData: { contextMessage: string; firstMessage: string; client: any; conversation: any } = {
+            contextMessage: '',
+            firstMessage: '',
+            client: null,
+            conversation: null
+        };
+        if (params.conversationId) {
+            contextData = await vapiContextService.buildContextForConversation(params.conversationId);
+        } else {
+            contextData = await vapiContextService.buildContextForPhone(params.phoneNumber);
+        }
+
+        const assistantId = params.assistantId || process.env.VAPI_DEFAULT_ASSISTANT_ID;
+        if (!assistantId) {
+            throw new Error('VAPI_DEFAULT_ASSISTANT_ID not configured. Add it to GitHub Secrets and redeploy.');
+        }
+
+        // Build request with context injection via assistantOverrides
+        const callRequest: any = {
+            phoneNumberId,
             customer: {
                 number: normalizedPhone,
-                name: params.customerName
+                name: params.customerName || contextData.client?.name
             },
-            assistantId: params.assistantId || process.env.VAPI_DEFAULT_ASSISTANT_ID,
+            assistantId,
             metadata: {
                 conversationId: params.conversationId,
+                clientId: contextData.client?.client_id,
                 ...params.metadata
             }
-        });
+        };
+
+        // Inject context via assistantOverrides if we have context
+        if (contextData.contextMessage) {
+            callRequest.assistantOverrides = {
+                firstMessage: contextData.firstMessage,
+                model: {
+                    messages: [
+                        {
+                            role: 'system',
+                            content: contextData.contextMessage
+                        }
+                    ]
+                }
+            };
+        }
+
+        const response = await vapiApi.post('/call', callRequest);
 
         // Track in DB
         const { error } = await supabase.from('voice_calls').insert({
@@ -97,67 +158,115 @@ export class VapiService {
     }
 
     /**
-     * Dynamic assistant selection for inbound calls
+     * Dynamic assistant selection for inbound calls with context injection
      */
     private async handleAssistantRequest(call: any) {
-        // Look up by phone number → channel chip → column → assistant
         const phoneNumber = call.customer?.number;
-        console.log(`[VapiService] Assistant Request for ${phoneNumber}`);
+        const phoneNumberId = call.phoneNumberId;
 
-        if (phoneNumber) {
-            // Try to finding matching chip by phone (account_reference) or other logic
-            // This logic assumes we have chips mapped to phone numbers for INBOUND routing
-            // For now, simpler logic: check if client exists and has a preferred agent?
+        console.log(`[VapiService] Assistant Request for ${phoneNumber} via phone ${phoneNumberId?.substring(0, 8)}...`);
 
-            // Simpler V1: Check if there's an active conversation for this number and use its column's assistant
-            // Normalized search
-            // ...
+        // Build context for the caller
+        const contextData = await vapiContextService.buildContextForPhone(phoneNumber);
+
+        // If we found a client, try to get or create conversation for tracking
+        let conversationId: string | undefined;
+        if (contextData.client?.client_id) {
+            // Check for existing conversation or create one
+            const { data: existingConv } = await supabase
+                .from('conversations')
+                .select('id')
+                .eq('client_id', contextData.client.client_id)
+                .eq('is_archived', false)
+                .order('updated_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            conversationId = existingConv?.id;
+
+            // If no conversation, we could create one here for inbound calls
+            if (!conversationId) {
+                const { data: newConv } = await supabase
+                    .from('conversations')
+                    .insert({
+                        client_id: contextData.client.client_id,
+                        handle: phoneNumber,
+                        channel: 'voice',
+                        is_archived: false
+                    })
+                    .select('id')
+                    .single();
+                conversationId = newConv?.id;
+            }
         }
 
-        // Default fallback
-        return { assistantId: process.env.VAPI_DEFAULT_ASSISTANT_ID };
+        const assistantId = process.env.VAPI_DEFAULT_ASSISTANT_ID;
+
+        // Build response with context injection
+        const response: any = {
+            assistantId
+        };
+
+        // Inject context if available
+        if (contextData.contextMessage) {
+            response.assistantOverrides = {
+                firstMessage: contextData.firstMessage,
+                model: {
+                    messages: [
+                        {
+                            role: 'system',
+                            content: contextData.contextMessage
+                        }
+                    ]
+                },
+                metadata: {
+                    conversationId,
+                    clientId: contextData.client?.client_id,
+                    context: 'inbound'
+                }
+            };
+        }
+
+        console.log(`[VapiService] Returning assistant ${assistantId} with ${contextData.contextMessage ? 'context' : 'no context'}`);
+        return response;
     }
 
     /**
-     * Execute tool calls (CRM lookups, COA queries, etc.)
+     * Execute tool calls using VapiToolHandlers
      */
     private async handleToolCalls(message: any) {
         const results = [];
+        const call = message.call;
+
+        // Extract context from call metadata
+        const context = {
+            conversationId: call?.metadata?.conversationId,
+            clientId: call?.metadata?.clientId,
+            customerPhone: call?.customer?.number
+        };
 
         for (const toolCall of message.toolWithToolCallList || []) {
-            let result;
             console.log(`[VapiService] Executing Tool: ${toolCall.function?.name}`);
 
             try {
                 const args = typeof toolCall.function?.arguments === 'string'
                     ? JSON.parse(toolCall.function.arguments)
-                    : toolCall.function?.arguments;
+                    : toolCall.function?.arguments || {};
 
-                switch (toolCall.function?.name) {
-                    case 'lookup_client':
-                        result = await this.lookupClient(args);
-                        break;
-                    case 'get_coa_status':
-                        // start placeholder
-                        // TODO: Implement actual COA PDF generation
-                        const mockPdfUrl = process.env.MOCK_COA_PDF_URL || 'https://extractoseum.com/assets/sample-coa.pdf';
-                        result = { status: 'found', batch: args.batch_number, url: mockPdfUrl };
-                        break;
-                    case 'escalate_to_human':
-                        result = { escalated: true, message: 'Agent notified' };
-                        break;
-                    default:
-                        result = { error: 'Unknown tool' };
-                }
+                // Use centralized tool handler
+                const result = await handleToolCall(toolCall.function?.name, args, context);
+
+                results.push({
+                    toolCallId: toolCall.id,
+                    result: JSON.stringify(result)
+                });
             } catch (e: any) {
-                result = { error: e.message };
+                console.error(`[VapiService] Tool error:`, e.message);
+                results.push({
+                    toolCallId: toolCall.id,
+                    result: JSON.stringify({ success: false, error: e.message })
+                });
             }
-
-            results.push({
-                toolCallId: toolCall.id,
-                result: JSON.stringify(result) // Vapi expects a stringified result often, depending on doc version. 
-                // Vapi docs say: "result": "..." (string) usually.
-            });
         }
 
         return { results };
@@ -207,14 +316,5 @@ export class VapiService {
                 raw_payload: report
             });
         }
-    }
-
-    // Helper functions
-    private async lookupClient(args: { phone?: string; email?: string }) {
-        const query = supabase.from('clients').select('*');
-        if (args.phone) query.ilike('phone', `%${cleanupPhone(args.phone)}%`); // Fuzzy match using last 10
-        if (args.email) query.eq('email', args.email);
-        const { data } = await query.maybeSingle();
-        return data || { found: false };
     }
 }
