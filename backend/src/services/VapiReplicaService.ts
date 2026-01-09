@@ -12,7 +12,7 @@ export class VapiReplicaService {
     /**
      * The Master Method: Takes raw audio transcript, decides intent, runs logic, returns script.
      */
-    async handleConsultCRM(transcript: string, context: ReplicaContext): Promise<{ result: string }> {
+    async handleConsultCRM(transcript: string, context: ReplicaContext): Promise<{ result: string, success: boolean }> {
         console.log(`[VapiReplica] Transcript: "${transcript}"`);
 
         const cleanText = transcript.toLowerCase();
@@ -63,7 +63,7 @@ export class VapiReplicaService {
 
                 case 'WHATSAPP_CONFIRM':
                     // If user says "mandamelo" or "por whatsapp"
-                    return { result: "Va, te lo mando ahorita mismo. `[chuckle]` ¿Me confirmas si te llega?" };
+                    return { result: "Va, te lo mando ahorita mismo. `[chuckle]` ¿Me confirmas si te llega?", success: true };
 
                 default:
                     // Fallback / General QA
@@ -75,7 +75,7 @@ export class VapiReplicaService {
             responseText = "`[sigh]` Ay, se me trabó el sistema un segundito. ¿Me repites?";
         }
 
-        return { result: responseText };
+        return { result: responseText, success: true };
     }
 
     /**
