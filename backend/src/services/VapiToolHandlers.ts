@@ -260,34 +260,36 @@ export async function handleSearchProducts(
 
             // Try each term until we find results
             for (const term of expandedTerms) {
-                if (products.length >= 5) break;
+                if (products.length >= 10) break; // Increased limit to 10 for better recall
 
-                // Search in title
-                const { data: titleResults } = await supabase
+                // Search in title OR product_type OR description (broader search)
+                const { data: results } = await supabase
                     .from('products')
                     .select('id, title, handle, product_type, description_plain, variants, status')
                     .eq('status', 'active')
-                    .ilike('title', `%${term}%`)
+                    .or(`title.ilike.%${term}%,product_type.ilike.%${term}%,description_plain.ilike.%${term}%`)
                     .limit(5);
 
-                if (titleResults && titleResults.length > 0) {
+                if (results && results.length > 0) {
                     const existingIds = new Set(products.map(p => p.id));
-                    products = [...products, ...titleResults.filter(p => !existingIds.has(p.id))];
+                    const newProducts = results.filter(p => !existingIds.has(p.id));
+                    products = [...products, ...newProducts];
                 }
+            }
 
-                // Search in product_type
-                if (products.length < 5) {
-                    const { data: typeResults } = await supabase
-                        .from('products')
-                        .select('id, title, handle, product_type, description_plain, variants, status')
-                        .eq('status', 'active')
-                        .ilike('product_type', `%${term}%`)
-                        .limit(5);
+            // Fallback: If still few results, try to match ANY word in title (very broad)
+            if (products.length < 3 && queryWords.length > 0) {
+                const orQuery = queryWords.map(w => `title.ilike.%${w}%`).join(',');
+                const { data: broadResults } = await supabase
+                    .from('products')
+                    .select('id, title, handle, product_type, description_plain, variants, status')
+                    .eq('status', 'active')
+                    .or(orQuery)
+                    .limit(5);
 
-                    if (typeResults && typeResults.length > 0) {
-                        const existingIds = new Set(products.map(p => p.id));
-                        products = [...products, ...typeResults.filter(p => !existingIds.has(p.id))];
-                    }
+                if (broadResults) {
+                    const existingIds = new Set(products.map(p => p.id));
+                    products = [...products, ...broadResults.filter(p => !existingIds.has(p.id))];
                 }
             }
 
@@ -297,9 +299,9 @@ export async function handleSearchProducts(
                 if (seen.has(p.id)) return false;
                 seen.add(p.id);
                 return true;
-            }).slice(0, 5);
+            }).slice(0, 8); // Return up to 8 relevant results
         } else {
-            // No query - return all active products
+            // No query - return generic mix
             const { data } = await supabase
                 .from('products')
                 .select('id, title, handle, product_type, description_plain, variants, status')
@@ -315,11 +317,11 @@ export async function handleSearchProducts(
             );
         }
 
-        console.log(`[VapiTools] Found ${products.length} products after search`);
+        console.log(`[VapiTools] Found ${products.length} products after broad search`);
 
         // Update mapping stats for learning (non-blocking)
         if (usedMapping && queryLower) {
-            updateMappingStats(queryLower, products.length > 0).catch(() => {});
+            updateMappingStats(queryLower, products.length > 0).catch(() => { });
         }
 
         if (!products || products.length === 0) {
@@ -336,36 +338,37 @@ export async function handleSearchProducts(
 
             return {
                 success: false,
-                message: `No encontré productos con "${query}". ${suggestion} ¿Quieres que busque algo más específico?`
+                message: `No encontré productos con "${query}". ${suggestion} ¿Quieres que busque algo más específico?`,
+                error: 'No results found'
             };
         }
 
-        // Format products for voice agent
+        // Format products for voice agent (Simplified for speech)
         const productList = products.map(p => {
             const variants = p.variants || [];
             const totalStock = variants.reduce((sum: number, v: any) => sum + (v.inventory_quantity || 0), 0);
             const prices = variants.map((v: any) => parseFloat(v.price) || 0).filter((p: number) => p > 0);
             const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
 
+            // Clean description for speech
+            const desc = p.description_plain?.split('.')[0] || '';
+
             return {
                 name: p.title,
-                type: p.product_type || 'General',
-                price: `$${minPrice} MXN`,
-                in_stock: totalStock > 0,
-                stock_qty: totalStock,
-                url: `https://extractoseum.com/products/${p.handle}`,
-                description_short: p.description_plain?.substring(0, 100) || ''
+                price: minPrice,
+                stock: totalStock > 0 ? 'Sí' : 'No',
+                summary: `${p.title} a $${minPrice}`
             };
         });
 
         // Create a summary that Ara can naturally speak
         const summary = productList.map(p =>
-            `${p.name} a ${p.price}${p.in_stock ? '' : ' (agotado)'}`
+            `${p.name}, desde $${p.price}`
         ).join('. ');
 
         return {
             success: true,
-            message: `Encontré ${products.length} producto(s): ${summary}`,
+            message: `Encontré estos productos: ${summary}. ¿Te interesa alguno en particular?`,
             data: {
                 products: productList,
                 count: products.length

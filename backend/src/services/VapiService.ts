@@ -305,12 +305,31 @@ export class VapiService {
 
         // Extract context from call metadata - prioritization: call.metadata -> call.customer
         // This is CRITICAL for existing tools to work
-        const context = {
+        let context = {
             conversationId: call?.metadata?.conversationId,
             clientId: call?.metadata?.clientId,
             customerPhone: call?.customer?.number,
             callId: call?.id
         };
+
+        // SAFETY NET: If clientId is missing but we have phone, look it up now
+        if (!context.clientId && context.customerPhone) {
+            console.log(`[VapiService] Missing clientId in metadata. Attempting fallback lookup for ${context.customerPhone}`);
+            try {
+                const client = await this.lookupClient(this.normalizePhoneForLookup(context.customerPhone));
+                if (client) {
+                    console.log(`[VapiService] Fallback found client: ${client.client_id}`);
+                    context.clientId = client.client_id;
+                    // Also try to find active conversation
+                    if (!context.conversationId && client.client_id) {
+                        const conv = await this.getActiveConversation(client.client_id);
+                        if (conv) context.conversationId = conv.conversation_id;
+                    }
+                }
+            } catch (e) {
+                console.error('[VapiService] Fallback lookup failed:', e);
+            }
+        }
 
         // VAPI sends tool calls in toolWithToolCallList
         const toolCalls = message.toolWithToolCallList || message.toolCallList || [];
@@ -633,6 +652,14 @@ export class VapiService {
         }
 
         const lines: string[] = [
+            '[INSTRUCCIONES DEL SISTEMA]',
+            '- Eres Ara, el asistente de Extractos EUM. Tu objetivo es vender y dar soporte.',
+            '- USA TUS HERRAMIENTAS. No inventes información de productos ni pedidos.',
+            '- Si te preguntan por productos, usa "search_products".',
+            '- Si te preguntan por un pedido, usa "lookup_order".',
+            '- Si necesitan un COA, pregunta el lote o producto y usa "get_coa".',
+            '- Sé breve, amable y profesional.',
+            '',
             '[CONTEXTO DEL CLIENTE - Usa esta información para personalizar]'
         ];
 
