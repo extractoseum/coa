@@ -13,7 +13,7 @@ export interface VoiceSettings {
 }
 
 export interface ElevenLabsTTSOptions {
-    model_id?: 'eleven_flash_v2_5' | 'eleven_multilingual_v2' | 'eleven_turbo_v2_5';
+    model_id?: 'eleven_flash_v2_5' | 'eleven_multilingual_v2' | 'eleven_turbo_v2_5' | 'eleven_v3';
     output_format?: string;
     voice_settings?: VoiceSettings;
     language_code?: string;
@@ -32,16 +32,32 @@ export class ElevenLabsService {
     }
 
     /**
+     * Detects if text contains ElevenLabs v3 audio tags like [warmly], [pause], etc.
+     */
+    private hasAudioTags(text: string): boolean {
+        // Common v3 audio tag patterns
+        const tagPattern = /\[(whispers|sighs|excited|sad|angry|happily|warmly|curious|pause|short pause|long pause|laughs|chuckles|softly|loudly|slowly|quickly|thoughtful|reassuring|encouraging|friendly|professional)\]/i;
+        return tagPattern.test(text);
+    }
+
+    /**
      * Generates audio from text using ElevenLabs API (Basic V1)
+     * Auto-detects v3 audio tags and uses appropriate model
      */
     async generateAudio(
         text: string,
         voiceId: string,
         settings?: VoiceSettings
     ): Promise<Buffer> {
-        // Fallback to advanced with default model
+        // Auto-detect v3 tags and use eleven_v3 model if found
+        const modelId = this.hasAudioTags(text) ? 'eleven_v3' : 'eleven_multilingual_v2';
+
+        if (this.hasAudioTags(text)) {
+            console.log('[ElevenLabs] Detected v3 audio tags, using eleven_v3 model');
+        }
+
         return this.generateAudioAdvanced(text, voiceId, {
-            model_id: 'eleven_multilingual_v2',
+            model_id: modelId,
             voice_settings: settings
         });
     }
