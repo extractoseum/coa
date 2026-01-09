@@ -47,15 +47,6 @@ export default function ImpersonationBanner() {
         }
     };
 
-    // Open Shopify store with impersonation token in URL
-    const handleOpenStore = () => {
-        const token = localStorage.getItem('token');
-        if (token) {
-            // Open store with token parameter for widget to detect
-            window.open(`${SHOPIFY_STORE_URL}?eum_token=${encodeURIComponent(token)}`, '_blank');
-        }
-    };
-
     if (!impersonation.isImpersonating) return null;
 
     return (
@@ -72,13 +63,15 @@ export default function ImpersonationBanner() {
                             <span className="hidden md:inline">Crear Pedido</span>
                         </button>
                         {/* Open Store Button */}
-                        <button
-                            onClick={handleOpenStore}
+                        <a
+                            href={`${SHOPIFY_STORE_URL}?eum_token=${encodeURIComponent(localStorage.getItem('token') || '')}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
                             className="mr-4 px-3 py-1 bg-green-500/30 hover:bg-green-500/50 text-white rounded-lg flex items-center gap-2 font-medium transition-colors"
                         >
                             <ExternalLink className="w-4 h-4" />
                             <span className="hidden md:inline">Abrir Tienda</span>
-                        </button>
+                        </a>
                         <AlertTriangle className="w-5 h-5 animate-pulse" />
                         <div className="flex items-center gap-2">
                             <User className="w-4 h-4" />
