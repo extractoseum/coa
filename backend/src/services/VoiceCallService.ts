@@ -30,7 +30,7 @@ const ELEVENLABS_MODEL = 'eleven_turbo_v2_5'; // Fast for real-time
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
 // Backend URL for webhooks
-const BACKEND_URL = process.env.BACKEND_URL || 'https://coa-api-production.up.railway.app';
+const BACKEND_URL = process.env.BACKEND_URL || 'https://coa.extractoseum.com';
 
 // Initialize services
 const twilioClient = (TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN)
