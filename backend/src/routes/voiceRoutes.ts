@@ -29,7 +29,7 @@ router.post('/incoming', async (req: Request, res: Response) => {
         res.send(twiml);
 
     } catch (error: any) {
-        console.error('[VoiceRoutes] Incoming call error:', error.message);
+        console.error('[VoiceRoutes] Incoming call error:', error.message, error.stack);
         res.type('text/xml');
         res.send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>

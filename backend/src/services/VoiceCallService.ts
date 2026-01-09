@@ -190,15 +190,20 @@ export class VoiceCallService {
         };
         activeCalls.set(callSid, session);
 
-        // Log call in database
-        await supabase.from('voice_calls').insert({
-            vapi_call_id: callSid,
-            conversation_id: context.conversationId,
-            direction: 'inbound',
-            phone_number: from,
-            status: 'in-progress',
-            started_at: new Date().toISOString()
-        });
+        // Log call in database (non-blocking)
+        try {
+            await supabase.from('voice_calls').insert({
+                vapi_call_id: callSid,
+                conversation_id: context.conversationId,
+                direction: 'inbound',
+                phone_number: from,
+                status: 'in-progress',
+                started_at: new Date().toISOString()
+            });
+        } catch (dbError: any) {
+            console.warn('[VoiceCall] Failed to log call to DB:', dbError.message);
+            // Continue anyway - don't break the call
+        }
 
         // Generate personalized greeting
         const greeting = context.clientName
