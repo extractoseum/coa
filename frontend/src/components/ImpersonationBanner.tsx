@@ -10,6 +10,15 @@ export default function ImpersonationBanner() {
     const [loading, setLoading] = useState(false);
     const [timeRemaining, setTimeRemaining] = useState('');
     const [showSalesModal, setShowSalesModal] = useState(false);
+    const [storeUrl, setStoreUrl] = useState(SHOPIFY_STORE_URL);
+
+    // Build store URL with token on mount
+    useEffect(() => {
+        const token = localStorage.getItem('token');
+        if (token) {
+            setStoreUrl(`${SHOPIFY_STORE_URL}?eum_token=${encodeURIComponent(token)}`);
+        }
+    }, [impersonation.isImpersonating]);
 
     // Calculate time remaining
     useEffect(() => {
@@ -64,7 +73,7 @@ export default function ImpersonationBanner() {
                         </button>
                         {/* Open Store Button */}
                         <a
-                            href={`${SHOPIFY_STORE_URL}?eum_token=${encodeURIComponent(localStorage.getItem('token') || '')}`}
+                            href={storeUrl}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="mr-4 px-3 py-1 bg-green-500/30 hover:bg-green-500/50 text-white rounded-lg flex items-center gap-2 font-medium transition-colors"
