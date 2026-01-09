@@ -323,7 +323,7 @@ export default function SmartTextarea({
     // Predictive completion state
     const [prediction, setPrediction] = useState<string>('');
     const [isLoadingPrediction, setIsLoadingPrediction] = useState(false);
-    const predictionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const predictionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Help me write state
     const [showHelpMenu, setShowHelpMenu] = useState(false);
