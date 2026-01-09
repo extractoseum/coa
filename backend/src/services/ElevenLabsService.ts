@@ -76,21 +76,41 @@ export class ElevenLabsService {
         const modelId = options.model_id || 'eleven_multilingual_v2';
         const outputFormat = options.output_format || 'mp3_44100_128';
 
+        // eleven_v3 model has different parameters - it doesn't use traditional voice_settings
+        const isV3Model = modelId === 'eleven_v3';
+
         try {
+            // Build request body based on model type
+            const requestBody: any = {
+                text,
+                model_id: modelId,
+            };
+
+            // v3 model uses different voice settings structure
+            if (isV3Model) {
+                // eleven_v3 primarily uses the text tags for expression, minimal voice settings
+                requestBody.voice_settings = {
+                    stability: 0.5,
+                    similarity_boost: 0.75,
+                };
+                console.log(`[ElevenLabs] Using eleven_v3 model with audio tags`);
+            } else {
+                // Standard models (multilingual_v2, turbo, flash)
+                requestBody.voice_settings = {
+                    stability: options.voice_settings?.stability ?? 0.5,
+                    similarity_boost: options.voice_settings?.similarity_boost ?? 0.75,
+                    style: options.voice_settings?.style ?? 0.0,
+                    use_speaker_boost: options.voice_settings?.use_speaker_boost ?? true,
+                    speed: options.voice_settings?.speed ?? 1.0
+                };
+                if (options.language_code) {
+                    requestBody.language_code = options.language_code;
+                }
+            }
+
             const response = await axios.post(
                 `${this.baseUrl}/text-to-speech/${voiceId}?output_format=${outputFormat}`,
-                {
-                    text,
-                    model_id: modelId,
-                    voice_settings: {
-                        stability: options.voice_settings?.stability ?? 0.5,
-                        similarity_boost: options.voice_settings?.similarity_boost ?? 0.75,
-                        style: options.voice_settings?.style ?? 0.0,
-                        use_speaker_boost: options.voice_settings?.use_speaker_boost ?? true,
-                        speed: options.voice_settings?.speed ?? 1.0
-                    },
-                    language_code: options.language_code || undefined // Only for Turbo v2.5 if needed, but 'eleven_multilingual_v2' auto-detects well
-                },
+                requestBody,
                 {
                     headers: {
                         'xi-api-key': this.apiKey,
@@ -104,8 +124,31 @@ export class ElevenLabsService {
             return Buffer.from(response.data);
 
         } catch (error: any) {
-            console.error('[ElevenLabs] Generation failed:', error?.response?.data || error.message);
-            throw new Error(`ElevenLabs generation failed: ${error.message}`);
+            // Log the actual error response for debugging
+            const errorData = error?.response?.data;
+            let errorMessage = error.message;
+
+            if (errorData) {
+                // Try to decode arraybuffer error response
+                if (Buffer.isBuffer(errorData)) {
+                    try {
+                        const decoded = errorData.toString('utf-8');
+                        console.error('[ElevenLabs] Error response:', decoded);
+                        errorMessage = decoded;
+                    } catch (e) {
+                        console.error('[ElevenLabs] Raw error data:', errorData);
+                    }
+                } else if (typeof errorData === 'object') {
+                    console.error('[ElevenLabs] Error response:', errorData);
+                    errorMessage = JSON.stringify(errorData);
+                } else {
+                    console.error('[ElevenLabs] Error response:', errorData);
+                    errorMessage = String(errorData);
+                }
+            }
+
+            console.error(`[ElevenLabs] Generation failed for model ${modelId}:`, errorMessage);
+            throw new Error(`ElevenLabs generation failed: ${errorMessage}`);
         }
     }
 

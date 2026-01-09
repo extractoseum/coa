@@ -402,6 +402,270 @@ export const sendVoiceMessage = async (req: Request, res: Response): Promise<voi
     }
 };
 
+/**
+ * Send internal note (not sent to customer)
+ * POST /api/v1/crm/conversations/:conversationId/notes
+ */
+export const sendInternalNote = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { conversationId } = req.params;
+        const { content } = req.body;
+        const userId = (req as any).user?.id;
+
+        if (!content?.trim()) {
+            res.status(400).json({ success: false, error: 'Content is required' });
+            return;
+        }
+
+        // Insert internal note (not dispatched to customer)
+        const { data: note, error } = await supabase
+            .from('crm_messages')
+            .insert({
+                conversation_id: conversationId,
+                direction: 'outbound',
+                role: 'system',
+                message_type: 'internal_note',
+                status: 'sent',
+                content: content.trim(),
+                is_internal: true,
+                sent_by_id: userId || null,
+            })
+            .select('*')
+            .single();
+
+        if (error) {
+            console.error('[CRM] Internal note error:', error);
+            res.status(500).json({ success: false, error: error.message });
+            return;
+        }
+
+        res.json({ success: true, data: note });
+    } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * Get internal notes for a conversation
+ * GET /api/v1/crm/conversations/:conversationId/notes
+ */
+export const getInternalNotes = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { conversationId } = req.params;
+
+        const { data: notes, error } = await supabase
+            .from('crm_messages')
+            .select('*, sent_by:sent_by_id(id, name, email)')
+            .eq('conversation_id', conversationId)
+            .eq('is_internal', true)
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            res.status(500).json({ success: false, error: error.message });
+            return;
+        }
+
+        res.json({ success: true, data: notes || [] });
+    } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * Submit AI feedback on a message
+ * POST /api/v1/crm/messages/:messageId/feedback
+ */
+export const submitAIFeedback = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { messageId } = req.params;
+        const { feedback } = req.body;
+
+        if (!feedback || !['positive', 'negative'].includes(feedback)) {
+            res.status(400).json({ success: false, error: 'Valid feedback required (positive/negative)' });
+            return;
+        }
+
+        const { data, error } = await supabase
+            .from('crm_messages')
+            .update({
+                ai_feedback: feedback,
+                ai_feedback_at: new Date().toISOString(),
+            })
+            .eq('id', messageId)
+            .select('id, ai_feedback, ai_feedback_at')
+            .single();
+
+        if (error) {
+            res.status(500).json({ success: false, error: error.message });
+            return;
+        }
+
+        // Log for AI learning/analytics
+        console.log(`[CRM] AI Feedback: ${feedback} for message ${messageId}`);
+
+        res.json({ success: true, data });
+    } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * Send message with reply/quote
+ * POST /api/v1/crm/conversations/:conversationId/messages/reply
+ */
+export const sendReplyMessage = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { conversationId } = req.params;
+        const { content, replyToId, role } = req.body;
+
+        if (!content?.trim()) {
+            res.status(400).json({ success: false, error: 'Content is required' });
+            return;
+        }
+
+        // Insert message with reply_to reference
+        const { data: message, error } = await supabase
+            .from('crm_messages')
+            .insert({
+                conversation_id: conversationId,
+                direction: 'outbound',
+                role: role || 'assistant',
+                message_type: 'text',
+                status: 'sent',
+                content: content.trim(),
+                reply_to_id: replyToId || null,
+            })
+            .select('*, reply_to:reply_to_id(id, content, role)')
+            .single();
+
+        if (error) {
+            res.status(500).json({ success: false, error: error.message });
+            return;
+        }
+
+        // Dispatch to WhatsApp with reply_to (Whapi supports this)
+        if (replyToId) {
+            // TODO: Get external_id of original message and pass to Whapi's reply_to parameter
+            console.log(`[CRM] Reply message sent, replying to: ${replyToId}`);
+        }
+
+        res.json({ success: true, data: message });
+    } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * Schedule a message to be sent later
+ * POST /api/v1/crm/conversations/:conversationId/messages/schedule
+ */
+export const scheduleMessage = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { conversationId } = req.params;
+        const { content, scheduledFor, isVoice } = req.body;
+        const userId = (req as any).user?.id;
+
+        if (!content?.trim()) {
+            res.status(400).json({ success: false, error: 'Content is required' });
+            return;
+        }
+
+        if (!scheduledFor) {
+            res.status(400).json({ success: false, error: 'Scheduled time is required' });
+            return;
+        }
+
+        const scheduledDate = new Date(scheduledFor);
+        if (scheduledDate <= new Date()) {
+            res.status(400).json({ success: false, error: 'Scheduled time must be in the future' });
+            return;
+        }
+
+        // Insert scheduled message (status = 'queued')
+        const { data: message, error } = await supabase
+            .from('crm_messages')
+            .insert({
+                conversation_id: conversationId,
+                direction: 'outbound',
+                role: 'assistant',
+                message_type: isVoice ? 'audio' : 'text',
+                status: 'queued',
+                content: content.trim(),
+                scheduled_for: scheduledDate.toISOString(),
+                sent_by_id: userId || null,
+            })
+            .select('*')
+            .single();
+
+        if (error) {
+            console.error('[CRM] Schedule message error:', error);
+            res.status(500).json({ success: false, error: error.message });
+            return;
+        }
+
+        console.log(`[CRM] Message scheduled for ${scheduledDate.toISOString()}: ${message.id}`);
+
+        res.json({ success: true, data: message });
+    } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * Get scheduled messages for a conversation
+ * GET /api/v1/crm/conversations/:conversationId/messages/scheduled
+ */
+export const getScheduledMessages = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { conversationId } = req.params;
+
+        const { data: messages, error } = await supabase
+            .from('crm_messages')
+            .select('*')
+            .eq('conversation_id', conversationId)
+            .eq('status', 'queued')
+            .not('scheduled_for', 'is', null)
+            .order('scheduled_for', { ascending: true });
+
+        if (error) {
+            res.status(500).json({ success: false, error: error.message });
+            return;
+        }
+
+        res.json({ success: true, data: messages || [] });
+    } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * Cancel a scheduled message
+ * DELETE /api/v1/crm/messages/:messageId/schedule
+ */
+export const cancelScheduledMessage = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { messageId } = req.params;
+
+        // Only delete if message is still queued
+        const { data, error } = await supabase
+            .from('crm_messages')
+            .delete()
+            .eq('id', messageId)
+            .eq('status', 'queued')
+            .select('id')
+            .single();
+
+        if (error || !data) {
+            res.status(404).json({ success: false, error: 'Scheduled message not found or already sent' });
+            return;
+        }
+
+        res.json({ success: true, message: 'Scheduled message cancelled' });
+    } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
 export const archiveConversation = async (req: Request, res: Response): Promise<void> => {
     try {
         const { id } = req.params;
@@ -1184,7 +1448,7 @@ Responde SOLO con el texto mejorado, sin explicaciones.`,
  */
 export const smartComposeHelpWrite = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { text, action, clientContext } = req.body;
+        const { text, action, channel, clientContext } = req.body;
 
         if (!text?.trim()) {
             res.status(400).json({ success: false, error: 'Text required' });
@@ -1197,6 +1461,10 @@ export const smartComposeHelpWrite = async (req: Request, res: Response): Promis
             return;
         }
 
+        // Valid channels with their formatting rules
+        const validChannels = ['whatsapp', 'email', 'tiktok', 'instagram'];
+        const selectedChannel = validChannels.includes(channel) ? channel : 'whatsapp';
+
         // Build context
         const contextParts: string[] = [];
         if (clientContext?.name) contextParts.push(`Cliente: ${clientContext.name}`);
@@ -1205,11 +1473,47 @@ export const smartComposeHelpWrite = async (req: Request, res: Response): Promis
         }
 
         const actionInstructions: Record<string, string> = {
-            improve: 'Mejora la gramática, claridad y fluidez del texto. Corrige errores y haz el mensaje más claro y profesional.',
-            expand: 'Expande el texto agregando más detalles útiles, manteniendo el mismo tono. Agrega información relevante que pueda ayudar al cliente.',
+            improve: 'Mejora la gramática, claridad y fluidez del texto. Corrige errores y haz el mensaje más claro.',
+            expand: 'Expande el texto agregando más detalles útiles. Agrega información relevante que pueda ayudar al cliente.',
             friendly: 'Reescribe el texto con un tono más amigable, casual y cercano. Usa un lenguaje cálido y accesible.',
             professional: 'Reescribe el texto con un tono más formal y profesional. Mantén la cortesía pero con más seriedad.',
             empathetic: 'Reescribe el texto mostrando más empatía y comprensión hacia el cliente. Valida sus sentimientos y preocupaciones.',
+        };
+
+        // Channel-specific formatting instructions
+        const channelInstructions: Record<string, string> = {
+            whatsapp: `
+FORMATO WHATSAPP:
+- Tono casual y directo, como conversación entre amigos
+- SIEMPRE usa emojis relevantes (2-4 por mensaje): 😊 para amabilidad, ✨ para destacar, 👍 para confirmación, 🙏 para agradecer, 💚 para productos naturales, 🌿 para extractos
+- Usa *asteriscos* para negritas en palabras importantes
+- Mensajes concisos (máximo 3-4 líneas)
+- Puedes usar "Hola!" o "Hey!" al inicio
+- Ejemplo: "Hola! 😊 Claro que sí, *tu pedido* va en camino 📦✨"`,
+            email: `
+FORMATO EMAIL:
+- Tono formal y profesional
+- INCLUYE saludo inicial: "Estimado/a [nombre]," o "Hola [nombre],"
+- INCLUYE despedida: "Saludos cordiales," o "Quedamos a tus órdenes,"
+- NO uses emojis (máximo 1 si es muy apropiado)
+- Estructura clara con párrafos separados
+- Usa lenguaje cortés: "Le informamos que...", "Con gusto le atendemos..."`,
+            tiktok: `
+FORMATO TIKTOK:
+- Muy corto y directo (1-2 líneas máximo)
+- Tono juvenil y trendy
+- USA emojis llamativos (3-5): ✨🔥💫🎉💪
+- Incluye 2-3 hashtags relevantes al final: #Extractoseum #SaludNatural #Bienestar
+- Usa lenguaje casual: "Ey!", "Ya sabes!", "Te va a encantar"
+- Ejemplo: "Ey! Tu pedido ya viene en camino 🔥📦 Te va a encantar! ✨ #Extractoseum"`,
+            instagram: `
+FORMATO INSTAGRAM:
+- Tono amigable y visualmente atractivo
+- USA emojis expresivos (3-4): 🌿✨💚🙌😍
+- Incluye 1-2 hashtags si es apropiado
+- Lenguaje cercano pero no tan informal como TikTok
+- Puedes usar saltos de línea para separar ideas
+- Ejemplo: "Hola! 🌿✨\n\nTu pedido está listo y va en camino 📦💚\n\n¡Te va a encantar!"`,
         };
 
         const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -1222,17 +1526,18 @@ export const smartComposeHelpWrite = async (req: Request, res: Response): Promis
             body: JSON.stringify({
                 model: 'claude-3-haiku-20240307',
                 max_tokens: 500,
-                system: `Eres un asistente de redacción para agentes de servicio al cliente de Extractoseum (tienda de extractos naturales).
-Tu tarea: ${actionInstructions[action]}
+                system: `Eres un asistente de redacción para agentes de servicio al cliente de Extractoseum (tienda de extractos naturales mexicana).
 
-Reglas:
+TAREA: ${actionInstructions[action]}
+${channelInstructions[selectedChannel]}
+
+REGLAS GENERALES:
 1. Mantén el mensaje conciso (no más del doble del original)
 2. Mantén la intención original del mensaje
 3. Usa español mexicano natural
-4. No uses emojis a menos que el original los tenga
-5. Responde SOLO con el texto mejorado, sin explicaciones
+4. Responde SOLO con el texto mejorado, sin explicaciones ni comillas
 
-${contextParts.length ? 'Contexto: ' + contextParts.join('. ') : ''}`,
+${contextParts.length ? 'CONTEXTO DEL CLIENTE: ' + contextParts.join('. ') : ''}`,
                 messages: [{
                     role: 'user',
                     content: text

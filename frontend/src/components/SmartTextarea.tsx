@@ -1,6 +1,45 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Loader2, Sparkles, Mic, Wand2, Search, X } from 'lucide-react';
+import { Loader2, Sparkles, Mic, Wand2, Search, X, MessageSquare, Mail, Music, Instagram, ChevronDown, Smile } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
+
+// Channel types for message formatting
+export type MessageChannel = 'whatsapp' | 'email' | 'tiktok' | 'instagram';
+
+export const CHANNEL_CONFIG: Record<MessageChannel, { label: string; icon: React.ReactNode; color: string; description: string }> = {
+    whatsapp: {
+        label: 'WhatsApp',
+        icon: <MessageSquare size={14} />,
+        color: 'bg-green-500',
+        description: 'Casual, emojis, directo'
+    },
+    email: {
+        label: 'Email',
+        icon: <Mail size={14} />,
+        color: 'bg-blue-500',
+        description: 'Formal, saludo/despedida'
+    },
+    tiktok: {
+        label: 'TikTok',
+        icon: <Music size={14} />,
+        color: 'bg-pink-500',
+        description: 'Corto, hashtags, trendy'
+    },
+    instagram: {
+        label: 'Instagram',
+        icon: <Instagram size={14} />,
+        color: 'bg-purple-500',
+        description: 'Visual, emojis, engaging'
+    },
+};
+
+// Common emojis for quick selection
+export const EMOJI_CATEGORIES = {
+    frecuentes: ['😊', '👍', '🙏', '❤️', '✨', '🎉', '💪', '🔥', '👏', '💯', '🤗', '😉'],
+    caras: ['😀', '😃', '😄', '😁', '😅', '😂', '🤣', '🥰', '😍', '🤩', '😘', '😗', '😋', '😛', '🤔', '🤨', '😐', '😑', '😶', '🙄', '😏', '😣', '😥', '😮', '🤐', '😯', '😪', '😫', '🥱', '😴'],
+    gestos: ['👋', '🤚', '🖐️', '✋', '🖖', '👌', '🤌', '🤏', '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉', '👆', '👇', '☝️', '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌', '👐', '🤲', '🤝', '🙏'],
+    objetos: ['💊', '🧴', '🌿', '🍃', '🌱', '💚', '🛒', '📦', '🎁', '💰', '💵', '🏷️', '📱', '💻', '📧', '✉️', '📬', '🔔', '⏰', '📅'],
+    simbolos: ['✅', '❌', '⭐', '💫', '✨', '💥', '💢', '💦', '💨', '🕐', '🔴', '🟢', '🔵', '⚪', '⚫', '🟤', '🟣', '🟡', '🟠', '❗', '❓', '‼️', '⁉️', '💲', '➡️', '⬅️', '⬆️', '⬇️', '↩️', '↪️'],
+};
 
 // ElevenLabs v3 Audio Tags Reference
 // Based on: https://audio-generation-plugin.com/eleven-v3-tag-library/
@@ -335,6 +374,14 @@ export default function SmartTextarea({
     const [selectedTagCategory, setSelectedTagCategory] = useState<AudioTagCategory>('emotion');
     const [tagSearchQuery, setTagSearchQuery] = useState('');
 
+    // Channel selector state
+    const [selectedChannel, setSelectedChannel] = useState<MessageChannel>('whatsapp');
+    const [showChannelSelector, setShowChannelSelector] = useState(false);
+
+    // Emoji picker state
+    const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+    const [selectedEmojiCategory, setSelectedEmojiCategory] = useState<keyof typeof EMOJI_CATEGORIES>('frecuentes');
+
     // Get prediction from API
     const fetchPrediction = useCallback(async (text: string) => {
         if (!text || text.length < 3 || !conversationId) {
@@ -412,7 +459,33 @@ export default function SmartTextarea({
             setPrediction('');
             setShowHelpMenu(false);
             setShowAudioTags(false);
+            setShowEmojiPicker(false);
+            setShowChannelSelector(false);
         }
+    };
+
+    // Insert emoji at cursor position
+    const insertEmoji = (emoji: string) => {
+        const textarea = textareaRef.current;
+        if (!textarea) {
+            onChange(value + emoji);
+            return;
+        }
+
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const before = value.substring(0, start);
+        const after = value.substring(end);
+
+        const newValue = before + emoji + after;
+        onChange(newValue);
+
+        // Set cursor after emoji
+        setTimeout(() => {
+            const newPos = start + emoji.length;
+            textarea.focus();
+            textarea.setSelectionRange(newPos, newPos);
+        }, 0);
     };
 
     // Enhance text for audio (auto-add tags based on content analysis)
@@ -447,7 +520,7 @@ export default function SmartTextarea({
         }
     };
 
-    // "Help me write" - improve/expand text
+    // "Help me write" - improve/expand text with channel-specific formatting
     const helpMeWrite = async (action: 'improve' | 'expand' | 'friendly' | 'professional' | 'empathetic') => {
         if (!value.trim()) return;
 
@@ -464,6 +537,7 @@ export default function SmartTextarea({
                 body: JSON.stringify({
                     text: value,
                     action,
+                    channel: selectedChannel, // NEW: Include selected channel for formatting
                     clientContext,
                 }),
             });
@@ -554,17 +628,50 @@ export default function SmartTextarea({
 
                 {/* Action buttons inside textarea */}
                 <div className="absolute bottom-2 right-2 flex gap-1">
+                    {/* Emoji picker button */}
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setShowEmojiPicker(!showEmojiPicker);
+                            setShowAudioTags(false);
+                            setShowHelpMenu(false);
+                            setShowChannelSelector(false);
+                        }}
+                        className="p-1.5 rounded-lg bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 hover:text-yellow-300 transition-colors"
+                        title="Emojis"
+                    >
+                        <Smile size={14} />
+                    </button>
+
                     {/* Audio tags button */}
                     <button
                         type="button"
                         onClick={() => {
                             setShowAudioTags(!showAudioTags);
                             setShowHelpMenu(false);
+                            setShowEmojiPicker(false);
+                            setShowChannelSelector(false);
                         }}
                         className="p-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 hover:text-purple-300 transition-colors"
                         title="Tags de Audio (ElevenLabs)"
                     >
                         <Mic size={14} />
+                    </button>
+
+                    {/* Channel selector button */}
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setShowChannelSelector(!showChannelSelector);
+                            setShowHelpMenu(false);
+                            setShowAudioTags(false);
+                            setShowEmojiPicker(false);
+                        }}
+                        className={`p-1.5 rounded-lg ${CHANNEL_CONFIG[selectedChannel].color}/20 hover:${CHANNEL_CONFIG[selectedChannel].color}/30 text-white/80 hover:text-white transition-colors flex items-center gap-1`}
+                        title="Canal de mensaje"
+                    >
+                        {CHANNEL_CONFIG[selectedChannel].icon}
+                        <ChevronDown size={10} />
                     </button>
 
                     {/* Help me write button */}
@@ -573,6 +680,8 @@ export default function SmartTextarea({
                         onClick={() => {
                             setShowHelpMenu(!showHelpMenu);
                             setShowAudioTags(false);
+                            setShowEmojiPicker(false);
+                            setShowChannelSelector(false);
                         }}
                         className="p-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 hover:text-blue-300 transition-colors"
                         title="Ayúdame a escribir"
@@ -718,6 +827,97 @@ export default function SmartTextarea({
                         <p className="text-[10px] text-white/40">
                             Tip: Usa ... para pausas naturales y ¡! para énfasis. Los tags funcionan mejor al inicio de frases.
                         </p>
+                    </div>
+                </div>
+            )}
+
+            {/* Channel selector menu */}
+            {showChannelSelector && (
+                <div className="absolute bottom-full right-0 mb-2 w-52 bg-black/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50">
+                    <div className="p-2 border-b border-white/5 text-xs font-semibold text-white/50 uppercase tracking-wider">
+                        Canal de Mensaje
+                    </div>
+                    <div className="p-1">
+                        {(Object.entries(CHANNEL_CONFIG) as [MessageChannel, typeof CHANNEL_CONFIG[MessageChannel]][]).map(([key, config]) => (
+                            <button
+                                key={key}
+                                onClick={() => {
+                                    setSelectedChannel(key);
+                                    setShowChannelSelector(false);
+                                }}
+                                className={`w-full px-3 py-2 text-left rounded-lg transition-colors flex items-center gap-3 ${
+                                    selectedChannel === key
+                                        ? 'bg-white/10 text-white'
+                                        : 'hover:bg-white/5 text-white/70'
+                                }`}
+                            >
+                                <div className={`p-1.5 rounded-lg ${config.color}/30`}>
+                                    {config.icon}
+                                </div>
+                                <div>
+                                    <div className="text-sm font-medium">{config.label}</div>
+                                    <div className="text-[10px] text-white/40">{config.description}</div>
+                                </div>
+                                {selectedChannel === key && (
+                                    <div className="ml-auto text-green-400 text-xs">✓</div>
+                                )}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="p-2 border-t border-white/5 bg-white/5">
+                        <p className="text-[10px] text-white/40">
+                            El formato del texto se ajustará al canal seleccionado al usar "Ayúdame a escribir"
+                        </p>
+                    </div>
+                </div>
+            )}
+
+            {/* Emoji picker menu */}
+            {showEmojiPicker && (
+                <div className="absolute bottom-full left-0 mb-2 w-80 bg-black/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50">
+                    <div className="p-2 border-b border-white/5 flex justify-between items-center">
+                        <span className="text-xs font-semibold text-white/50 uppercase tracking-wider">
+                            Emojis
+                        </span>
+                        <button
+                            onClick={() => setShowEmojiPicker(false)}
+                            className="text-white/30 hover:text-white/50"
+                        >
+                            <X size={14} />
+                        </button>
+                    </div>
+
+                    {/* Category tabs */}
+                    <div className="flex overflow-x-auto border-b border-white/5 scrollbar-none">
+                        {(Object.keys(EMOJI_CATEGORIES) as (keyof typeof EMOJI_CATEGORIES)[]).map((cat) => (
+                            <button
+                                key={cat}
+                                onClick={() => setSelectedEmojiCategory(cat)}
+                                className={`flex-shrink-0 px-3 py-1.5 text-xs transition-colors whitespace-nowrap capitalize ${
+                                    selectedEmojiCategory === cat
+                                        ? 'text-yellow-400 border-b-2 border-yellow-400 bg-yellow-500/10'
+                                        : 'text-white/50 hover:text-white/80 hover:bg-white/5'
+                                }`}
+                            >
+                                {cat}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Emoji grid */}
+                    <div className="p-2 max-h-40 overflow-y-auto">
+                        <div className="grid grid-cols-8 gap-1">
+                            {EMOJI_CATEGORIES[selectedEmojiCategory].map((emoji, idx) => (
+                                <button
+                                    key={`${emoji}-${idx}`}
+                                    onClick={() => insertEmoji(emoji)}
+                                    className="p-1.5 text-xl hover:bg-white/10 rounded-lg transition-colors"
+                                    title={emoji}
+                                >
+                                    {emoji}
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 </div>
             )}

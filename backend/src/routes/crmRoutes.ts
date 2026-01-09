@@ -1,6 +1,6 @@
 
 import express from 'express';
-import { getColumns, moveConversation, handleInbound, updateColumnConfig, getConversations, createConversation, getMessages, sendMessage, archiveConversation, deleteConversation, getContactSnapshot, getClientOrders, getOrderDetails, createCoupon, searchClients, startConversationWithClient, createeDarkStoreTicket, getConversationTickets, updateTicketStatus, getClientConversation, smartComposePredict, smartComposeEnhanceAudio, smartComposeHelpWrite } from '../controllers/crmController';
+import { getColumns, moveConversation, handleInbound, updateColumnConfig, getConversations, createConversation, getMessages, sendMessage, archiveConversation, deleteConversation, getContactSnapshot, getClientOrders, getOrderDetails, createCoupon, searchClients, startConversationWithClient, createeDarkStoreTicket, getConversationTickets, updateTicketStatus, getClientConversation, smartComposePredict, smartComposeEnhanceAudio, smartComposeHelpWrite, sendInternalNote, getInternalNotes, submitAIFeedback, sendReplyMessage, scheduleMessage, getScheduledMessages, cancelScheduledMessage } from '../controllers/crmController';
 import { requireAuth, requireRole } from '../middleware/authMiddleware';
 
 const router = express.Router();
@@ -83,5 +83,20 @@ router.get('/inquiry/learning-stats', requireAuth, requireRole('admin', 'super_a
 router.post('/smart-compose/predict', requireAuth, requireRole('admin', 'super_admin', 'staff'), smartComposePredict);
 router.post('/smart-compose/enhance-audio', requireAuth, requireRole('admin', 'super_admin', 'staff'), smartComposeEnhanceAudio);
 router.post('/smart-compose/help-write', requireAuth, requireRole('admin', 'super_admin', 'staff'), smartComposeHelpWrite);
+
+// Internal Notes (private staff notes, not sent to customer)
+router.post('/conversations/:conversationId/notes', requireAuth, requireRole('admin', 'super_admin', 'staff'), sendInternalNote);
+router.get('/conversations/:conversationId/notes', requireAuth, requireRole('admin', 'super_admin', 'staff'), getInternalNotes);
+
+// AI Feedback (thumbs up/down on AI messages)
+router.post('/messages/:messageId/feedback', requireAuth, requireRole('admin', 'super_admin', 'staff'), submitAIFeedback);
+
+// Reply/Quote messages
+router.post('/conversations/:conversationId/messages/reply', requireAuth, requireRole('admin', 'super_admin', 'staff'), sendReplyMessage);
+
+// Scheduled Messages
+router.post('/conversations/:conversationId/messages/schedule', requireAuth, requireRole('admin', 'super_admin', 'staff'), scheduleMessage);
+router.get('/conversations/:conversationId/messages/scheduled', requireAuth, requireRole('admin', 'super_admin', 'staff'), getScheduledMessages);
+router.delete('/messages/:messageId/schedule', requireAuth, requireRole('admin', 'super_admin', 'staff'), cancelScheduledMessage);
 
 export default router;

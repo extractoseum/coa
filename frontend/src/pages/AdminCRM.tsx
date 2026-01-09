@@ -18,7 +18,7 @@ import {
     Moon, Wind, Droplet, Bell, Bookmark, Camera, Headphones, Speaker, MicOff, VideoOff, PhoneMissed,
     PhoneOutgoing, PhoneIncoming, PhoneForwarded, Voicemail, Tag, Gift, Percent, TrendingUp,
     TrendingDown, PieChart, Activity as Pulse, // Activity alias
-    Award, Star, Heart, ThumbsUp, ThumbsDown, Smile, Frown, FileBox, Facebook
+    Award, Star, Heart, ThumbsUp, ThumbsDown, Smile, Frown, FileBox, Facebook, StickyNote
 } from 'lucide-react';
 import { MessageAudioPlayer } from '../components/MessageAudioPlayer';
 import { SystemInquiryCard } from '../components/SystemInquiryCard';
@@ -1150,6 +1150,31 @@ const AdminCRM: React.FC = () => {
         }
     };
 
+    // Send internal note (not visible to customer)
+    const handleSendInternalNote = async () => {
+        if (!newMessage.trim() || !selectedConv) return;
+        setSendingMessage(true);
+        try {
+            const res = await fetch(`/api/v1/crm/conversations/${selectedConv.id}/notes`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ content: newMessage })
+            });
+            if (res.ok) {
+                const result = await res.json();
+                if (result.success) {
+                    setMessages([...messages, result.data]);
+                    setNewMessage('');
+                }
+            }
+        } catch (e) {
+            console.error('Error sending internal note', e);
+            alert('Error al guardar nota interna');
+        } finally {
+            setSendingMessage(false);
+        }
+    };
+
     if (!isSuperAdmin) return null;
 
     // getChannelIcon moved to ../utils/crmUtils.ts
@@ -1990,29 +2015,97 @@ const AdminCRM: React.FC = () => {
                                                 <p className="text-sm font-light">Comienza la conversación...</p>
                                             </div>
                                         ) : (
-                                            messages.map((msg, i) => (
-                                                <div key={i} className={`flex flex-col ${msg.direction === 'outbound' ? 'items-end' : 'items-start'}`}>
-                                                    <div
-                                                        className={`max-w-[92%] md:max-w-[85%] rounded-2xl p-3 text-sm shadow-sm ${msg.direction === 'outbound' ? 'rounded-br-none' : 'bg-white/5 border border-white/10 rounded-bl-none'}`}
-                                                        style={{
-                                                            backgroundColor: msg.direction === 'outbound' ? `${theme.accent}20` : undefined,
-                                                            color: msg.direction === 'outbound' ? theme.text : undefined,
-                                                            borderColor: msg.direction === 'outbound' ? `${theme.accent}20` : undefined,
-                                                            borderWidth: msg.direction === 'outbound' ? '1px' : undefined
-                                                        }}
-                                                    >
-                                                        {msg.type === 'image' && msg.content && !msg.content.startsWith('[') && (
-                                                            <img src={msg.content} alt="Media" className="rounded-lg mb-2 max-w-full" onError={(e) => e.currentTarget.style.display = 'none'} />
+                                            messages.map((msg, i) => {
+                                                const isInternal = msg.is_internal || msg.message_type === 'internal_note';
+                                                const isAIMessage = msg.direction === 'outbound' && msg.role === 'assistant';
+
+                                                return (
+                                                    <div key={i} className={`flex flex-col ${msg.direction === 'outbound' ? 'items-end' : 'items-start'} group`}>
+                                                        {/* Reply context if replying to a message */}
+                                                        {msg.reply_to && (
+                                                            <div className={`max-w-[70%] mb-1 px-2 py-1 rounded-lg text-[10px] ${msg.direction === 'outbound' ? 'mr-2' : 'ml-2'} bg-white/5 border-l-2 border-white/20 opacity-60`}>
+                                                                <span className="text-white/50">Respondiendo a: </span>
+                                                                <span className="text-white/70 truncate block">{msg.reply_to.content?.substring(0, 50)}...</span>
+                                                            </div>
                                                         )}
-                                                        <div className="whitespace-pre-wrap leading-relaxed">
-                                                            {parseMediaContent(msg.content || '')}
+
+                                                        <div
+                                                            className={`max-w-[92%] md:max-w-[85%] rounded-2xl p-3 text-sm shadow-sm relative ${
+                                                                isInternal
+                                                                    ? 'bg-yellow-500/20 border border-yellow-500/30 rounded-br-none'
+                                                                    : msg.direction === 'outbound'
+                                                                        ? 'rounded-br-none'
+                                                                        : 'bg-white/5 border border-white/10 rounded-bl-none'
+                                                            }`}
+                                                            style={{
+                                                                backgroundColor: isInternal
+                                                                    ? undefined
+                                                                    : msg.direction === 'outbound' ? `${theme.accent}20` : undefined,
+                                                                color: msg.direction === 'outbound' ? theme.text : undefined,
+                                                                borderColor: isInternal
+                                                                    ? undefined
+                                                                    : msg.direction === 'outbound' ? `${theme.accent}20` : undefined,
+                                                                borderWidth: msg.direction === 'outbound' ? '1px' : undefined
+                                                            }}
+                                                        >
+                                                            {/* Internal note indicator */}
+                                                            {isInternal && (
+                                                                <div className="flex items-center gap-1 text-[10px] text-yellow-400 mb-1 font-medium">
+                                                                    <span>📝</span> Nota Interna
+                                                                </div>
+                                                            )}
+
+                                                            {msg.type === 'image' && msg.content && !msg.content.startsWith('[') && (
+                                                                <img src={msg.content} alt="Media" className="rounded-lg mb-2 max-w-full" onError={(e) => e.currentTarget.style.display = 'none'} />
+                                                            )}
+                                                            <div className="whitespace-pre-wrap leading-relaxed">
+                                                                {parseMediaContent(msg.content || '')}
+                                                            </div>
+
+                                                            {/* AI Feedback buttons - only show on AI assistant messages */}
+                                                            {isAIMessage && !isInternal && (
+                                                                <div className={`flex items-center gap-1 mt-2 pt-2 border-t border-white/5 ${msg.ai_feedback ? '' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
+                                                                    <span className="text-[9px] text-white/30 mr-1">IA:</span>
+                                                                    <button
+                                                                        onClick={async () => {
+                                                                            const token = localStorage.getItem('accessToken');
+                                                                            await fetch(`/api/v1/crm/messages/${msg.id}/feedback`, {
+                                                                                method: 'POST',
+                                                                                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                                                                                body: JSON.stringify({ feedback: 'positive' })
+                                                                            });
+                                                                            // Update local state
+                                                                            setMessages(prev => prev.map(m => m.id === msg.id ? {...m, ai_feedback: 'positive'} : m));
+                                                                        }}
+                                                                        className={`p-1 rounded transition-colors ${msg.ai_feedback === 'positive' ? 'text-green-400 bg-green-500/20' : 'text-white/30 hover:text-green-400 hover:bg-green-500/10'}`}
+                                                                        title="Buena respuesta"
+                                                                    >
+                                                                        👍
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={async () => {
+                                                                            const token = localStorage.getItem('accessToken');
+                                                                            await fetch(`/api/v1/crm/messages/${msg.id}/feedback`, {
+                                                                                method: 'POST',
+                                                                                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                                                                                body: JSON.stringify({ feedback: 'negative' })
+                                                                            });
+                                                                            setMessages(prev => prev.map(m => m.id === msg.id ? {...m, ai_feedback: 'negative'} : m));
+                                                                        }}
+                                                                        className={`p-1 rounded transition-colors ${msg.ai_feedback === 'negative' ? 'text-red-400 bg-red-500/20' : 'text-white/30 hover:text-red-400 hover:bg-red-500/10'}`}
+                                                                        title="Mala respuesta"
+                                                                    >
+                                                                        👎
+                                                                    </button>
+                                                                </div>
+                                                            )}
                                                         </div>
+                                                        <span className="text-[9px] opacity-30 mt-1 font-mono px-1">
+                                                            {msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--'} • {isInternal ? 'NOTA INTERNA' : msg.direction === 'outbound' ? 'AGENTE' : 'CLIENTE'}
+                                                        </span>
                                                     </div>
-                                                    <span className="text-[9px] opacity-30 mt-1 font-mono px-1">
-                                                        {msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--'} • {msg.direction === 'outbound' ? 'AGENTE' : 'CLIENTE'}
-                                                    </span>
-                                                </div>
-                                            ))
+                                                );
+                                            })
                                         )}
                                         <div ref={messagesEndRef} />
                                     </div>
@@ -2048,6 +2141,16 @@ const AdminCRM: React.FC = () => {
                                             />
 
                                             <div className="flex flex-row gap-2 justify-end pb-1 pl-1">
+                                                {/* Internal Note Button */}
+                                                <button
+                                                    onClick={handleSendInternalNote}
+                                                    disabled={sendingMessage || !newMessage.trim()}
+                                                    className={`p-2 h-[44px] w-[44px] md:h-[48px] md:w-[48px] flex items-center justify-center rounded-xl transition-all ${sendingMessage || !newMessage.trim() ? 'opacity-30 grayscale cursor-not-allowed' : 'text-yellow-400 bg-yellow-500/10 hover:bg-yellow-500/20 shadow-lg border border-yellow-500/20 active:scale-95'}`}
+                                                    title="Guardar Nota Interna (no se envía al cliente)"
+                                                >
+                                                    <StickyNote size={20} />
+                                                </button>
+
                                                 <button
                                                     onClick={handleSendVoice}
                                                     disabled={sendingMessage}
