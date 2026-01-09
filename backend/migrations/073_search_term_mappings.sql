@@ -60,6 +60,7 @@ CREATE INDEX IF NOT EXISTS idx_search_mappings_review
 ALTER TABLE search_term_mappings ENABLE ROW LEVEL SECURITY;
 
 -- Policy for service role
+DROP POLICY IF EXISTS "Service role full access to search_term_mappings" ON search_term_mappings;
 CREATE POLICY "Service role full access to search_term_mappings"
     ON search_term_mappings
     FOR ALL

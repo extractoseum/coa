@@ -54,6 +54,7 @@ CREATE INDEX IF NOT EXISTS idx_vapi_events_unprocessed ON vapi_call_events(creat
 ALTER TABLE vapi_call_events ENABLE ROW LEVEL SECURITY;
 
 -- Policy for service role (backend)
+DROP POLICY IF EXISTS "Service role full access to vapi_call_events" ON vapi_call_events;
 CREATE POLICY "Service role full access to vapi_call_events"
     ON vapi_call_events
     FOR ALL

@@ -73,6 +73,7 @@ CREATE INDEX IF NOT EXISTS idx_tool_logs_failed ON vapi_tool_logs(tool_name, cre
 ALTER TABLE vapi_tool_logs ENABLE ROW LEVEL SECURITY;
 
 -- Policy for service role
+DROP POLICY IF EXISTS "Service role full access to vapi_tool_logs" ON vapi_tool_logs;
 CREATE POLICY "Service role full access to vapi_tool_logs"
     ON vapi_tool_logs
     FOR ALL
@@ -97,7 +98,7 @@ SELECT
     COUNT(*) FILTER (WHERE success = false) as failed_calls,
     ROUND(100.0 * COUNT(*) FILTER (WHERE success = true) / NULLIF(COUNT(*), 0), 2) as success_rate,
     ROUND(AVG(duration_ms), 0) as avg_duration_ms,
-    ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY duration_ms), 0) as p95_duration_ms,
+    ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY duration_ms)::numeric, 0) as p95_duration_ms,
     COUNT(*) FILTER (WHERE needs_review = true) as pending_reviews,
     MAX(created_at) as last_used
 FROM vapi_tool_logs
