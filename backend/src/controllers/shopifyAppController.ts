@@ -404,10 +404,11 @@ export const registerScriptTag = async (req: Request, res: Response) => {
  * GET /api/v1/shopify-app/widget.js
  */
 export const getWidgetScript = async (req: Request, res: Response) => {
-    // Set CORS headers to allow the widget to be loaded from Shopify storefront
+    // Set CORS and CORP headers to allow cross-origin loading
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
 
     // Handle preflight requests
     if (req.method === 'OPTIONS') {
@@ -422,14 +423,34 @@ export const getWidgetScript = async (req: Request, res: Response) => {
     const API_BASE = '${APP_URL}/api/v1/shopify-app';
     const COA_DOMAIN = '${APP_URL}';
 
-    // Get token from URL parameter or localStorage
+    // In-memory token storage (fallback when localStorage is blocked)
+    let memoryToken = null;
+
+    // Safe localStorage access (may be blocked in sandboxed iframes)
+    function safeLocalStorage(action, key, value) {
+        try {
+            if (action === 'get') {
+                return localStorage.getItem(key);
+            } else if (action === 'set') {
+                localStorage.setItem(key, value);
+                return true;
+            }
+        } catch (e) {
+            // localStorage blocked, use memory fallback
+            console.log('[EUM Sales Agent] localStorage blocked, using memory storage');
+            return null;
+        }
+    }
+
+    // Get token from URL parameter or storage
     function getToken() {
         // First check URL parameter (from "Abrir Tienda" button)
         const urlParams = new URLSearchParams(window.location.search);
         const urlToken = urlParams.get('eum_token');
         if (urlToken) {
-            // Store it for future page navigations
-            localStorage.setItem('eum_sales_agent_token', urlToken);
+            // Store it for future use
+            memoryToken = urlToken;
+            safeLocalStorage('set', 'eum_sales_agent_token', urlToken);
             // Clean up URL (remove token from visible URL)
             const cleanUrl = window.location.href.split('?')[0];
             const otherParams = new URLSearchParams(window.location.search);
@@ -438,8 +459,9 @@ export const getWidgetScript = async (req: Request, res: Response) => {
             window.history.replaceState({}, '', newUrl);
             return urlToken;
         }
-        // Fallback to localStorage
-        return localStorage.getItem('eum_sales_agent_token');
+        // Check memory first, then localStorage
+        if (memoryToken) return memoryToken;
+        return safeLocalStorage('get', 'eum_sales_agent_token');
     }
 
     // Check if we should show the widget
@@ -588,7 +610,8 @@ export const getWidgetScript = async (req: Request, res: Response) => {
     async function searchProducts(query) {
         if (!query || query.length < 2) return;
 
-        const token = localStorage.getItem('eum_sales_agent_token');
+        const token = getToken();
+        if (!token) return;
         const res = await fetch(API_BASE + '/products?query=' + encodeURIComponent(query), {
             headers: { 'Authorization': 'Bearer ' + token }
         });
@@ -629,7 +652,8 @@ export const getWidgetScript = async (req: Request, res: Response) => {
     // Listen for token from COA app
     window.addEventListener('message', function(event) {
         if (event.origin === COA_DOMAIN && event.data.type === 'EUM_SALES_AGENT_TOKEN') {
-            localStorage.setItem('eum_sales_agent_token', event.data.token);
+            memoryToken = event.data.token;
+            safeLocalStorage('set', 'eum_sales_agent_token', event.data.token);
             checkSession().then(session => {
                 if (session && !document.getElementById('eum-sales-agent-widget')) {
                     createWidget(session);
@@ -637,10 +661,12 @@ export const getWidgetScript = async (req: Request, res: Response) => {
             });
         }
     });
+
+    console.log('[EUM Sales Agent] Script loaded, checking for token...');
 })();
 `;
 
     res.setHeader('Content-Type', 'application/javascript');
-    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate'); // No cache during development
     res.send(widgetScript);
 };
