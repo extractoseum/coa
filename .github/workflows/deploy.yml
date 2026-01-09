@@ -185,6 +185,24 @@ jobs:
               echo "VAPI_DEFAULT_ASSISTANT_ID=${{ secrets.VAPI_DEFAULT_ASSISTANT_ID }}" >> .env
             fi
 
+            # Update Twilio credentials (Direct Voice)
+            if [ -n "${{ secrets.TWILIO_ACCOUNT_SID }}" ]; then
+              sed -i '/^TWILIO_ACCOUNT_SID=/d' .env 2>/dev/null || true
+              sed -i '/^TWILIO_AUTH_TOKEN=/d' .env 2>/dev/null || true
+              sed -i '/^# Twilio Direct/d' .env 2>/dev/null || true
+
+              echo "" >> .env
+              echo "# Twilio Direct Voice" >> .env
+              echo "TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_ACCOUNT_SID }}" >> .env
+              echo "TWILIO_AUTH_TOKEN=${{ secrets.TWILIO_AUTH_TOKEN }}" >> .env
+            fi
+
+            # Update Anthropic API Key (Claude)
+            if [ -n "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
+              sed -i '/^ANTHROPIC_API_KEY=/d' .env 2>/dev/null || true
+              echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" >> .env
+            fi
+
             npm install --omit=dev
             pm2 restart coa-backend
           timeout: 120s
