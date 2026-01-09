@@ -233,10 +233,22 @@ export class VapiService {
 
     /**
      * Execute tool calls using VapiToolHandlers
+     *
+     * IMPORTANT: VAPI requires specific response format:
+     * - HTTP 200 always (even for errors)
+     * - results array with toolCallId and result (string, no line breaks)
+     * - toolCallId must match exactly
      */
     private async handleToolCalls(message: any) {
         const results = [];
         const call = message.call;
+
+        // Log the full payload for debugging
+        console.log(`[VapiService] Tool-calls payload:`, JSON.stringify({
+            toolWithToolCallList: message.toolWithToolCallList?.length,
+            toolCallList: message.toolCallList?.length,
+            call: { id: call?.id, customer: call?.customer }
+        }));
 
         // Extract context from call metadata
         const context = {
@@ -245,30 +257,49 @@ export class VapiService {
             customerPhone: call?.customer?.number
         };
 
-        for (const toolCall of message.toolWithToolCallList || []) {
-            console.log(`[VapiService] Executing Tool: ${toolCall.function?.name}`);
+        // VAPI sends tool calls in toolWithToolCallList
+        // Each item has: { type, function: { name, arguments }, id } OR { toolCall: { id }, function: {...} }
+        const toolCalls = message.toolWithToolCallList || message.toolCallList || [];
+
+        for (const toolCall of toolCalls) {
+            // Extract the tool call ID - can be in different places depending on VAPI version
+            const toolCallId = toolCall.id || toolCall.toolCall?.id;
+            const functionName = toolCall.function?.name || toolCall.name;
+            const functionArgs = toolCall.function?.arguments || toolCall.parameters || '{}';
+
+            console.log(`[VapiService] Executing Tool: ${functionName} (ID: ${toolCallId})`);
 
             try {
-                const args = typeof toolCall.function?.arguments === 'string'
-                    ? JSON.parse(toolCall.function.arguments)
-                    : toolCall.function?.arguments || {};
+                const args = typeof functionArgs === 'string'
+                    ? JSON.parse(functionArgs)
+                    : functionArgs || {};
+
+                console.log(`[VapiService] Tool args:`, args);
+                console.log(`[VapiService] Context:`, context);
 
                 // Use centralized tool handler
-                const result = await handleToolCall(toolCall.function?.name, args, context);
+                const result = await handleToolCall(functionName, args, context);
+
+                console.log(`[VapiService] Tool result:`, result);
+
+                // CRITICAL: Result must be a single-line string with no line breaks
+                // Line breaks cause VAPI to fail parsing and return "No result returned"
+                const resultString = JSON.stringify(result).replace(/\n/g, ' ').replace(/\r/g, '');
 
                 results.push({
-                    toolCallId: toolCall.id,
-                    result: JSON.stringify(result)
+                    toolCallId: toolCallId,
+                    result: resultString
                 });
             } catch (e: any) {
-                console.error(`[VapiService] Tool error:`, e.message);
+                console.error(`[VapiService] Tool error for ${functionName}:`, e.message, e.stack);
                 results.push({
-                    toolCallId: toolCall.id,
-                    result: JSON.stringify({ success: false, error: e.message })
+                    toolCallId: toolCallId,
+                    error: e.message.replace(/\n/g, ' ')
                 });
             }
         }
 
+        console.log(`[VapiService] Returning ${results.length} tool results`);
         return { results };
     }
 

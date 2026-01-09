@@ -83,6 +83,11 @@ export async function handleSendWhatsApp(
  * Tool: search_products
  * Searches products in the catalog and returns info for the voice agent
  * This queries the REAL products database, not static files
+ *
+ * Search strategy:
+ * 1. Map common Spanish terms to actual product keywords
+ * 2. Search in title, product_type, and description
+ * 3. If no query, return all active products
  */
 export async function handleSearchProducts(
     args: { query: string; category?: string },
@@ -93,30 +98,105 @@ export async function handleSearchProducts(
     try {
         console.log(`[VapiTools] Searching products: query="${query}", category="${category}"`);
 
-        // Search products by title or product_type
-        let dbQuery = supabase
-            .from('products')
-            .select('id, title, handle, product_type, description_plain, variants, status')
-            .eq('status', 'active');
+        // Mapping of common search terms to product keywords/types
+        const searchMappings: Record<string, string[]> = {
+            'gomitas': ['comestibles', 'gummies', 'hot bites', 'candy', 'bites'],
+            'gummies': ['comestibles', 'gummies', 'hot bites', 'candy'],
+            'comestibles': ['comestibles', 'gummies', 'edibles', 'bites'],
+            'tintura': ['tinturas', 'aceite', 'oil', 'tintura'],
+            'tinturas': ['tinturas', 'aceite', 'oil'],
+            'topico': ['topicos', 'crema', 'stick', 'freezing'],
+            'topicos': ['topicos', 'crema', 'stick', 'freezing'],
+            'crema': ['topicos', 'crema', 'stick', 'freezing'],
+            'aceite': ['tinturas', 'aceite', 'oil'],
+            'recreativo': ['comestibles', 'delta', 'hhc', 'thc', 'bites'],
+            'cbd': ['cbd', 'cannabidiol', 'freezing'],
+            'hhc': ['hhc', 'hexahidrocannabinol', 'delta'],
+            'delta': ['delta', 'delta 8', 'delta 9', 'bites'],
+        };
+
+        let products: any[] = [];
+        const queryLower = (query || '').toLowerCase().trim();
 
         if (query) {
-            // Search in title (ilike for case-insensitive)
-            dbQuery = dbQuery.ilike('title', `%${query}%`);
-        }
-        if (category) {
-            dbQuery = dbQuery.ilike('product_type', `%${category}%`);
+            // Get expanded search terms
+            const expandedTerms = searchMappings[queryLower] || [queryLower];
+            console.log(`[VapiTools] Expanded search terms:`, expandedTerms);
+
+            // Try each term until we find results
+            for (const term of expandedTerms) {
+                if (products.length >= 5) break;
+
+                // Search in title
+                const { data: titleResults } = await supabase
+                    .from('products')
+                    .select('id, title, handle, product_type, description_plain, variants, status')
+                    .eq('status', 'active')
+                    .ilike('title', `%${term}%`)
+                    .limit(5);
+
+                if (titleResults && titleResults.length > 0) {
+                    const existingIds = new Set(products.map(p => p.id));
+                    products = [...products, ...titleResults.filter(p => !existingIds.has(p.id))];
+                }
+
+                // Search in product_type
+                if (products.length < 5) {
+                    const { data: typeResults } = await supabase
+                        .from('products')
+                        .select('id, title, handle, product_type, description_plain, variants, status')
+                        .eq('status', 'active')
+                        .ilike('product_type', `%${term}%`)
+                        .limit(5);
+
+                    if (typeResults && typeResults.length > 0) {
+                        const existingIds = new Set(products.map(p => p.id));
+                        products = [...products, ...typeResults.filter(p => !existingIds.has(p.id))];
+                    }
+                }
+            }
+
+            // Deduplicate and limit
+            const seen = new Set();
+            products = products.filter(p => {
+                if (seen.has(p.id)) return false;
+                seen.add(p.id);
+                return true;
+            }).slice(0, 5);
+        } else {
+            // No query - return all active products
+            const { data } = await supabase
+                .from('products')
+                .select('id, title, handle, product_type, description_plain, variants, status')
+                .eq('status', 'active')
+                .limit(5);
+            products = data || [];
         }
 
-        const { data: products, error } = await dbQuery.limit(5);
-
-        if (error) {
-            console.error('[VapiTools] DB Error:', error);
+        // Apply category filter if provided
+        if (category && products.length > 0) {
+            products = products.filter(p =>
+                p.product_type?.toLowerCase().includes(category.toLowerCase())
+            );
         }
+
+        console.log(`[VapiTools] Found ${products.length} products after search`);
 
         if (!products || products.length === 0) {
+            // Get available product types for helpful suggestion
+            const { data: allProducts } = await supabase
+                .from('products')
+                .select('product_type')
+                .eq('status', 'active');
+
+            const types = [...new Set((allProducts || []).map(p => p.product_type).filter(Boolean))];
+            const suggestion = types.length > 0
+                ? `Tenemos productos en categorías como: ${types.slice(0, 3).join(', ')}.`
+                : '';
+
             return {
                 success: false,
-                message: `No encontré productos con "${query}". ¿Podrías ser más específico? Tenemos gomitas, tinturas, tópicos y más.`
+                message: `No encontré productos con "${query}". ${suggestion} ¿Quieres que busque algo más específico?`
             };
         }
 
