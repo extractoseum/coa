@@ -420,259 +420,441 @@ export const getWidgetScript = async (req: Request, res: Response) => {
 (function() {
     'use strict';
 
-    const API_BASE = '${APP_URL}/api/v1/shopify-app';
+    const API_BASE = '${APP_URL}/api/v1';
     const COA_DOMAIN = '${APP_URL}';
 
-    // In-memory token storage (fallback when localStorage is blocked)
+    // Widget state
     let memoryToken = null;
+    let currentSession = null;
+    let currentTab = 'products'; // 'products' or 'chat'
+    let chatMessages = [];
+    let chatConversationId = null;
 
-    // Safe localStorage access (may be blocked in sandboxed iframes)
+    // Safe localStorage access
     function safeLocalStorage(action, key, value) {
         try {
-            if (action === 'get') {
-                return localStorage.getItem(key);
-            } else if (action === 'set') {
-                localStorage.setItem(key, value);
-                return true;
-            }
+            if (action === 'get') return localStorage.getItem(key);
+            if (action === 'set') { localStorage.setItem(key, value); return true; }
         } catch (e) {
-            // localStorage blocked, use memory fallback
-            console.log('[EUM Sales Agent] localStorage blocked, using memory storage');
+            console.log('[EUM] localStorage blocked');
             return null;
         }
     }
 
-    // Get token from URL parameter or storage
+    // Get token from URL or storage
     function getToken() {
-        // First check URL parameter (from "Abrir Tienda" button)
         const urlParams = new URLSearchParams(window.location.search);
         const urlToken = urlParams.get('eum_token');
         if (urlToken) {
-            // Store it for future use
             memoryToken = urlToken;
             safeLocalStorage('set', 'eum_sales_agent_token', urlToken);
-            // Clean up URL (remove token from visible URL)
-            const cleanUrl = window.location.href.split('?')[0];
+            // Clean URL
             const otherParams = new URLSearchParams(window.location.search);
             otherParams.delete('eum_token');
+            const cleanUrl = window.location.href.split('?')[0];
             const newUrl = otherParams.toString() ? cleanUrl + '?' + otherParams.toString() : cleanUrl;
             window.history.replaceState({}, '', newUrl);
             return urlToken;
         }
-        // Check memory first, then localStorage
         if (memoryToken) return memoryToken;
         return safeLocalStorage('get', 'eum_sales_agent_token');
     }
 
-    // Check if we should show the widget
+    // API call helper
+    async function apiCall(endpoint, options = {}) {
+        const token = getToken();
+        if (!token) throw new Error('No token');
+        const res = await fetch(API_BASE + endpoint, {
+            ...options,
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + token,
+                ...(options.headers || {})
+            }
+        });
+        return res.json();
+    }
+
+    // Check session
     async function checkSession() {
         try {
             const token = getToken();
             if (!token) return null;
-
-            const res = await fetch(API_BASE + '/session', {
-                headers: { 'Authorization': 'Bearer ' + token }
-            });
-            const data = await res.json();
-
+            const data = await apiCall('/shopify-app/session');
             if (data.success && data.isImpersonating) {
+                currentSession = data.session;
                 return data.session;
             }
             return null;
         } catch (err) {
-            console.error('[EUM Sales Agent] Session check failed:', err);
+            console.error('[EUM] Session check failed:', err);
             return null;
         }
     }
 
-    // Create the floating widget
+    // Load chat messages
+    async function loadChat() {
+        if (!currentSession?.client?.id) return;
+        try {
+            const data = await apiCall('/crm/clients/' + currentSession.client.id + '/conversation');
+            if (data.success && data.data) {
+                chatConversationId = data.data.conversation?.id;
+                chatMessages = data.data.messages || [];
+                renderChat();
+            }
+        } catch (err) {
+            console.error('[EUM] Load chat failed:', err);
+        }
+    }
+
+    // Send chat message
+    async function sendChatMessage(content) {
+        if (!chatConversationId || !content.trim()) return;
+        try {
+            await apiCall('/crm/conversations/' + chatConversationId + '/messages', {
+                method: 'POST',
+                body: JSON.stringify({ content, role: 'assistant' })
+            });
+            // Reload messages
+            await loadChat();
+        } catch (err) {
+            console.error('[EUM] Send message failed:', err);
+        }
+    }
+
+    // Render chat messages
+    function renderChat() {
+        const container = document.getElementById('eum-chat-messages');
+        if (!container) return;
+
+        container.innerHTML = chatMessages.map(m => \`
+            <div style="margin-bottom: 12px; text-align: \${m.role === 'user' ? 'left' : 'right'};">
+                <div style="display: inline-block; max-width: 80%; padding: 8px 12px; border-radius: 12px; background: \${m.role === 'user' ? 'rgba(255,255,255,0.1)' : '#3b82f6'}; font-size: 13px;">
+                    \${m.content}
+                </div>
+                <div style="font-size: 10px; opacity: 0.5; margin-top: 2px;">
+                    \${new Date(m.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+                </div>
+            </div>
+        \`).join('');
+
+        container.scrollTop = container.scrollHeight;
+    }
+
+    // Create widget
     function createWidget(session) {
-        // Create toggle button OUTSIDE the widget so it stays visible
+        // Toggle button
         const toggle = document.createElement('div');
         toggle.id = 'eum-sales-agent-toggle';
         toggle.innerHTML = 'Sales Agent';
         document.body.appendChild(toggle);
 
-        // Create the main widget panel
+        // Main panel
         const widget = document.createElement('div');
         widget.id = 'eum-sales-agent-widget';
         widget.innerHTML = \`
             <style>
                 #eum-sales-agent-toggle {
-                    position: fixed !important;
-                    top: 50% !important;
-                    right: 0 !important;
+                    position: fixed !important; top: 50% !important; right: 0 !important;
                     transform: translateY(-50%) !important;
                     background: linear-gradient(135deg, #dc2626, #ea580c) !important;
-                    color: white !important;
-                    padding: 16px 10px !important;
-                    border-radius: 8px 0 0 8px !important;
-                    cursor: pointer !important;
-                    z-index: 2147483647 !important;
-                    writing-mode: vertical-rl !important;
-                    font-weight: bold !important;
-                    font-size: 14px !important;
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+                    color: white !important; padding: 16px 10px !important;
+                    border-radius: 8px 0 0 8px !important; cursor: pointer !important;
+                    z-index: 2147483647 !important; writing-mode: vertical-rl !important;
+                    font-weight: bold !important; font-size: 14px !important;
+                    font-family: -apple-system, BlinkMacSystemFont, sans-serif !important;
                     box-shadow: -2px 0 10px rgba(0,0,0,0.3) !important;
-                    text-transform: uppercase !important;
-                    letter-spacing: 1px !important;
+                    text-transform: uppercase !important; letter-spacing: 1px !important;
                 }
-                #eum-sales-agent-toggle:hover {
-                    padding-right: 14px !important;
-                }
+                #eum-sales-agent-toggle:hover { padding-right: 14px !important; }
                 #eum-sales-agent-widget {
-                    position: fixed !important;
-                    top: 0 !important;
-                    right: 0 !important;
-                    width: 400px !important;
-                    height: 100vh !important;
-                    background: #1a1a2e !important;
-                    color: white !important;
+                    position: fixed !important; top: 0 !important; right: 0 !important;
+                    width: 400px !important; height: 100vh !important;
+                    background: #1a1a2e !important; color: white !important;
                     box-shadow: -4px 0 20px rgba(0,0,0,0.3) !important;
                     z-index: 2147483646 !important;
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-                    display: flex !important;
-                    flex-direction: column !important;
+                    font-family: -apple-system, BlinkMacSystemFont, sans-serif !important;
+                    display: flex !important; flex-direction: column !important;
                     transform: translateX(100%) !important;
                     transition: transform 0.3s ease !important;
                 }
-                #eum-sales-agent-widget.open {
-                    transform: translateX(0) !important;
-                }
-                #eum-sales-agent-widget.open + #eum-sales-agent-toggle,
-                #eum-sales-agent-widget.open ~ #eum-sales-agent-toggle {
-                    right: 400px !important;
-                }
+                #eum-sales-agent-widget.open { transform: translateX(0) !important; }
                 .eum-header {
                     background: linear-gradient(135deg, #dc2626, #ea580c) !important;
-                    padding: 16px !important;
-                    display: flex !important;
-                    justify-content: space-between !important;
-                    align-items: center !important;
+                    padding: 12px 16px !important; display: flex !important;
+                    justify-content: space-between !important; align-items: center !important;
+                    flex-shrink: 0 !important;
+                }
+                .eum-tabs {
+                    display: flex !important; background: rgba(0,0,0,0.2) !important;
+                    flex-shrink: 0 !important;
+                }
+                .eum-tab {
+                    flex: 1 !important; padding: 12px !important; text-align: center !important;
+                    cursor: pointer !important; border: none !important; background: none !important;
+                    color: rgba(255,255,255,0.6) !important; font-size: 13px !important;
+                    font-weight: 500 !important; transition: all 0.2s !important;
+                }
+                .eum-tab.active {
+                    color: white !important; background: rgba(255,255,255,0.1) !important;
+                    border-bottom: 2px solid #3b82f6 !important;
                 }
                 .eum-content {
-                    flex: 1 !important;
-                    overflow-y: auto !important;
-                    padding: 16px !important;
+                    flex: 1 !important; overflow-y: auto !important; padding: 16px !important;
+                    display: none !important;
                 }
+                .eum-content.active { display: block !important; }
                 .eum-search {
-                    width: 100% !important;
-                    padding: 12px !important;
+                    width: 100% !important; padding: 12px !important;
                     background: rgba(255,255,255,0.1) !important;
                     border: 1px solid rgba(255,255,255,0.2) !important;
-                    border-radius: 8px !important;
-                    color: white !important;
-                    margin-bottom: 16px !important;
-                    box-sizing: border-box !important;
+                    border-radius: 8px !important; color: white !important;
+                    margin-bottom: 16px !important; box-sizing: border-box !important;
+                    font-size: 14px !important;
                 }
-                .eum-search::placeholder {
-                    color: rgba(255,255,255,0.5) !important;
-                }
+                .eum-search::placeholder { color: rgba(255,255,255,0.5) !important; }
                 .eum-product {
                     background: rgba(255,255,255,0.05) !important;
-                    padding: 12px !important;
-                    border-radius: 8px !important;
+                    padding: 12px !important; border-radius: 8px !important;
                     margin-bottom: 8px !important;
                 }
-                .eum-cart {
-                    border-top: 1px solid rgba(255,255,255,0.1) !important;
-                    padding: 16px !important;
-                    background: rgba(0,0,0,0.2) !important;
+                .eum-product-name { font-weight: bold !important; margin-bottom: 4px !important; }
+                .eum-product-price { font-size: 12px !important; opacity: 0.7 !important; }
+                .eum-product-btn {
+                    margin-top: 8px !important; padding: 6px 12px !important;
+                    background: #10b981 !important; color: white !important;
+                    border: none !important; border-radius: 4px !important;
+                    cursor: pointer !important; font-size: 12px !important;
                 }
-                .eum-btn {
-                    width: 100% !important;
-                    padding: 12px !important;
-                    background: #3b82f6 !important;
-                    color: white !important;
-                    border: none !important;
-                    border-radius: 8px !important;
-                    cursor: pointer !important;
+                .eum-product-btn:hover { background: #059669 !important; }
+                .eum-chat-container {
+                    display: flex !important; flex-direction: column !important;
+                    height: 100% !important;
+                }
+                .eum-chat-messages {
+                    flex: 1 !important; overflow-y: auto !important;
+                    padding: 8px !important; min-height: 200px !important;
+                }
+                .eum-chat-input-container {
+                    display: flex !important; gap: 8px !important; margin-top: 12px !important;
+                }
+                .eum-chat-input {
+                    flex: 1 !important; padding: 10px !important;
+                    background: rgba(255,255,255,0.1) !important;
+                    border: 1px solid rgba(255,255,255,0.2) !important;
+                    border-radius: 8px !important; color: white !important;
+                    font-size: 14px !important;
+                }
+                .eum-chat-send {
+                    padding: 10px 16px !important; background: #3b82f6 !important;
+                    color: white !important; border: none !important;
+                    border-radius: 8px !important; cursor: pointer !important;
                     font-weight: bold !important;
                 }
-                .eum-btn:hover {
-                    background: #2563eb !important;
+                .eum-chat-send:hover { background: #2563eb !important; }
+                .eum-cart {
+                    border-top: 1px solid rgba(255,255,255,0.1) !important;
+                    padding: 16px !important; background: rgba(0,0,0,0.2) !important;
+                    flex-shrink: 0 !important;
                 }
+                .eum-btn {
+                    width: 100% !important; padding: 12px !important;
+                    background: #3b82f6 !important; color: white !important;
+                    border: none !important; border-radius: 8px !important;
+                    cursor: pointer !important; font-weight: bold !important;
+                }
+                .eum-btn:hover { background: #2563eb !important; }
+                .eum-loading { text-align: center !important; padding: 20px !important; opacity: 0.6 !important; }
+                .eum-empty { text-align: center !important; padding: 20px !important; opacity: 0.5 !important; font-size: 13px !important; }
             </style>
             <div class="eum-header">
                 <div>
-                    <div style="font-weight: bold;">Sales Agent Mode</div>
-                    <div style="font-size: 12px; opacity: 0.8;">Cliente: \${session.client?.name || 'N/A'}</div>
+                    <div style="font-weight: bold; font-size: 15px;">Sales Agent</div>
+                    <div style="font-size: 12px; opacity: 0.8;">\${session.client?.name || 'Cliente'}</div>
                 </div>
-                <button onclick="document.getElementById('eum-sales-agent-widget').classList.remove('open')" style="background: none; border: none; color: white; font-size: 20px; cursor: pointer;">×</button>
+                <button id="eum-close-btn" style="background: none; border: none; color: white; font-size: 24px; cursor: pointer; padding: 0; line-height: 1;">×</button>
             </div>
-            <div class="eum-content">
+            <div class="eum-tabs">
+                <button class="eum-tab active" data-tab="products">Productos</button>
+                <button class="eum-tab" data-tab="chat">Chat</button>
+            </div>
+            <div class="eum-content active" id="eum-tab-products">
                 <input type="text" class="eum-search" placeholder="Buscar productos..." id="eum-search-input">
-                <div id="eum-products"></div>
+                <div id="eum-products"><div class="eum-empty">Busca productos para agregar al pedido</div></div>
+            </div>
+            <div class="eum-content" id="eum-tab-chat">
+                <div class="eum-chat-container">
+                    <div class="eum-chat-messages" id="eum-chat-messages">
+                        <div class="eum-loading">Cargando mensajes...</div>
+                    </div>
+                    <div class="eum-chat-input-container">
+                        <input type="text" class="eum-chat-input" placeholder="Escribe un mensaje..." id="eum-chat-input">
+                        <button class="eum-chat-send" id="eum-chat-send">Enviar</button>
+                    </div>
+                </div>
             </div>
             <div class="eum-cart">
                 <div style="margin-bottom: 12px; font-weight: bold;">Carrito: <span id="eum-cart-count">0</span> items</div>
-                <div style="margin-bottom: 12px;">Total: $<span id="eum-cart-total">0.00</span></div>
+                <div style="margin-bottom: 12px;">Total: $<span id="eum-cart-total">0.00</span> MXN</div>
                 <button class="eum-btn" id="eum-checkout-btn">Generar Link de Pago</button>
             </div>
         \`;
         document.body.appendChild(widget);
 
-        // Toggle widget on click
-        toggle.onclick = function() {
+        // Event handlers
+        toggle.onclick = () => {
             widget.classList.toggle('open');
-            // Move toggle with panel
-            if (widget.classList.contains('open')) {
-                toggle.style.right = '400px';
-            } else {
-                toggle.style.right = '0';
-            }
+            toggle.style.right = widget.classList.contains('open') ? '400px' : '0';
         };
 
-        // Search functionality
+        document.getElementById('eum-close-btn').onclick = () => {
+            widget.classList.remove('open');
+            toggle.style.right = '0';
+        };
+
+        // Tab switching
+        document.querySelectorAll('.eum-tab').forEach(tab => {
+            tab.onclick = () => {
+                document.querySelectorAll('.eum-tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.eum-content').forEach(c => c.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById('eum-tab-' + tab.dataset.tab).classList.add('active');
+                if (tab.dataset.tab === 'chat' && chatMessages.length === 0) {
+                    loadChat();
+                }
+            };
+        });
+
+        // Search
         let searchTimeout;
-        document.getElementById('eum-search-input').oninput = function(e) {
+        document.getElementById('eum-search-input').oninput = (e) => {
             clearTimeout(searchTimeout);
             searchTimeout = setTimeout(() => searchProducts(e.target.value), 500);
         };
 
-        console.log('[EUM Sales Agent] Widget initialized for:', session.client?.name);
+        // Chat send
+        document.getElementById('eum-chat-send').onclick = () => {
+            const input = document.getElementById('eum-chat-input');
+            if (input.value.trim()) {
+                sendChatMessage(input.value);
+                input.value = '';
+            }
+        };
+        document.getElementById('eum-chat-input').onkeypress = (e) => {
+            if (e.key === 'Enter') document.getElementById('eum-chat-send').click();
+        };
+
+        // Checkout
+        document.getElementById('eum-checkout-btn').onclick = () => createDraftOrder();
+
+        console.log('[EUM] Widget initialized for:', session.client?.name);
     }
 
     // Search products
     async function searchProducts(query) {
-        if (!query || query.length < 2) return;
+        if (!query || query.length < 2) {
+            document.getElementById('eum-products').innerHTML = '<div class="eum-empty">Busca productos para agregar al pedido</div>';
+            return;
+        }
 
-        const token = getToken();
-        if (!token) return;
-        const res = await fetch(API_BASE + '/products?query=' + encodeURIComponent(query), {
-            headers: { 'Authorization': 'Bearer ' + token }
-        });
-        const data = await res.json();
+        document.getElementById('eum-products').innerHTML = '<div class="eum-loading">Buscando...</div>';
 
-        const container = document.getElementById('eum-products');
-        if (data.success && data.products) {
-            container.innerHTML = data.products.map(p => \`
-                <div class="eum-product">
-                    <div style="font-weight: bold;">\${p.name}</div>
-                    <div style="font-size: 12px; opacity: 0.7;">$\${p.price}</div>
-                    <button onclick="window.eumAddToCart(\${p.variants[0]?.id || p.id}, '\${p.name}', \${p.price})" style="margin-top: 8px; padding: 6px 12px; background: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer;">Agregar</button>
-                </div>
-            \`).join('');
+        try {
+            const data = await apiCall('/shopify-app/products?query=' + encodeURIComponent(query));
+            console.log('[EUM] Search results:', data);
+
+            const container = document.getElementById('eum-products');
+            if (data.success && data.products && data.products.length > 0) {
+                container.innerHTML = data.products.map(p => \`
+                    <div class="eum-product">
+                        <div class="eum-product-name">\${escapeHtml(p.name)}</div>
+                        <div class="eum-product-price">$\${p.price} MXN</div>
+                        <button class="eum-product-btn" onclick="window.eumAddToCart('\${p.variants?.[0]?.id || p.id}', '\${escapeHtml(p.name).replace(/'/g, "\\\\'")}', \${parseFloat(p.price) || 0})">
+                            + Agregar
+                        </button>
+                    </div>
+                \`).join('');
+            } else {
+                container.innerHTML = '<div class="eum-empty">No se encontraron productos</div>';
+            }
+        } catch (err) {
+            console.error('[EUM] Search error:', err);
+            document.getElementById('eum-products').innerHTML = '<div class="eum-empty">Error al buscar</div>';
         }
     }
 
-    // Cart management
+    // Escape HTML
+    function escapeHtml(str) {
+        if (!str) return '';
+        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // Cart
     window.eumCart = [];
     window.eumAddToCart = function(variantId, name, price) {
-        window.eumCart.push({ variantId, name, price, quantity: 1 });
+        window.eumCart.push({ variantId, name, price: parseFloat(price) || 0, quantity: 1 });
         updateCartDisplay();
+        console.log('[EUM] Added to cart:', { variantId, name, price });
     };
 
     function updateCartDisplay() {
-        document.getElementById('eum-cart-count').textContent = window.eumCart.length;
-        const total = window.eumCart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-        document.getElementById('eum-cart-total').textContent = total.toFixed(2);
+        const countEl = document.getElementById('eum-cart-count');
+        const totalEl = document.getElementById('eum-cart-total');
+        if (countEl) countEl.textContent = window.eumCart.length;
+        if (totalEl) {
+            const total = window.eumCart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+            totalEl.textContent = total.toFixed(2);
+        }
+    }
+
+    // Create draft order
+    async function createDraftOrder() {
+        if (window.eumCart.length === 0) {
+            alert('Agrega productos al carrito primero');
+            return;
+        }
+
+        try {
+            const items = window.eumCart.map(item => ({
+                variant_id: item.variantId,
+                quantity: item.quantity
+            }));
+
+            const data = await apiCall('/shopify-app/draft-order', {
+                method: 'POST',
+                body: JSON.stringify({
+                    items,
+                    customerId: currentSession?.client?.shopify_customer_id
+                })
+            });
+
+            if (data.success && data.invoiceUrl) {
+                window.eumCart = [];
+                updateCartDisplay();
+                window.open(data.invoiceUrl, '_blank');
+            } else {
+                alert('Error al crear pedido: ' + (data.error || 'Unknown error'));
+            }
+        } catch (err) {
+            console.error('[EUM] Draft order error:', err);
+            alert('Error al crear pedido');
+        }
+    }
+
+    // Poll for new chat messages
+    function startChatPolling() {
+        setInterval(() => {
+            if (currentTab === 'chat' && chatConversationId) {
+                loadChat();
+            }
+        }, 5000);
     }
 
     // Initialize
     checkSession().then(session => {
         if (session) {
             createWidget(session);
+            startChatPolling();
         }
     });
 
