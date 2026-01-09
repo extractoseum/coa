@@ -216,4 +216,24 @@ router.get('/status', (req: Request, res: Response) => {
     });
 });
 
+/**
+ * GET /api/voice/test-incoming
+ * Test the incoming call handler without Twilio
+ */
+router.get('/test-incoming', async (req: Request, res: Response) => {
+    try {
+        console.log('[VoiceRoutes] Testing incoming call handler...');
+        const twiml = await voiceCallService.handleIncomingCall('TEST-' + Date.now(), '+525512345678', '+525596616455');
+        res.type('text/xml');
+        res.send(twiml);
+    } catch (error: any) {
+        res.json({
+            error: true,
+            message: error.message,
+            stack: error.stack,
+            name: error.name
+        });
+    }
+});
+
 export default router;
