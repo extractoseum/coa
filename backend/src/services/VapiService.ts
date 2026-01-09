@@ -350,6 +350,7 @@ export class VapiService {
             const functionArgs = toolCall.function?.arguments || toolCall.parameters || '{}';
 
             console.log(`[VapiService] Executing Tool: ${functionName}`);
+            console.log(`[VapiService] Raw ToolCall Payload: ${JSON.stringify(toolCall)}`);
 
             const startTime = Date.now();
             let parsedArgs: Record<string, any> = {};
@@ -373,6 +374,7 @@ export class VapiService {
                     tool_name: functionName,
                     tool_call_id: toolCallId,
                     arguments: parsedArgs,
+                    raw_payload: toolCall, // [NEW] Pass raw object
                     success: result.success !== false, // Default to true unless explicitly false
                     result: result,
                     duration_ms: duration,
@@ -397,6 +399,7 @@ export class VapiService {
                     tool_name: functionName,
                     tool_call_id: toolCallId,
                     arguments: parsedArgs,
+                    raw_payload: toolCall, // [NEW] Pass raw object
                     success: false,
                     error_message: e.message,
                     duration_ms: duration,
@@ -496,6 +499,7 @@ export class VapiService {
                     tool_name: log.tool_name,
                     tool_call_id: log.tool_call_id,
                     arguments: log.arguments,
+                    arguments_raw: JSON.stringify(log.raw_payload || {}), // [NEW] Capture raw payload
                     success: log.success,
                     result: log.result,
                     error_message: log.error_message,
