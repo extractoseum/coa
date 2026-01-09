@@ -551,31 +551,84 @@ export class VapiService {
     }
 
     private async lookupClient(phone: string): Promise<ClientContext | null> {
-        const { data: client } = await supabase
+        // robust lookup: try exact match, then last 10 digits
+        const cleanPhone = phone.replace(/\D/g, '');
+        const last10 = cleanPhone.slice(-10);
+
+        // Try exact match first
+        const { data: exactClient } = await supabase
             .from('clients')
             .select('*')
-            .or(`phone.ilike.%${phone}%,phone.ilike.%${phone.slice(-10)}%`)
-            .limit(1)
+            .eq('phone', phone)
             .maybeSingle();
 
-        if (!client) return null;
-        return this.enrichClientData(client);
+        if (exactClient) return this.enrichClientData(exactClient);
+
+        // Try last 10 match
+        if (last10.length >= 7) {
+            const { data: fuzzyClient } = await supabase
+                .from('clients')
+                .select('*')
+                .ilike('phone', `%${last10}`)
+                .limit(1)
+                .maybeSingle();
+
+            if (fuzzyClient) return this.enrichClientData(fuzzyClient);
+        }
+
+        return null;
     }
 
     private async enrichClientData(client: any): Promise<ClientContext> {
         const clientId = client.id;
-        const { data: orders } = await supabase
-            .from('orders')
-            .select('id, order_number, status, created_at, total')
-            .eq('client_id', clientId)
-            .order('created_at', { ascending: false })
-            .limit(10);
+        // Execute parallel queries to avoid .or() syntax fragility
+        const orderQueries = [];
+
+        // Query 1: By Email
+        if (client.email) {
+            orderQueries.push(
+                supabase
+                    .from('orders')
+                    .select('id, order_number, financial_status, fulfillment_status, created_at, customer_phone, customer_email')
+                    .eq('customer_email', client.email)
+                    .order('created_at', { ascending: false })
+                    .limit(10)
+            );
+        }
+
+        // Query 2: By Phone (Last 10 digits)
+        const last10 = client.phone?.replace(/\D/g, '').slice(-10);
+        if (last10 && last10.length >= 7) {
+            orderQueries.push(
+                supabase
+                    .from('orders')
+                    .select('id, order_number, financial_status, fulfillment_status, created_at, customer_phone, customer_email')
+                    .ilike('customer_phone', `%${last10}%`)
+                    .order('created_at', { ascending: false })
+                    .limit(10)
+            );
+        }
+
+        const results = await Promise.all(orderQueries);
+
+        // Merge and Deduplicate
+        const allOrders = results.flatMap(r => r.data || []);
+        const uniqueOrdersMap = new Map();
+        allOrders.forEach(o => uniqueOrdersMap.set(o.id, o));
+
+        const orders = Array.from(uniqueOrdersMap.values())
+            .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) // sort descending
+            .slice(0, 10);
+
+
 
         const totalOrders = orders?.length || 0;
-        const ltv = orders?.reduce((sum, o) => sum + (o.total || 0), 0) || 0;
+        // @ts-ignore
+        const ltv = orders?.reduce((sum, o) => sum + (parseFloat(o.total_price) || 0), 0) || 0;
         const lastOrder = orders?.[0];
         const pendingOrders = orders?.filter(o =>
-            ['pending', 'processing', 'shipped', 'in_transit'].includes(o.status)
+            ['paid', 'partially_paid'].includes(o.financial_status) &&
+            ['unfulfilled', 'partial'].includes(o.fulfillment_status)
         );
 
         const { data: convData } = await supabase
@@ -595,14 +648,16 @@ export class VapiService {
             total_orders: totalOrders,
             ltv: Math.round(ltv),
             last_order: lastOrder ? {
-                order_number: lastOrder.order_number,
-                status: lastOrder.status,
+                order_number: lastOrder.order_number, // @ts-ignore
+                status: `${lastOrder.financial_status}/${lastOrder.fulfillment_status}`,
                 created_at: lastOrder.created_at,
-                total: lastOrder.total
+                total: parseFloat(lastOrder.total_price)
             } : undefined,
             pending_orders: pendingOrders?.map(o => ({
                 order_number: o.order_number,
-                status: o.status
+                status: `${o.financial_status}/${o.fulfillment_status}`,
+                created_at: o.created_at,
+                total: parseFloat(o.total_price)
             })),
             tags: convData?.tags || [],
             emotional_vibe: convData?.facts?.emotional_vibe
