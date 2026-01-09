@@ -1018,3 +1018,244 @@ export const updateTicketStatus = async (req: Request, res: Response): Promise<v
     }
 };
 
+// ============================================================
+// Smart Compose: AI-powered text assistance for CRM agents
+// ============================================================
+
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
+
+/**
+ * Predictive text completion based on conversation context
+ * POST /api/v1/crm/smart-compose/predict
+ */
+export const smartComposePredict = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { text, conversationId, clientContext } = req.body;
+
+        if (!text || text.length < 3) {
+            res.json({ success: true, prediction: '' });
+            return;
+        }
+
+        // Get recent messages for context
+        let recentMessages: any[] = [];
+        if (conversationId) {
+            const { data: msgs } = await supabase
+                .from('crm_messages')
+                .select('content, role')
+                .eq('conversation_id', conversationId)
+                .order('created_at', { ascending: false })
+                .limit(10);
+            recentMessages = msgs || [];
+        }
+
+        // Build context for prediction
+        const contextParts: string[] = [];
+        if (clientContext?.name) contextParts.push(`Cliente: ${clientContext.name}`);
+        if (clientContext?.facts?.length) {
+            contextParts.push(`Datos del cliente: ${clientContext.facts.slice(0, 5).join(', ')}`);
+        }
+        if (recentMessages.length) {
+            const msgContext = recentMessages.reverse().map(m =>
+                `${m.role === 'user' ? 'Cliente' : 'Agente'}: ${m.content?.substring(0, 100)}`
+            ).join('\n');
+            contextParts.push(`Conversación reciente:\n${msgContext}`);
+        }
+
+        // Call Claude for prediction
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': ANTHROPIC_API_KEY,
+                'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify({
+                model: 'claude-3-haiku-20240307',
+                max_tokens: 100,
+                system: `Eres un asistente de autocompletado para agentes de servicio al cliente de Extractoseum (tienda de extractos naturales).
+Tu tarea es predecir cómo el agente completaría su mensaje actual.
+Solo responde con la continuación del texto, sin explicaciones.
+Si no tienes suficiente contexto, responde vacío.
+Mantén el mismo tono y estilo del texto parcial.
+${contextParts.length ? '\nContexto:\n' + contextParts.join('\n\n') : ''}`,
+                messages: [{
+                    role: 'user',
+                    content: `Completa este mensaje del agente (solo la continuación): "${text}"`
+                }],
+            }),
+        });
+
+        if (!response.ok) {
+            console.error('[SmartCompose] Predict API error:', await response.text());
+            res.json({ success: true, prediction: '' });
+            return;
+        }
+
+        const data = await response.json();
+        const prediction = data.content?.[0]?.text?.trim() || '';
+
+        res.json({ success: true, prediction });
+    } catch (error: any) {
+        console.error('[SmartCompose] Predict error:', error);
+        res.json({ success: true, prediction: '' });
+    }
+};
+
+/**
+ * Enhance text for voice synthesis with ElevenLabs audio tags
+ * POST /api/v1/crm/smart-compose/enhance-audio
+ */
+export const smartComposeEnhanceAudio = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { text, clientContext } = req.body;
+
+        if (!text?.trim()) {
+            res.status(400).json({ success: false, error: 'Text required' });
+            return;
+        }
+
+        // Build context
+        const contextParts: string[] = [];
+        if (clientContext?.name) contextParts.push(`Hablando con: ${clientContext.name}`);
+
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': ANTHROPIC_API_KEY,
+                'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify({
+                model: 'claude-3-haiku-20240307',
+                max_tokens: 500,
+                system: `Eres un experto en mejorar texto para síntesis de voz con ElevenLabs v3.
+Tu tarea es agregar tags de audio apropiados para que el mensaje suene natural y emocional.
+
+Tags disponibles de ElevenLabs v3:
+EMOCIONES: [whispers], [sighs], [excited], [sad], [angry], [happily], [curious], [thoughtful], [nervously], [warmly], [reassuring]
+REACCIONES: [laughs], [laughs softly], [giggles], [clears throat], [gasps], [breathes]
+RITMO: [pause], [short pause], [long pause], [slowly], [quickly], [stammers], [hesitates]
+VOLUMEN: [quietly], [loudly], [shouts]
+
+Reglas:
+1. Agrega tags solo donde mejoren la naturalidad
+2. Usa ... (puntos suspensivos) para pausas naturales
+3. No abuses de los tags - úsalos estratégicamente
+4. Mantén el mensaje original, solo agrega tags
+5. Los tags van ANTES del texto que afectan
+6. Para preguntas usa tono [curious] o [warmly]
+7. Para despedidas usa [warmly] o [happily]
+8. Para noticias positivas usa [excited] o [happily]
+9. Para empatía usa [softly] o [reassuring]
+
+${contextParts.length ? 'Contexto: ' + contextParts.join('. ') : ''}
+
+Responde SOLO con el texto mejorado, sin explicaciones.`,
+                messages: [{
+                    role: 'user',
+                    content: `Mejora este texto para voz:\n\n"${text}"`
+                }],
+            }),
+        });
+
+        if (!response.ok) {
+            console.error('[SmartCompose] Enhance audio API error:', await response.text());
+            res.status(500).json({ success: false, error: 'API error' });
+            return;
+        }
+
+        const data = await response.json();
+        let enhancedText = data.content?.[0]?.text?.trim() || text;
+
+        // Remove any quotes that Claude might add
+        enhancedText = enhancedText.replace(/^["']|["']$/g, '');
+
+        res.json({ success: true, enhancedText });
+    } catch (error: any) {
+        console.error('[SmartCompose] Enhance audio error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * Help me write - improve, expand, or adjust tone of text
+ * POST /api/v1/crm/smart-compose/help-write
+ */
+export const smartComposeHelpWrite = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { text, action, clientContext } = req.body;
+
+        if (!text?.trim()) {
+            res.status(400).json({ success: false, error: 'Text required' });
+            return;
+        }
+
+        const validActions = ['improve', 'expand', 'friendly', 'professional', 'empathetic'];
+        if (!action || !validActions.includes(action)) {
+            res.status(400).json({ success: false, error: 'Valid action required' });
+            return;
+        }
+
+        // Build context
+        const contextParts: string[] = [];
+        if (clientContext?.name) contextParts.push(`Cliente: ${clientContext.name}`);
+        if (clientContext?.facts?.length) {
+            contextParts.push(`Info del cliente: ${clientContext.facts.slice(0, 3).join(', ')}`);
+        }
+
+        const actionInstructions: Record<string, string> = {
+            improve: 'Mejora la gramática, claridad y fluidez del texto. Corrige errores y haz el mensaje más claro y profesional.',
+            expand: 'Expande el texto agregando más detalles útiles, manteniendo el mismo tono. Agrega información relevante que pueda ayudar al cliente.',
+            friendly: 'Reescribe el texto con un tono más amigable, casual y cercano. Usa un lenguaje cálido y accesible.',
+            professional: 'Reescribe el texto con un tono más formal y profesional. Mantén la cortesía pero con más seriedad.',
+            empathetic: 'Reescribe el texto mostrando más empatía y comprensión hacia el cliente. Valida sus sentimientos y preocupaciones.',
+        };
+
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': ANTHROPIC_API_KEY,
+                'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify({
+                model: 'claude-3-haiku-20240307',
+                max_tokens: 500,
+                system: `Eres un asistente de redacción para agentes de servicio al cliente de Extractoseum (tienda de extractos naturales).
+Tu tarea: ${actionInstructions[action]}
+
+Reglas:
+1. Mantén el mensaje conciso (no más del doble del original)
+2. Mantén la intención original del mensaje
+3. Usa español mexicano natural
+4. No uses emojis a menos que el original los tenga
+5. Responde SOLO con el texto mejorado, sin explicaciones
+
+${contextParts.length ? 'Contexto: ' + contextParts.join('. ') : ''}`,
+                messages: [{
+                    role: 'user',
+                    content: text
+                }],
+            }),
+        });
+
+        if (!response.ok) {
+            console.error('[SmartCompose] Help write API error:', await response.text());
+            res.status(500).json({ success: false, error: 'API error' });
+            return;
+        }
+
+        const data = await response.json();
+        let result = data.content?.[0]?.text?.trim() || text;
+
+        // Remove any quotes that Claude might add
+        result = result.replace(/^["']|["']$/g, '');
+
+        res.json({ success: true, result });
+    } catch (error: any) {
+        console.error('[SmartCompose] Help write error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+

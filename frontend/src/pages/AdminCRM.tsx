@@ -28,6 +28,7 @@ import { VoiceSelector } from '../components/VoiceSelector';
 import KanbanCard from '../components/KanbanCard';
 import CreateTicketModal from '../components/CreateTicketModal';
 import ImpersonationModal from '../components/ImpersonationModal';
+import SmartTextarea from '../components/SmartTextarea';
 import type { Column, Conversation, AgentMetadata, ToolRegistryItem, ContactSnapshot } from '../types/crm';
 import { getAvatarGradient, getTagColor, getChannelIcon } from '../utils/crmUtils';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -2027,17 +2028,24 @@ const AdminCRM: React.FC = () => {
                                                 {showResourceDock ? <PanelRightClose size={20} /> : <PanelRightOpen size={20} />}
                                             </button>
 
-                                            <div className="flex-1 relative min-w-0">
-                                                <textarea
-                                                    value={newMessage}
-                                                    onChange={(e) => setNewMessage(e.target.value)}
-                                                    onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSendMessage())}
-                                                    placeholder="Escribe un mensaje..."
-                                                    rows={3}
-                                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-base md:text-sm outline-none focus:border-pink-500/50 transition-all font-light resize-none scrollbar-thin scrollbar-thumb-white/10"
-                                                    style={{ color: theme.text }}
-                                                />
-                                            </div>
+                                            <SmartTextarea
+                                                value={newMessage}
+                                                onChange={setNewMessage}
+                                                onSend={handleSendMessage}
+                                                onSendVoice={handleSendVoice}
+                                                disabled={sendingMessage}
+                                                placeholder="Escribe un mensaje..."
+                                                conversationId={selectedConv?.id}
+                                                clientContext={{
+                                                    name: contactSnapshot?.name || selectedConv?.contact_name,
+                                                    facts: selectedConv?.facts ? [
+                                                        selectedConv.facts.emotional_vibe,
+                                                        selectedConv.facts.user_name,
+                                                        ...(selectedConv.facts.action_plan || []).slice(0, 3)
+                                                    ].filter(Boolean) : undefined,
+                                                    recentMessages: messages.slice(-5).map((m: any) => ({ role: m.role, content: m.content })),
+                                                }}
+                                            />
 
                                             <div className="flex flex-row gap-2 justify-end pb-1 pl-1">
                                                 <button

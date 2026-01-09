@@ -1,6 +1,6 @@
 
 import express from 'express';
-import { getColumns, moveConversation, handleInbound, updateColumnConfig, getConversations, createConversation, getMessages, sendMessage, archiveConversation, deleteConversation, getContactSnapshot, getClientOrders, getOrderDetails, createCoupon, searchClients, startConversationWithClient, createeDarkStoreTicket, getConversationTickets, updateTicketStatus, getClientConversation } from '../controllers/crmController';
+import { getColumns, moveConversation, handleInbound, updateColumnConfig, getConversations, createConversation, getMessages, sendMessage, archiveConversation, deleteConversation, getContactSnapshot, getClientOrders, getOrderDetails, createCoupon, searchClients, startConversationWithClient, createeDarkStoreTicket, getConversationTickets, updateTicketStatus, getClientConversation, smartComposePredict, smartComposeEnhanceAudio, smartComposeHelpWrite } from '../controllers/crmController';
 import { requireAuth, requireRole } from '../middleware/authMiddleware';
 
 const router = express.Router();
@@ -78,5 +78,10 @@ router.get('/inquiry/learning-stats', requireAuth, requireRole('admin', 'super_a
         res.status(500).json({ success: false, error: e.message });
     }
 });
+
+// Smart Compose: AI-powered text assistance
+router.post('/smart-compose/predict', requireAuth, requireRole('admin', 'super_admin', 'staff'), smartComposePredict);
+router.post('/smart-compose/enhance-audio', requireAuth, requireRole('admin', 'super_admin', 'staff'), smartComposeEnhanceAudio);
+router.post('/smart-compose/help-write', requireAuth, requireRole('admin', 'super_admin', 'staff'), smartComposeHelpWrite);
 
 export default router;
