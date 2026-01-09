@@ -363,12 +363,22 @@ export async function handleEscalateToHuman(
                 status: 'delivered'
             });
 
-            // Update conversation tags/status for visibility
+            // Update conversation tags for visibility using RPC or direct update
+            // First get current tags, then append
+            const { data: conv } = await supabase
+                .from('conversations')
+                .select('tags, facts')
+                .eq('id', conversationId)
+                .single();
+
+            const currentTags = conv?.tags || [];
+            const currentFacts = conv?.facts || {};
+
             await supabase
                 .from('conversations')
                 .update({
-                    tags: supabase.sql`array_append(tags, 'Callback Pendiente')`,
-                    facts: supabase.sql`jsonb_set(COALESCE(facts, '{}'::jsonb), '{escalation_reason}', '"${reason}"'::jsonb)`
+                    tags: [...currentTags, 'Callback Pendiente'],
+                    facts: { ...currentFacts, escalation_reason: reason }
                 })
                 .eq('id', conversationId);
         }
