@@ -167,6 +167,20 @@ jobs:
               echo "SHOPIFY_APP_CLIENT_SECRET=${{ secrets.SHOPIFY_APP_CLIENT_SECRET }}" >> .env
             fi
 
+            # Update VAPI credentials (Voice AI)
+            if [ -n "${{ secrets.VAPI_PRIVATE_KEY }}" ]; then
+              sed -i '/^VAPI_PRIVATE_KEY=/d' .env 2>/dev/null || true
+              sed -i '/^VAPI_PUBLIC_KEY=/d' .env 2>/dev/null || true
+              sed -i '/^VAPI_API_KEY=/d' .env 2>/dev/null || true
+              sed -i '/^# VAPI/d' .env 2>/dev/null || true
+
+              echo "" >> .env
+              echo "# VAPI (Voice AI)" >> .env
+              echo "VAPI_PRIVATE_KEY=${{ secrets.VAPI_PRIVATE_KEY }}" >> .env
+              echo "VAPI_PUBLIC_KEY=${{ secrets.VAPI_PUBLIC_KEY }}" >> .env
+              echo "VAPI_API_KEY=${{ secrets.VAPI_PRIVATE_KEY }}" >> .env
+            fi
+
             npm install --omit=dev
             pm2 restart coa-backend
           timeout: 120s
