@@ -417,18 +417,22 @@ export const sendInternalNote = async (req: Request, res: Response): Promise<voi
             return;
         }
 
-        // Insert internal note (not dispatched to customer)
+        // Insert internal note - use 'event' type with special prefix for backwards compatibility
+        // Once migration 069 runs, we can use 'internal_note' type and is_internal column
+        const noteContent = `[NOTA INTERNA] ${content.trim()}`;
+
         const { data: note, error } = await supabase
             .from('crm_messages')
             .insert({
                 conversation_id: conversationId,
                 direction: 'outbound',
                 role: 'system',
-                message_type: 'internal_note',
+                message_type: 'event', // Use 'event' for compatibility, change to 'internal_note' after migration
                 status: 'sent',
-                content: content.trim(),
-                is_internal: true,
-                sent_by_id: userId || null,
+                content: noteContent,
+                // These columns will be added by migration 069:
+                // is_internal: true,
+                // sent_by_id: userId || null,
             })
             .select('*')
             .single();
@@ -439,7 +443,8 @@ export const sendInternalNote = async (req: Request, res: Response): Promise<voi
             return;
         }
 
-        res.json({ success: true, data: note });
+        // Add is_internal flag to response for frontend
+        res.json({ success: true, data: { ...note, is_internal: true } });
     } catch (error: any) {
         res.status(500).json({ success: false, error: error.message });
     }

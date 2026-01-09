@@ -2016,7 +2016,11 @@ const AdminCRM: React.FC = () => {
                                             </div>
                                         ) : (
                                             messages.map((msg, i) => {
-                                                const isInternal = msg.is_internal || msg.message_type === 'internal_note';
+                                                // Detect internal notes by flag, message_type, or content prefix
+                                                const isInternal = msg.is_internal || msg.message_type === 'internal_note' || msg.content?.startsWith('[NOTA INTERNA]');
+                                                const displayContent = isInternal && msg.content?.startsWith('[NOTA INTERNA]')
+                                                    ? msg.content.replace('[NOTA INTERNA] ', '')
+                                                    : msg.content;
                                                 const isAIMessage = msg.direction === 'outbound' && msg.role === 'assistant';
 
                                                 return (
@@ -2059,7 +2063,7 @@ const AdminCRM: React.FC = () => {
                                                                 <img src={msg.content} alt="Media" className="rounded-lg mb-2 max-w-full" onError={(e) => e.currentTarget.style.display = 'none'} />
                                                             )}
                                                             <div className="whitespace-pre-wrap leading-relaxed">
-                                                                {parseMediaContent(msg.content || '')}
+                                                                {parseMediaContent(displayContent || '')}
                                                             </div>
 
                                                             {/* AI Feedback buttons - only show on AI assistant messages */}
