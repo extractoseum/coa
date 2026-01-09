@@ -11,6 +11,8 @@
 import { Router, Request, Response } from 'express';
 import { voiceCallService } from '../services/VoiceCallService';
 
+import { logger } from '../utils/Logger';
+
 const router = Router();
 
 /**
@@ -19,9 +21,28 @@ const router = Router();
  */
 router.post('/incoming', async (req: Request, res: Response) => {
     try {
-        const { CallSid, From, To, CallStatus } = req.body;
+        // Debug logging for deployment issues
+        if (!req.body) {
+            logger.warn('[VoiceRoutes] req.body is missing/undefined', null, {
+                headers: req.headers,
+                contentType: req.get('content-type')
+            });
+        } else {
+            logger.info('[VoiceRoutes] Incoming payload', {
+                bodyKeys: Object.keys(req.body),
+                contentType: req.get('content-type')
+            });
+        }
 
-        console.log(`[VoiceRoutes] Incoming call: ${CallSid} from ${From}`);
+        const { CallSid, From, To, CallStatus } = req.body || {};
+
+        if (!CallSid) {
+            logger.error('[VoiceRoutes] Missing CallSid in body', null, { body: req.body });
+            // Fallback for empty body/testing:
+            // throw new Error("Missing CallSid"); 
+        }
+
+        logger.info(`[VoiceRoutes] Incoming call: ${CallSid} from ${From}`);
 
         const twiml = await voiceCallService.handleIncomingCall(CallSid, From, To);
 
@@ -29,7 +50,7 @@ router.post('/incoming', async (req: Request, res: Response) => {
         res.send(twiml);
 
     } catch (error: any) {
-        console.error('[VoiceRoutes] Incoming call error:', error.message, error.stack);
+        logger.error('[VoiceRoutes] Incoming call error', error);
         res.type('text/xml');
         res.send(`<?xml version="1.0" encoding="UTF-8"?>
 <Response>
