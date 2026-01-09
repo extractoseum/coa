@@ -5,7 +5,8 @@ import {
     getSessionStatus,
     searchProductsWidget,
     createDraftOrderWidget,
-    getWidgetScript
+    getWidgetScript,
+    registerScriptTag
 } from '../controllers/shopifyAppController';
 import { requireAuth } from '../middleware/authMiddleware';
 
@@ -49,5 +50,9 @@ router.post('/draft-order', requireAuth, createDraftOrderWidget);
 // Get the widget JavaScript bundle
 // GET /api/v1/shopify-app/widget.js
 router.get('/widget.js', getWidgetScript);
+
+// Register ScriptTag manually (admin only)
+// POST /api/v1/shopify-app/register-script
+router.post('/register-script', requireAuth, registerScriptTag);
 
 export default router;

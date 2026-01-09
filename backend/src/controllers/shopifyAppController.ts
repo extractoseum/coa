@@ -6,7 +6,7 @@ import { searchLocalProducts, createShopifyDraftOrder } from '../services/shopif
 // Shopify App Credentials
 const SHOPIFY_APP_CLIENT_ID = process.env.SHOPIFY_APP_CLIENT_ID || '';
 const SHOPIFY_APP_CLIENT_SECRET = process.env.SHOPIFY_APP_CLIENT_SECRET || '';
-const SHOPIFY_APP_SCOPES = 'read_products,write_draft_orders,read_customers';
+const SHOPIFY_APP_SCOPES = 'read_products,write_draft_orders,read_customers,write_script_tags';
 const APP_URL = process.env.APP_URL || 'https://coa.extractoseum.com';
 
 /**
@@ -166,6 +166,33 @@ export const handleCallback = async (req: Request, res: Response) => {
 
         console.log(`[ShopifyApp] Successfully installed for ${shop}`);
 
+        // Register ScriptTag for the widget
+        try {
+            const scriptTagResponse = await fetch(`https://${shop}/admin/api/2024-01/script_tags.json`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Shopify-Access-Token': accessToken
+                },
+                body: JSON.stringify({
+                    script_tag: {
+                        event: 'onload',
+                        src: `${APP_URL}/api/v1/shopify-app/widget.js`,
+                        display_scope: 'online_store'
+                    }
+                })
+            });
+
+            if (scriptTagResponse.ok) {
+                console.log(`[ShopifyApp] ScriptTag registered for ${shop}`);
+            } else {
+                const errText = await scriptTagResponse.text();
+                console.error(`[ShopifyApp] Failed to register ScriptTag:`, errText);
+            }
+        } catch (scriptErr) {
+            console.error(`[ShopifyApp] ScriptTag registration error:`, scriptErr);
+        }
+
         // Redirect to success page or admin
         res.redirect(`https://${shop}/admin/apps`);
     } catch (error: any) {
@@ -294,6 +321,61 @@ export const createDraftOrderWidget = async (req: Request, res: Response) => {
             success: false,
             error: error.message
         });
+    }
+};
+
+/**
+ * Register ScriptTag manually (for already installed apps)
+ * POST /api/v1/shopify-app/register-script
+ */
+export const registerScriptTag = async (req: Request, res: Response) => {
+    try {
+        const { shop } = req.body;
+
+        if (!shop) {
+            return res.status(400).json({ success: false, error: 'Shop required' });
+        }
+
+        // Get access token from database
+        const { data: session } = await supabase
+            .from('shopify_app_sessions')
+            .select('access_token')
+            .eq('shop', shop)
+            .eq('status', 'active')
+            .single();
+
+        if (!session?.access_token) {
+            return res.status(404).json({ success: false, error: 'Shop not found or not active' });
+        }
+
+        // Register ScriptTag
+        const scriptTagResponse = await fetch(`https://${shop}/admin/api/2024-01/script_tags.json`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Shopify-Access-Token': session.access_token
+            },
+            body: JSON.stringify({
+                script_tag: {
+                    event: 'onload',
+                    src: `${APP_URL}/api/v1/shopify-app/widget.js`,
+                    display_scope: 'online_store'
+                }
+            })
+        });
+
+        if (scriptTagResponse.ok) {
+            const data = await scriptTagResponse.json();
+            console.log(`[ShopifyApp] ScriptTag registered for ${shop}`);
+            res.json({ success: true, scriptTag: data.script_tag });
+        } else {
+            const errText = await scriptTagResponse.text();
+            console.error(`[ShopifyApp] Failed to register ScriptTag:`, errText);
+            res.status(500).json({ success: false, error: errText });
+        }
+    } catch (error: any) {
+        console.error('[ShopifyApp] Register script error:', error);
+        res.status(500).json({ success: false, error: error.message });
     }
 };
 
