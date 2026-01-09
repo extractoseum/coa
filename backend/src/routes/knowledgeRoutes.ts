@@ -2,6 +2,7 @@
 import express from 'express';
 import { requireAuth, requireRole } from '../middleware/authMiddleware';
 import { listKnowledgeFiles, readKnowledgeFile, saveKnowledgeFile, uploadKnowledgeFile, deleteKnowledgeFile, setActiveAgent, createNewAgent, markAsInstructive, getToolsRegistry, getAgentsMetadata, getKnowledgeSnaps, updateSnapNotes, regenerateSnap, regenerateAllSnaps, moveKnowledgeFile, updateSnapEnhancedFields } from '../controllers/knowledgeController';
+import { syncAgentToVapi, previewVapiPrompt, getVapiPrompt } from '../services/VapiPromptSync';
 import multer from 'multer';
 
 const router = express.Router();
@@ -51,5 +52,48 @@ router.post('/:folder/:agentName/snaps/enhanced', updateSnapEnhancedFields);
 
 // Move file (Drag-and-Drop)
 router.post('/move', moveKnowledgeFile);
+
+// VAPI Prompt Sync - Synchronize agent knowledge to VAPI voice assistant
+router.get('/:folder/:agentName/vapi-prompt', async (req, res) => {
+    try {
+        const { folder, agentName } = req.params;
+        const preview = await previewVapiPrompt(folder, agentName);
+
+        if (!preview) {
+            return res.status(404).json({ error: 'Agent not found' });
+        }
+
+        // Also get current VAPI prompt for comparison
+        const currentVapiPrompt = await getVapiPrompt();
+
+        res.json({
+            preview: preview.prompt,
+            stats: preview.stats,
+            currentVapiPrompt: currentVapiPrompt?.substring(0, 500) + '...',
+            currentVapiPromptLength: currentVapiPrompt?.length || 0
+        });
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+router.post('/:folder/:agentName/vapi-sync', async (req, res) => {
+    try {
+        const { folder, agentName } = req.params;
+        const { assistantId } = req.body;
+
+        console.log(`[KnowledgeRoutes] Syncing ${folder}/${agentName} to VAPI...`);
+
+        const result = await syncAgentToVapi(folder, agentName, assistantId);
+
+        if (result.success) {
+            res.json(result);
+        } else {
+            res.status(400).json(result);
+        }
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
 
 export default router;
