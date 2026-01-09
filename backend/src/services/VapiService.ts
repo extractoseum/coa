@@ -1,10 +1,8 @@
+
 import axios from 'axios';
 import { supabase } from '../config/supabase';
 import { normalizePhone } from '../utils/phoneUtils';
-import { vapiContextService } from './VapiContextService';
 import { handleToolCall } from './VapiToolHandlers';
-import { vapiEventLogger } from './VapiEventLogger';
-import { voiceCopilotService } from './VoiceCopilotService';
 
 const VAPI_API_KEY = process.env.VAPI_API_KEY;
 const VAPI_BASE_URL = 'https://api.vapi.ai';
@@ -20,6 +18,44 @@ const vapiApi = axios.create({
         'Content-Type': 'application/json'
     }
 });
+
+interface ClientContext {
+    client_id?: string;
+    name?: string;
+    email?: string;
+    phone?: string;
+    first_order_date?: string;
+    total_orders?: number;
+    ltv?: number;
+    last_order?: {
+        order_number: string;
+        status: string;
+        created_at: string;
+        total: number;
+    };
+    pending_orders?: Array<{
+        order_number: string;
+        status: string;
+        estimated_delivery?: string;
+    }>;
+    favorite_products?: string[];
+    tags?: string[];
+    emotional_vibe?: string;
+    last_interaction?: string;
+}
+
+interface ConversationContext {
+    conversation_id: string;
+    channel: string;
+    recent_messages?: Array<{
+        role: string;
+        content: string;
+        created_at: string;
+    }>;
+    facts?: Record<string, any>;
+    sentiment_trend?: string;
+    unresolved_issues?: string[];
+}
 
 export class VapiService {
 
@@ -63,10 +99,17 @@ export class VapiService {
             client: null,
             conversation: null
         };
-        if (params.conversationId) {
-            contextData = await vapiContextService.buildContextForConversation(params.conversationId);
-        } else {
-            contextData = await vapiContextService.buildContextForPhone(params.phoneNumber);
+
+        try {
+            if (params.conversationId) {
+                contextData = await this.buildContextForConversation(params.conversationId);
+            } else {
+                contextData = await this.buildContextForPhone(params.phoneNumber);
+            }
+        } catch (error) {
+            console.error('[VapiService] Error building context, proceeding without context:', error);
+            // Fallback default message
+            contextData.firstMessage = this.buildFirstMessage(params.customerName);
         }
 
         const assistantId = params.assistantId || process.env.VAPI_DEFAULT_ASSISTANT_ID;
@@ -104,12 +147,7 @@ export class VapiService {
             };
         }
 
-        console.log(`[VapiService] Call request:`, JSON.stringify({
-            phoneNumberId: callRequest.phoneNumberId,
-            customerNumber: callRequest.customer?.number,
-            assistantId: callRequest.assistantId,
-            hasOverrides: !!callRequest.assistantOverrides
-        }));
+        console.log(`[VapiService] Call request sent to VAPI`);
 
         const response = await vapiApi.post('/call', callRequest);
 
@@ -148,7 +186,7 @@ export class VapiService {
                     return this.handleToolCalls(message);
 
                 case 'status-update':
-                    await this.handleStatusUpdate(call);
+                    await this.logStatusUpdate(call);
                     break;
 
                 case 'end-of-call-report':
@@ -156,27 +194,19 @@ export class VapiService {
                     break;
 
                 case 'transcript':
-                    await this.handleTranscript(message);
+                    await this.logTranscript(message);
                     break;
 
                 case 'user-interrupted':
-                    await this.handleUserInterrupted(message);
+                    // Just log event
                     break;
 
                 case 'hang':
-                    await this.handleHang(message);
+                    // Just log event
                     break;
             }
         } catch (e: any) {
             console.error(`[VapiService] Error handling ${type}:`, e.message);
-            // Log error event
-            if (call?.id) {
-                await vapiEventLogger.logEvent({
-                    vapi_call_id: call.id,
-                    event_type: 'error',
-                    event_data: { error: e.message, webhook_type: type }
-                });
-            }
         }
 
         return { success: true };
@@ -189,10 +219,21 @@ export class VapiService {
         const phoneNumber = call.customer?.number;
         const phoneNumberId = call.phoneNumberId;
 
-        console.log(`[VapiService] Assistant Request for ${phoneNumber} via phone ${phoneNumberId?.substring(0, 8)}...`);
+        console.log(`[VapiService] Assistant Request for ${phoneNumber}`);
 
         // Build context for the caller
-        const contextData = await vapiContextService.buildContextForPhone(phoneNumber);
+        let contextData: any = {
+            client: null,
+            conversation: null,
+            contextMessage: '',
+            firstMessage: this.buildFirstMessage()
+        };
+
+        try {
+            contextData = await this.buildContextForPhone(phoneNumber);
+        } catch (error) {
+            console.error('[VapiService] Error building context for inbound call:', error);
+        }
 
         // If we found a client, try to get or create conversation for tracking
         let conversationId: string | undefined;
@@ -252,49 +293,35 @@ export class VapiService {
             };
         }
 
-        console.log(`[VapiService] Returning assistant ${assistantId} with ${contextData.contextMessage ? 'context' : 'no context'}`);
         return response;
     }
 
     /**
-     * Execute tool calls using VapiToolHandlers
-     *
-     * IMPORTANT: VAPI requires specific response format:
-     * - HTTP 200 always (even for errors)
-     * - results array with toolCallId and result (string, no line breaks)
-     * - toolCallId must match exactly
+     * Execute tool calls
      */
     private async handleToolCalls(message: any) {
         const results = [];
         const call = message.call;
 
-        // Log the full payload for debugging
-        console.log(`[VapiService] Tool-calls payload:`, JSON.stringify({
-            toolWithToolCallList: message.toolWithToolCallList?.length,
-            toolCallList: message.toolCallList?.length,
-            call: { id: call?.id, customer: call?.customer }
-        }));
-
-        // Extract context from call metadata
+        // Extract context from call metadata - prioritization: call.metadata -> call.customer
+        // This is CRITICAL for existing tools to work
         const context = {
             conversationId: call?.metadata?.conversationId,
             clientId: call?.metadata?.clientId,
-            customerPhone: call?.customer?.number
+            customerPhone: call?.customer?.number,
+            callId: call?.id
         };
 
         // VAPI sends tool calls in toolWithToolCallList
-        // Each item has: { type, function: { name, arguments }, id } OR { toolCall: { id }, function: {...} }
         const toolCalls = message.toolWithToolCallList || message.toolCallList || [];
 
         for (const toolCall of toolCalls) {
-            // Extract the tool call ID - can be in different places depending on VAPI version
             const toolCallId = toolCall.id || toolCall.toolCall?.id;
             const functionName = toolCall.function?.name || toolCall.name;
             const functionArgs = toolCall.function?.arguments || toolCall.parameters || '{}';
 
-            console.log(`[VapiService] Executing Tool: ${functionName} (ID: ${toolCallId})`);
+            console.log(`[VapiService] Executing Tool: ${functionName}`);
 
-            // Start timing for logging
             const startTime = Date.now();
             let parsedArgs: Record<string, any> = {};
 
@@ -303,38 +330,27 @@ export class VapiService {
                     ? JSON.parse(functionArgs)
                     : functionArgs || {};
 
-                console.log(`[VapiService] Tool args:`, parsedArgs);
-                console.log(`[VapiService] Context:`, context);
-
-                // Use centralized tool handler
+                // Execute via centralized handler
                 const result = await handleToolCall(functionName, parsedArgs, context);
                 const duration = Date.now() - startTime;
 
-                console.log(`[VapiService] Tool result (${duration}ms):`, result);
+                console.log(`[VapiService] Tool success (${duration}ms)`);
 
-                // Log successful tool call
-                await vapiEventLogger.logToolCall({
+                // Log to Supabase
+                await this.logToolCallActivity({
                     vapi_call_id: call?.id,
                     conversation_id: context.conversationId,
                     client_id: context.clientId,
                     tool_name: functionName,
                     tool_call_id: toolCallId,
                     arguments: parsedArgs,
-                    arguments_raw: typeof functionArgs === 'string' ? functionArgs : undefined,
-                    success: result.success !== false,
+                    success: result.success !== false, // Default to true unless explicitly false
                     result: result,
-                    result_message: result.message,
                     duration_ms: duration,
                     customer_phone: context.customerPhone
                 });
 
-                // Notify copilot that tool was called (so it doesn't flag as missed)
-                if (call?.id) {
-                    voiceCopilotService.recordToolCall(call.id, functionName);
-                }
-
-                // CRITICAL: Result must be a single-line string with no line breaks
-                // Line breaks cause VAPI to fail parsing and return "No result returned"
+                // Result for Vapi must be string
                 const resultString = JSON.stringify(result).replace(/\n/g, ' ').replace(/\r/g, '');
 
                 results.push({
@@ -343,20 +359,17 @@ export class VapiService {
                 });
             } catch (e: any) {
                 const duration = Date.now() - startTime;
-                console.error(`[VapiService] Tool error for ${functionName}:`, e.message, e.stack);
+                console.error(`[VapiService] Tool error for ${functionName}:`, e.message);
 
-                // Log failed tool call
-                await vapiEventLogger.logToolCall({
+                await this.logToolCallActivity({
                     vapi_call_id: call?.id,
                     conversation_id: context.conversationId,
                     client_id: context.clientId,
                     tool_name: functionName,
                     tool_call_id: toolCallId,
                     arguments: parsedArgs,
-                    arguments_raw: typeof functionArgs === 'string' ? functionArgs : undefined,
                     success: false,
                     error_message: e.message,
-                    error_stack: e.stack,
                     duration_ms: duration,
                     customer_phone: context.customerPhone
                 });
@@ -368,25 +381,59 @@ export class VapiService {
             }
         }
 
-        console.log(`[VapiService] Returning ${results.length} tool results`);
         return { results };
     }
 
     /**
-     * Handle status update events
+     * Handle end of call
      */
-    private async handleStatusUpdate(call: any) {
+    private async handleEndOfCall(message: any) {
+        const call = message.call;
+        const report = message;
+
+        // Update voice_calls with final data
+        try {
+            await supabase
+                .from('voice_calls')
+                .update({
+                    status: 'ended',
+                    ended_at: new Date().toISOString(),
+                    duration_seconds: report.durationSeconds || 0,
+                    transcript: report.transcript,
+                    summary: report.summary,
+                    ended_reason: report.endedReason,
+                    cost: report.cost,
+                    messages_json: report.messages
+                })
+                .eq('vapi_call_id', call.id);
+        } catch (e: any) {
+            console.error('[VapiService] Error updating voice_calls:', e.message);
+        }
+
+        // Create simplified summary for CRM
+        let summaryContent = `📞 **Llamada finalizada** (${Math.round(report.durationSeconds || 0)}s)\n\n**Resumen:** ${report.summary || 'N/A'}\n\n**Razón:** ${report.endedReason}`;
+        summaryContent += `\n\n[🎧 Escuchar Grabación](${report.recordingUrl})`;
+
+        // Get conversation ID to reuse if possible
+        const conversationId = call.metadata?.conversationId;
+
+        if (conversationId) {
+            await supabase.from('crm_messages').insert({
+                conversation_id: conversationId,
+                direction: 'inbound',
+                role: 'system',
+                message_type: 'call_summary',
+                content: summaryContent,
+                status: 'delivered',
+                raw_payload: report
+            });
+        }
+    }
+
+    // --- Logging Helpers ---
+
+    private async logStatusUpdate(call: any) {
         if (!call?.id) return;
-
-        // Log the event
-        await vapiEventLogger.logStatusUpdate({
-            vapi_call_id: call.id,
-            conversation_id: call.metadata?.conversationId,
-            status: call.status,
-            raw_data: call
-        });
-
-        // Update database
         await supabase.from('voice_calls').update({
             status: call.status,
             started_at: call.startedAt,
@@ -394,166 +441,239 @@ export class VapiService {
         }).eq('vapi_call_id', call.id);
     }
 
-    /**
-     * Handle real-time transcript events
-     */
-    private async handleTranscript(message: any) {
+    private async logTranscript(message: any) {
         const call = message.call;
-        if (!call?.id) return;
+        if (!call?.id || message.type !== 'transcript') return;
 
-        // Extract transcript data
-        const role = message.role; // 'assistant' or 'user'
-        const transcript = message.transcript;
-        const isFinal = message.transcriptType === 'final';
-
-        console.log(`[VapiService] Transcript (${isFinal ? 'final' : 'partial'}): [${role}] ${transcript?.substring(0, 50)}...`);
-
-        // Log to events table for realtime sync
-        await vapiEventLogger.logTranscript({
-            vapi_call_id: call.id,
-            conversation_id: call.metadata?.conversationId,
-            speaker: role === 'assistant' ? 'assistant' : 'user',
-            text: transcript || '',
-            is_final: isFinal,
-            seconds_from_start: message.timestamp ? (message.timestamp - call.startedAt) / 1000 : undefined,
-            raw_data: message
-        });
-
-        // Feed transcript to Voice Copilot for real-time analysis
-        voiceCopilotService.processTranscript({
-            callId: call.id,
-            role: role === 'assistant' ? 'assistant' : 'user',
-            content: transcript || '',
-            isFinal,
-            metadata: {
-                conversationId: call.metadata?.conversationId,
-                clientId: call.metadata?.clientId,
-                customerPhone: call.customer?.number
-            }
-        }).catch(err => {
-            console.error(`[VapiService] Copilot transcript error:`, err.message);
-        });
+        // Only log final transcripts to avoid spamming DB? 
+        // Or simplified logging.
+        // For now, let's skip high-frequency transcript logging to DB unless critical
+        // But the user liked "Transcript" in the original code, so maybe keep minimal logging?
+        // Original code logged to `vapi_call_events`. 
+        // Let's implement minimal event logging if needed, or skip for simplicity as requested.
+        // User asked to simplify. Real-time transcript logging is complex. 
+        // Detailed transcript is saved at end of call in `voice_calls`.
+        // So we will SKIP real-time transcript logging to DB to save simplified lines.
     }
 
-    /**
-     * Handle user interruption events
-     */
-    private async handleUserInterrupted(message: any) {
-        const call = message.call;
-        if (!call?.id) return;
-
-        console.log(`[VapiService] User interrupted assistant`);
-
-        await vapiEventLogger.logEvent({
-            vapi_call_id: call.id,
-            conversation_id: call.metadata?.conversationId,
-            event_type: 'user-interrupted',
-            event_data: message
-        });
-
-        // Update interruption count using raw SQL increment
+    private async logToolCallActivity(log: any) {
         try {
-            const { data: currentCall } = await supabase
-                .from('voice_calls')
-                .select('interruption_count')
-                .eq('vapi_call_id', call.id)
-                .single();
-
             await supabase
-                .from('voice_calls')
-                .update({ interruption_count: (currentCall?.interruption_count || 0) + 1 })
-                .eq('vapi_call_id', call.id);
+                .from('vapi_tool_logs')
+                .insert({
+                    vapi_call_id: log.vapi_call_id,
+                    conversation_id: log.conversation_id,
+                    client_id: log.client_id,
+                    tool_name: log.tool_name,
+                    tool_call_id: log.tool_call_id,
+                    arguments: log.arguments,
+                    success: log.success,
+                    result: log.result,
+                    error_message: log.error_message,
+                    duration_ms: log.duration_ms,
+                    customer_phone: log.customer_phone,
+                    started_at: new Date().toISOString() // approximated
+                });
         } catch (e) {
-            console.error('[VapiService] Error updating interruption count:', e);
+            console.error('[VapiService] Error logging tool:', e);
         }
     }
 
-    /**
-     * Handle hang/delay events (latency warnings)
-     */
-    private async handleHang(message: any) {
-        const call = message.call;
-        if (!call?.id) return;
 
-        console.warn(`[VapiService] Hang/delay detected in call ${call.id}`);
+    // --- Context Methods (Migrated from VapiContextService) ---
 
-        await vapiEventLogger.logEvent({
-            vapi_call_id: call.id,
-            conversation_id: call.metadata?.conversationId,
-            event_type: 'hang',
-            event_data: {
-                duration: message.duration,
-                reason: message.reason,
-                ...message
-            }
-        });
+    async buildContextForPhone(phoneNumber: string): Promise<{
+        client: ClientContext | null;
+        conversation: ConversationContext | null;
+        contextMessage: string;
+        firstMessage: string;
+    }> {
+        const normalizedPhone = this.normalizePhoneForLookup(phoneNumber);
+        const client = await this.lookupClient(normalizedPhone);
+        const conversation = client ? await this.getActiveConversation(client.client_id!) : null;
+        const contextMessage = this.buildContextMessage(client, conversation);
+        const firstMessage = this.buildFirstMessage(client?.name);
+
+        return { client, conversation, contextMessage, firstMessage };
     }
 
-    /**
-     * Sync completed call to CRM conversation
-     */
-    private async handleEndOfCall(message: any) {
-        const call = message.call;
-        const report = message;
-
-        // End copilot tracking and get final report
-        const copilotReport = await voiceCopilotService.endCall(call.id);
-        if (copilotReport) {
-            console.log(`[VapiService] Copilot Report: sentiment=${copilotReport.sentiment}, actions=${copilotReport.actionsExecuted}, missed=${copilotReport.actionsMissed}`);
-        }
-
-        // Log end of call report
-        await vapiEventLogger.logEndOfCallReport({
-            vapi_call_id: call.id,
-            conversation_id: call.metadata?.conversationId,
-            transcript: report.transcript || '',
-            summary: report.summary || '',
-            duration_seconds: report.durationSeconds || 0,
-            ended_reason: report.endedReason || 'unknown',
-            messages: report.messages || [],
-            cost: report.cost,
-            analysis: report.analysis
-        });
-
-        // Get voice call to find conversation
-        const { data: voiceCall } = await supabase
-            .from('voice_calls')
-            .select('conversation_id')
-            .eq('vapi_call_id', call.id)
+    async buildContextForConversation(conversationId: string): Promise<{
+        client: ClientContext | null;
+        conversation: ConversationContext | null;
+        contextMessage: string;
+        firstMessage: string;
+    }> {
+        const { data: conv } = await supabase
+            .from('conversations')
+            .select(`
+                *,
+                clients!conversations_client_id_fkey (
+                    id, name, email, phone
+                )
+            `)
+            .eq('id', conversationId)
             .single();
 
-        // Build enhanced summary with copilot insights
-        let summaryContent = `📞 **Llamada finalizada** (${Math.round(report.durationSeconds || 0)}s)\n\n**Resumen:** ${report.summary || 'N/A'}\n\n**Razón:** ${report.endedReason}`;
+        if (!conv) {
+            return {
+                client: null,
+                conversation: null,
+                contextMessage: '',
+                firstMessage: this.buildFirstMessage()
+            };
+        }
 
-        // Add copilot insights if available
-        if (copilotReport) {
-            const sentimentEmoji = copilotReport.sentiment > 0.3 ? '😊' : copilotReport.sentiment < -0.3 ? '😤' : '😐';
-            summaryContent += `\n\n**Sentimiento:** ${sentimentEmoji} (${copilotReport.sentiment.toFixed(2)})`;
+        const client = conv.clients ? await this.enrichClientData(conv.clients) : null;
+        const conversation = await this.buildConversationContext(conv);
+        const contextMessage = this.buildContextMessage(client, conversation);
+        const firstMessage = this.buildFirstMessage(client?.name);
 
-            if (copilotReport.actionsMissed > 0) {
-                summaryContent += `\n**⚠️ Acciones perdidas:** ${copilotReport.actionsMissed}`;
+        return { client, conversation, contextMessage, firstMessage };
+    }
+
+    private async lookupClient(phone: string): Promise<ClientContext | null> {
+        const { data: client } = await supabase
+            .from('clients')
+            .select('*')
+            .or(`phone.ilike.%${phone}%,phone.ilike.%${phone.slice(-10)}%`)
+            .limit(1)
+            .maybeSingle();
+
+        if (!client) return null;
+        return this.enrichClientData(client);
+    }
+
+    private async enrichClientData(client: any): Promise<ClientContext> {
+        const clientId = client.id;
+        const { data: orders } = await supabase
+            .from('orders')
+            .select('id, order_number, status, created_at, total')
+            .eq('client_id', clientId)
+            .order('created_at', { ascending: false })
+            .limit(10);
+
+        const totalOrders = orders?.length || 0;
+        const ltv = orders?.reduce((sum, o) => sum + (o.total || 0), 0) || 0;
+        const lastOrder = orders?.[0];
+        const pendingOrders = orders?.filter(o =>
+            ['pending', 'processing', 'shipped', 'in_transit'].includes(o.status)
+        );
+
+        const { data: convData } = await supabase
+            .from('conversations')
+            .select('facts, tags')
+            .eq('client_id', clientId)
+            .order('updated_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        return {
+            client_id: clientId,
+            name: client.name,
+            email: client.email,
+            phone: client.phone,
+            first_order_date: orders?.[orders.length - 1]?.created_at,
+            total_orders: totalOrders,
+            ltv: Math.round(ltv),
+            last_order: lastOrder ? {
+                order_number: lastOrder.order_number,
+                status: lastOrder.status,
+                created_at: lastOrder.created_at,
+                total: lastOrder.total
+            } : undefined,
+            pending_orders: pendingOrders?.map(o => ({
+                order_number: o.order_number,
+                status: o.status
+            })),
+            tags: convData?.tags || [],
+            emotional_vibe: convData?.facts?.emotional_vibe
+        };
+    }
+
+    private async getActiveConversation(clientId: string): Promise<ConversationContext | null> {
+        const { data: conv } = await supabase
+            .from('conversations')
+            .select('*')
+            .eq('client_id', clientId)
+            .eq('is_archived', false)
+            .order('updated_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        if (!conv) return null;
+        return this.buildConversationContext(conv);
+    }
+
+    private async buildConversationContext(conv: any): Promise<ConversationContext> {
+        const { data: messages } = await supabase
+            .from('crm_messages')
+            .select('role, content, created_at')
+            .eq('conversation_id', conv.id)
+            .eq('is_internal', false)
+            .order('created_at', { ascending: false })
+            .limit(5);
+
+        return {
+            conversation_id: conv.id,
+            channel: conv.channel || 'unknown',
+            recent_messages: messages?.reverse().map(m => ({
+                role: m.role,
+                content: m.content?.substring(0, 200) || '',
+                created_at: m.created_at
+            })),
+            facts: conv.facts,
+            sentiment_trend: conv.facts?.sentiment_trend,
+            unresolved_issues: conv.facts?.unresolved_issues
+        };
+    }
+
+    private buildContextMessage(client: ClientContext | null, conversation: ConversationContext | null): string {
+        if (!client && !conversation) {
+            return '[CONTEXTO: Cliente nuevo o no identificado. Pide su nombre amablemente.]';
+        }
+
+        const lines: string[] = [
+            '[CONTEXTO DEL CLIENTE - Usa esta información para personalizar]'
+        ];
+
+        if (client) {
+            if (client.name) lines.push(`- Nombre: ${client.name}`);
+            if (client.total_orders && client.ltv) {
+                lines.push(`- Cliente con ${client.total_orders} pedidos | LTV: $${client.ltv} MXN`);
             }
-            if (copilotReport.recommendations.length > 0) {
-                summaryContent += `\n\n**Recomendaciones:**\n${copilotReport.recommendations.map(r => `• ${r}`).join('\n')}`;
+            if (client.last_order) {
+                lines.push(`- Último pedido: #${client.last_order.order_number} (${client.last_order.status})`);
+            }
+            if (client.pending_orders && client.pending_orders.length > 0) {
+                const pending = client.pending_orders.map(o => `#${o.order_number}`).join(', ');
+                lines.push(`- Pedidos pendientes: ${pending}`);
             }
         }
 
-        summaryContent += `\n\n[🎧 Escuchar Grabación](${report.recordingUrl})`;
-
-        // Create CRM message with call summary
-        if (voiceCall?.conversation_id) {
-            await supabase.from('crm_messages').insert({
-                conversation_id: voiceCall.conversation_id,
-                direction: 'inbound',
-                role: 'system',
-                message_type: 'call_summary',
-                content: summaryContent,
-                status: 'delivered',
-                raw_payload: {
-                    ...report,
-                    copilotReport
-                }
-            });
+        if (conversation?.recent_messages && conversation.recent_messages.length > 0) {
+            lines.push('\n[MENSAJES RECIENTES POR WHATSAPP]');
+            for (const msg of conversation.recent_messages.slice(-3)) {
+                const role = msg.role === 'assistant' ? 'Ara' : 'Cliente';
+                lines.push(`${role}: ${msg.content}`);
+            }
         }
+
+        return lines.join('\n');
+    }
+
+    private buildFirstMessage(clientName?: string): string {
+        if (clientName) {
+            const firstName = clientName.split(' ')[0];
+            return `¡Hola ${firstName}! Soy Ara de Extractos EUM. ¿Cómo estás?`;
+        }
+        return '¡Hola! Soy Ara de Extractos EUM. ¿Con quién tengo el gusto?';
+    }
+
+    private normalizePhoneForLookup(phone: string): string {
+        let cleaned = phone.replace(/\D/g, '');
+        if (cleaned.length > 10) {
+            cleaned = cleaned.slice(-10);
+        }
+        return cleaned;
     }
 }
