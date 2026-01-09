@@ -586,17 +586,23 @@ export const getWidgetScript = async (req: Request, res: Response) => {
                     flex-shrink: 0 !important;
                 }
                 .eum-tabs {
-                    display: flex !important; background: rgba(0,0,0,0.2) !important;
-                    flex-shrink: 0 !important;
+                    display: flex !important; background: #16213e !important;
+                    flex-shrink: 0 !important; border-bottom: 1px solid rgba(255,255,255,0.1) !important;
                 }
                 .eum-tab {
-                    flex: 1 !important; padding: 12px !important; text-align: center !important;
-                    cursor: pointer !important; border: none !important; background: none !important;
-                    color: rgba(255,255,255,0.6) !important; font-size: 13px !important;
+                    flex: 1 !important; padding: 14px 12px !important; text-align: center !important;
+                    cursor: pointer !important; border: none !important; background: transparent !important;
+                    color: rgba(255,255,255,0.5) !important; font-size: 13px !important;
                     font-weight: 500 !important; transition: all 0.2s !important;
+                    border-radius: 0 !important; outline: none !important;
+                    border-bottom: 2px solid transparent !important;
+                }
+                .eum-tab:hover {
+                    color: rgba(255,255,255,0.8) !important;
+                    background: rgba(255,255,255,0.05) !important;
                 }
                 .eum-tab.active {
-                    color: white !important; background: rgba(255,255,255,0.1) !important;
+                    color: white !important; background: transparent !important;
                     border-bottom: 2px solid #3b82f6 !important;
                 }
                 .eum-content {
@@ -616,17 +622,42 @@ export const getWidgetScript = async (req: Request, res: Response) => {
                 .eum-product {
                     background: rgba(255,255,255,0.05) !important;
                     padding: 12px !important; border-radius: 8px !important;
-                    margin-bottom: 8px !important;
+                    margin-bottom: 12px !important; border: 1px solid rgba(255,255,255,0.1) !important;
                 }
-                .eum-product-name { font-weight: bold !important; margin-bottom: 4px !important; }
-                .eum-product-price { font-size: 12px !important; opacity: 0.7 !important; }
-                .eum-product-btn {
-                    margin-top: 8px !important; padding: 6px 12px !important;
-                    background: #10b981 !important; color: white !important;
-                    border: none !important; border-radius: 4px !important;
-                    cursor: pointer !important; font-size: 12px !important;
+                .eum-product-name { font-weight: 600 !important; margin-bottom: 4px !important; font-size: 14px !important; }
+                .eum-product-price { font-size: 13px !important; color: #a5b4fc !important; margin-bottom: 8px !important; }
+                .eum-variants { display: flex !important; flex-wrap: wrap !important; gap: 6px !important; margin-top: 8px !important; }
+                .eum-variant-btn {
+                    padding: 6px 10px !important;
+                    background: rgba(99, 102, 241, 0.2) !important; color: #a5b4fc !important;
+                    border: 1px solid rgba(99, 102, 241, 0.4) !important; border-radius: 6px !important;
+                    cursor: pointer !important; font-size: 11px !important;
+                    transition: all 0.2s !important;
                 }
-                .eum-product-btn:hover { background: #059669 !important; }
+                .eum-variant-btn:hover {
+                    background: rgba(99, 102, 241, 0.4) !important;
+                    color: white !important;
+                    border-color: #6366f1 !important;
+                }
+                .eum-cart-items {
+                    max-height: 150px !important; overflow-y: auto !important;
+                    margin-bottom: 12px !important;
+                }
+                .eum-cart-item {
+                    display: flex !important; justify-content: space-between !important;
+                    align-items: center !important; padding: 8px !important;
+                    background: rgba(255,255,255,0.05) !important;
+                    border-radius: 6px !important; margin-bottom: 6px !important;
+                    font-size: 12px !important;
+                }
+                .eum-cart-item-name { flex: 1 !important; margin-right: 8px !important; }
+                .eum-cart-item-price { color: #a5b4fc !important; margin-right: 8px !important; }
+                .eum-cart-item-remove {
+                    background: none !important; border: none !important;
+                    color: #f87171 !important; cursor: pointer !important;
+                    font-size: 16px !important; padding: 0 4px !important;
+                }
+                .eum-cart-item-remove:hover { color: #ef4444 !important; }
                 .eum-chat-container {
                     display: flex !important; flex-direction: column !important;
                     height: 100% !important;
@@ -694,8 +725,11 @@ export const getWidgetScript = async (req: Request, res: Response) => {
                 </div>
             </div>
             <div class="eum-cart">
-                <div style="margin-bottom: 12px; font-weight: bold;">Carrito: <span id="eum-cart-count">0</span> items</div>
-                <div style="margin-bottom: 12px;">Total: $<span id="eum-cart-total">0.00</span> MXN</div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                    <span style="font-weight: bold;">Carrito (<span id="eum-cart-count">0</span>)</span>
+                    <span style="color: #a5b4fc;">$<span id="eum-cart-total">0.00</span> MXN</span>
+                </div>
+                <div class="eum-cart-items" id="eum-cart-items"></div>
                 <button class="eum-btn" id="eum-checkout-btn">Generar Link de Pago</button>
             </div>
         \`;
@@ -765,15 +799,29 @@ export const getWidgetScript = async (req: Request, res: Response) => {
 
             const container = document.getElementById('eum-products');
             if (data.success && data.products && data.products.length > 0) {
-                container.innerHTML = data.products.map(p => \`
-                    <div class="eum-product">
-                        <div class="eum-product-name">\${escapeHtml(p.name)}</div>
-                        <div class="eum-product-price">$\${p.price} MXN</div>
-                        <button class="eum-product-btn" onclick="window.eumAddToCart('\${p.variants?.[0]?.id || p.id}', '\${escapeHtml(p.name).replace(/'/g, "\\\\'")}', \${parseFloat(p.price) || 0})">
-                            + Agregar
-                        </button>
-                    </div>
-                \`).join('');
+                container.innerHTML = data.products.map(p => {
+                    const variants = p.variants || [];
+                    const hasVariants = variants.length > 1 || (variants.length === 1 && variants[0].title !== 'Default Title');
+
+                    let variantsHtml = '';
+                    if (hasVariants) {
+                        variantsHtml = '<div class="eum-variants">' + variants.map(v => \`
+                            <button class="eum-variant-btn" onclick="window.eumAddToCart('\${v.id}', '\${escapeHtml(p.name + ' - ' + v.title).replace(/'/g, "\\\\'")}', \${parseFloat(v.price) || 0})">
+                                \${escapeHtml(v.title)} - $\${v.price}
+                            </button>
+                        \`).join('') + '</div>';
+                    } else {
+                        variantsHtml = '<div class="eum-variants"><button class="eum-variant-btn" onclick="window.eumAddToCart(\\'' + (variants[0]?.id || p.id) + '\\', \\'' + escapeHtml(p.name).replace(/'/g, "\\\\'") + '\\', ' + (parseFloat(p.price) || 0) + ')">+ Agregar $' + p.price + '</button></div>';
+                    }
+
+                    return \`
+                        <div class="eum-product">
+                            <div class="eum-product-name">\${escapeHtml(p.name)}</div>
+                            \${hasVariants ? '<div class="eum-product-price">Selecciona variante:</div>' : ''}
+                            \${variantsHtml}
+                        </div>
+                    \`;
+                }).join('');
             } else {
                 container.innerHTML = '<div class="eum-empty">No se encontraron productos</div>';
             }
@@ -792,18 +840,45 @@ export const getWidgetScript = async (req: Request, res: Response) => {
     // Cart
     window.eumCart = [];
     window.eumAddToCart = function(variantId, name, price) {
-        window.eumCart.push({ variantId, name, price: parseFloat(price) || 0, quantity: 1 });
+        // Check if already in cart, increment quantity
+        const existing = window.eumCart.find(item => item.variantId === variantId);
+        if (existing) {
+            existing.quantity += 1;
+        } else {
+            window.eumCart.push({ variantId, name, price: parseFloat(price) || 0, quantity: 1 });
+        }
         updateCartDisplay();
         console.log('[EUM] Added to cart:', { variantId, name, price });
+    };
+
+    window.eumRemoveFromCart = function(index) {
+        window.eumCart.splice(index, 1);
+        updateCartDisplay();
     };
 
     function updateCartDisplay() {
         const countEl = document.getElementById('eum-cart-count');
         const totalEl = document.getElementById('eum-cart-total');
-        if (countEl) countEl.textContent = window.eumCart.length;
-        if (totalEl) {
-            const total = window.eumCart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-            totalEl.textContent = total.toFixed(2);
+        const itemsEl = document.getElementById('eum-cart-items');
+
+        const totalQty = window.eumCart.reduce((sum, item) => sum + item.quantity, 0);
+        if (countEl) countEl.textContent = totalQty;
+
+        const total = window.eumCart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+        if (totalEl) totalEl.textContent = total.toFixed(2);
+
+        if (itemsEl) {
+            if (window.eumCart.length === 0) {
+                itemsEl.innerHTML = '<div style="text-align: center; opacity: 0.5; font-size: 12px; padding: 8px;">Carrito vacío</div>';
+            } else {
+                itemsEl.innerHTML = window.eumCart.map((item, idx) => \`
+                    <div class="eum-cart-item">
+                        <span class="eum-cart-item-name">\${escapeHtml(item.name)}</span>
+                        <span class="eum-cart-item-price">\${item.quantity > 1 ? item.quantity + 'x ' : ''}$\${(item.price * item.quantity).toFixed(2)}</span>
+                        <button class="eum-cart-item-remove" onclick="window.eumRemoveFromCart(\${idx})">×</button>
+                    </div>
+                \`).join('');
+            }
         }
     }
 
