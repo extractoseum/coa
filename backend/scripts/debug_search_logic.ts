@@ -80,7 +80,7 @@ async function debugSearch(query: string) {
 
 async function run() {
     await debugSearch('gomitas');
-    await debugSearch('hhc');
+    // await debugSearch('hhc');
 }
 
 run();

@@ -375,32 +375,33 @@ export async function handleSearchProducts(
             // Clean description for speech
             const desc = p.description_plain?.split('.')[0] || '';
 
-            name: p.title,
+            return {
+                name: p.title,
                 price: minPrice,
-                    stock: totalStock > 0 ? 'Sí' : 'No',
-                        stock_quantity: totalStock, // [NEW] Explicit quantity for AI context
-                            summary: `${p.title} a $${minPrice}`
+                stock: totalStock > 0 ? 'Sí' : 'No',
+                stock_quantity: totalStock, // [NEW] Explicit quantity for AI context
+                summary: `${p.title} a $${minPrice}`
+            };
+        });
+
+        // Create a summary that Ara can naturally speak
+        const summary = productList.map(p =>
+            `${p.name}, desde $${p.price}`
+        ).join('. ');
+
+        return {
+            success: true,
+            message: `Encontré estos productos: ${summary}. ¿Te interesa alguno en particular?`,
+            data: {
+                products: productList,
+                count: products.length
+            }
         };
-    });
 
-    // Create a summary that Ara can naturally speak
-    const summary = productList.map(p =>
-        `${p.name}, desde $${p.price}`
-    ).join('. ');
-
-    return {
-        success: true,
-        message: `Encontré estos productos: ${summary}. ¿Te interesa alguno en particular?`,
-        data: {
-            products: productList,
-            count: products.length
-        }
-    };
-
-} catch (error: any) {
-    console.error('[VapiTools] search_products error:', error.message);
-    return { success: false, error: error.message };
-}
+    } catch (error: any) {
+        console.error('[VapiTools] search_products error:', error.message);
+        return { success: false, error: error.message };
+    }
 }
 
 /**
