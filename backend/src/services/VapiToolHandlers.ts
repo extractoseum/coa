@@ -272,12 +272,15 @@ export async function handleSearchProducts(
                     .select('id, title, handle, product_type, description_plain, variants, status')
                     .eq('status', 'active')
                     .or(`title.ilike.%${term}%,product_type.ilike.%${term}%,description_plain.ilike.%${term}%`)
-                    .limit(5);
+                    .limit(10); // Check more candidates
 
                 if (results && results.length > 0) {
                     const existingIds = new Set(products.map(p => p.id));
-                    const newProducts = results.filter(p => !existingIds.has(p.id));
-                    products = [...products, ...newProducts];
+                    // Prioritize exact matches in TITLE first
+                    const exactMatches = results.filter(p => !existingIds.has(p.id) && p.title.toLowerCase().includes(term));
+                    const otherMatches = results.filter(p => !existingIds.has(p.id) && !p.title.toLowerCase().includes(term));
+
+                    products = [...products, ...exactMatches, ...otherMatches];
                 }
             }
 
@@ -289,11 +292,26 @@ export async function handleSearchProducts(
                     .select('id, title, handle, product_type, description_plain, variants, status')
                     .eq('status', 'active')
                     .or(orQuery)
-                    .limit(5);
+                    .limit(10);
 
                 if (broadResults) {
                     const existingIds = new Set(products.map(p => p.id));
                     products = [...products, ...broadResults.filter(p => !existingIds.has(p.id))];
+                }
+            }
+
+            // EXTRA PASS: Handle specific merged/split cases (e.g., "Candy Kush" vs "CandyKush")
+            if (queryLower.includes('candy kush') || queryLower.includes('candykush')) {
+                const { data: candyResults } = await supabase
+                    .from('products')
+                    .select('id, title, handle, product_type, description_plain, variants, status')
+                    .eq('status', 'active')
+                    .or(`title.ilike.%CandyKush%,title.ilike.%Candy Kush%`) // Explicitly check both
+                    .limit(10);
+
+                if (candyResults) {
+                    const existingIds = new Set(products.map(p => p.id));
+                    products = [...products, ...candyResults.filter(p => !existingIds.has(p.id))];
                 }
             }
 

@@ -266,6 +266,16 @@ export class VapiService {
             }
         }
 
+        // [FIX] Ensure inbound call is logged in voice_calls immediately
+        await supabase.from('voice_calls').insert({
+            vapi_call_id: call.id,
+            conversation_id: conversationId,
+            direction: 'inbound',
+            phone_number: phoneNumber,
+            status: 'in-progress',
+            started_at: new Date().toISOString()
+        });
+
         const assistantId = process.env.VAPI_DEFAULT_ASSISTANT_ID;
 
         // Build response with context injection
