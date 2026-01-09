@@ -1,60 +1,296 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Loader2, Sparkles, Mic, Wand2 } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { Loader2, Sparkles, Mic, Wand2, Search, X } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 
 // ElevenLabs v3 Audio Tags Reference
-// Based on: https://elevenlabs.io/blog/v3-audiotags
+// Based on: https://audio-generation-plugin.com/eleven-v3-tag-library/
+// 1806 tags available organized in 15 categories
 export const AUDIO_TAGS = {
-    // Emotional/Tone Tags
-    emotions: [
+    // Emotion - Core feelings and emotional states
+    emotion: [
         { tag: '[whispers]', label: 'Susurro', description: 'Voz susurrada, íntima' },
-        { tag: '[sighs]', label: 'Suspiro', description: 'Suspiro de emoción/cansancio' },
+        { tag: '[sighs]', label: 'Suspiro', description: 'Suspiro de emoción' },
         { tag: '[excited]', label: 'Emocionado', description: 'Tono alegre y enérgico' },
         { tag: '[sad]', label: 'Triste', description: 'Tono melancólico' },
-        { tag: '[angry]', label: 'Enojado', description: 'Tono de frustración' },
+        { tag: '[angry]', label: 'Enojado', description: 'Hostil, molesto' },
         { tag: '[happily]', label: 'Feliz', description: 'Tono alegre' },
+        { tag: '[amused]', label: 'Divertido', description: 'Entretenido, complacido' },
+        { tag: '[annoyed]', label: 'Molesto', description: 'Irritado, fastidiado' },
+        { tag: '[anxious]', label: 'Ansioso', description: 'Preocupado, inquieto' },
+        { tag: '[apologetic]', label: 'Disculpándose', description: 'Tono de disculpa' },
+        { tag: '[apprehensive]', label: 'Aprensivo', description: 'Anticipación temerosa' },
+        { tag: '[caring]', label: 'Cariñoso', description: 'Tono afectuoso' },
+        { tag: '[compassionate]', label: 'Compasivo', description: 'Empático y comprensivo' },
+        { tag: '[confident]', label: 'Confiado', description: 'Seguro de sí mismo' },
         { tag: '[curious]', label: 'Curioso', description: 'Tono de intriga' },
-        { tag: '[sarcastic]', label: 'Sarcástico', description: 'Tono irónico' },
-        { tag: '[thoughtful]', label: 'Pensativo', description: 'Tono reflexivo' },
-        { tag: '[nervously]', label: 'Nervioso', description: 'Tono ansioso' },
-        { tag: '[warmly]', label: 'Cálido', description: 'Tono amigable' },
-        { tag: '[reassuring]', label: 'Tranquilizador', description: 'Tono calmante' },
+        { tag: '[delighted]', label: 'Encantado', description: 'Muy feliz' },
+        { tag: '[disappointed]', label: 'Decepcionado', description: 'Desilusionado' },
+        { tag: '[embarrassed]', label: 'Avergonzado', description: 'Apenado' },
+        { tag: '[empathetic]', label: 'Empático', description: 'Muestra comprensión' },
+        { tag: '[enthusiastic]', label: 'Entusiasta', description: 'Muy animado' },
+        { tag: '[frustrated]', label: 'Frustrado', description: 'Exasperado' },
+        { tag: '[gentle]', label: 'Gentil', description: 'Suave y delicado' },
+        { tag: '[grateful]', label: 'Agradecido', description: 'Expresando gratitud' },
+        { tag: '[hopeful]', label: 'Esperanzado', description: 'Optimista' },
+        { tag: '[nervous]', label: 'Nervioso', description: 'Tono ansioso' },
+        { tag: '[patient]', label: 'Paciente', description: 'Calmado y tolerante' },
+        { tag: '[proud]', label: 'Orgulloso', description: 'Satisfecho' },
+        { tag: '[reassuring]', label: 'Tranquilizador', description: 'Calmante' },
+        { tag: '[relieved]', label: 'Aliviado', description: 'Sensación de alivio' },
+        { tag: '[sarcastic]', label: 'Sarcástico', description: 'Irónico' },
+        { tag: '[sincere]', label: 'Sincero', description: 'Honesto y genuino' },
+        { tag: '[sorry]', label: 'Apenado', description: 'Expresando pena' },
+        { tag: '[surprised]', label: 'Sorprendido', description: 'Asombrado' },
+        { tag: '[sympathetic]', label: 'Simpático', description: 'Comprensivo' },
+        { tag: '[thankful]', label: 'Agradecido', description: 'Dando gracias' },
+        { tag: '[thoughtful]', label: 'Pensativo', description: 'Reflexivo' },
+        { tag: '[understanding]', label: 'Comprensivo', description: 'Muestra entendimiento' },
+        { tag: '[warm]', label: 'Cálido', description: 'Amigable y acogedor' },
+        { tag: '[worried]', label: 'Preocupado', description: 'Inquieto' },
+        { tag: '[joyful]', label: 'Alegre', description: 'Lleno de alegría' },
+        { tag: '[melancholic]', label: 'Melancólico', description: 'Tristeza suave' },
+        { tag: '[fearful]', label: 'Temeroso', description: 'Con miedo' },
+        { tag: '[loving]', label: 'Amoroso', description: 'Con amor' },
+        { tag: '[hurt]', label: 'Herido', description: 'Emocionalmente lastimado' },
+        { tag: '[bittersweet]', label: 'Agridulce', description: 'Feliz y triste' },
     ],
-    // Reactions/Non-verbal
-    reactions: [
+    // Body States - Physical reactions
+    bodyStates: [
         { tag: '[laughs]', label: 'Risa', description: 'Risa natural' },
         { tag: '[laughs softly]', label: 'Risa suave', description: 'Risa gentil' },
         { tag: '[giggles]', label: 'Risita', description: 'Risita corta' },
-        { tag: '[clears throat]', label: 'Aclara garganta', description: 'Carraspeo' },
+        { tag: '[chuckles]', label: 'Risita', description: 'Risa entre dientes' },
+        { tag: '[clears throat]', label: 'Carraspeo', description: 'Aclara garganta' },
         { tag: '[gasps]', label: 'Jadeo', description: 'Respiración de sorpresa' },
         { tag: '[gulps]', label: 'Traga', description: 'Trago nervioso' },
         { tag: '[breathes]', label: 'Respira', description: 'Respiración audible' },
+        { tag: '[breathes deeply]', label: 'Respira profundo', description: 'Respiración profunda' },
+        { tag: '[exhales]', label: 'Exhala', description: 'Exhalación' },
+        { tag: '[inhales]', label: 'Inhala', description: 'Inhalación' },
+        { tag: '[sniffs]', label: 'Olfatea', description: 'Olfateo' },
+        { tag: '[coughs]', label: 'Tose', description: 'Tos' },
+        { tag: '[yawns]', label: 'Bosteza', description: 'Bostezo' },
+        { tag: '[groans]', label: 'Gime', description: 'Gemido' },
+        { tag: '[hums]', label: 'Tararea', description: 'Tarareo' },
+        { tag: '[mumbles]', label: 'Murmura', description: 'Murmullo' },
+        { tag: '[snorts]', label: 'Resopla', description: 'Resoplido' },
+        { tag: '[hiccups]', label: 'Hipo', description: 'Hipo' },
+        { tag: '[shivers]', label: 'Tiembla', description: 'Temblor' },
+        { tag: '[stretches]', label: 'Se estira', description: 'Estiramiento' },
+        { tag: '[winces]', label: 'Hace mueca', description: 'Mueca de dolor' },
+        { tag: '[sobs]', label: 'Solloza', description: 'Llanto' },
+        { tag: '[crying]', label: 'Llorando', description: 'En llanto' },
+        { tag: '[trembling]', label: 'Temblando', description: 'Voz temblorosa' },
     ],
-    // Pacing & Delivery
-    pacing: [
+    // Dialogue - Conversational elements
+    dialogue: [
+        { tag: '[anticipatory pause]', label: 'Pausa anticipatoria', description: 'Pausa con anticipación' },
+        { tag: '[apologizes mid-sentence]', label: 'Disculpa a mitad', description: 'Se disculpa mientras habla' },
+        { tag: '[asks rhetorically]', label: 'Pregunta retórica', description: 'Pregunta sin esperar respuesta' },
+        { tag: '[aside]', label: 'Aparte', description: 'Comentario al margen' },
+        { tag: '[corrects self]', label: 'Se corrige', description: 'Autocorrección' },
+        { tag: '[emphasizes]', label: 'Enfatiza', description: 'Pone énfasis' },
+        { tag: '[explains patiently]', label: 'Explica pacientemente', description: 'Explicación calmada' },
+        { tag: '[interjects]', label: 'Interrumpe', description: 'Interrupción' },
+        { tag: '[reassures]', label: 'Tranquiliza', description: 'Da seguridad' },
+        { tag: '[summarizes]', label: 'Resume', description: 'Hace resumen' },
+        { tag: '[trails off]', label: 'Se desvanece', description: 'Voz que se apaga' },
+        { tag: '[to self]', label: 'Para sí', description: 'Hablando solo' },
+        { tag: '[addressing audience]', label: 'Al público', description: 'Dirigido a audiencia' },
+        { tag: '[inner monologue]', label: 'Monólogo interno', description: 'Pensamiento interno' },
+        { tag: '[quotes]', label: 'Cita', description: 'Citando a alguien' },
+        { tag: '[confides]', label: 'Confía', description: 'En confianza' },
+    ],
+    // Rhythm - Pacing and delivery
+    rhythm: [
         { tag: '[pause]', label: 'Pausa', description: 'Pausa breve' },
         { tag: '[short pause]', label: 'Pausa corta', description: 'Pausa muy breve' },
         { tag: '[long pause]', label: 'Pausa larga', description: 'Pausa extendida' },
+        { tag: '[beat]', label: 'Beat', description: 'Pausa dramática' },
         { tag: '[slowly]', label: 'Lento', description: 'Habla más despacio' },
         { tag: '[quickly]', label: 'Rápido', description: 'Habla más rápido' },
-        { tag: '[stammers]', label: 'Tartamudea', description: 'Duda al hablar' },
+        { tag: '[deliberately]', label: 'Deliberado', description: 'Habla con intención' },
         { tag: '[hesitates]', label: 'Hesita', description: 'Momento de duda' },
+        { tag: '[stammers]', label: 'Tartamudea', description: 'Duda al hablar' },
+        { tag: '[stutters]', label: 'Tartamudea', description: 'Tartamudeo' },
+        { tag: '[drawn out]', label: 'Alargado', description: 'Palabras alargadas' },
+        { tag: '[rapid-fire]', label: 'Ráfaga', description: 'Muy rápido' },
+        { tag: '[measured]', label: 'Medido', description: 'Ritmo constante' },
+        { tag: '[rushed]', label: 'Apresurado', description: 'Con prisa' },
+        { tag: '[languid]', label: 'Lánguido', description: 'Lento y relajado' },
+        { tag: '[staccato]', label: 'Staccato', description: 'Palabras cortadas' },
     ],
-    // Volume
-    volume: [
+    // Vocal Effects - Voice modifications
+    vocalEffects: [
         { tag: '[quietly]', label: 'Bajo', description: 'Volumen bajo' },
+        { tag: '[softly]', label: 'Suave', description: 'Voz suave' },
         { tag: '[loudly]', label: 'Alto', description: 'Volumen alto' },
         { tag: '[shouts]', label: 'Grita', description: 'Grito' },
+        { tag: '[yells]', label: 'Grita fuerte', description: 'Grito intenso' },
+        { tag: '[murmurs]', label: 'Murmura', description: 'Voz muy baja' },
+        { tag: '[under breath]', label: 'Entre dientes', description: 'Casi inaudible' },
+        { tag: '[raspy]', label: 'Rasposa', description: 'Voz ronca' },
+        { tag: '[breathy]', label: 'Entrecortada', description: 'Con aire' },
+        { tag: '[hoarse]', label: 'Ronca', description: 'Voz dañada' },
+        { tag: '[squeaky]', label: 'Chillona', description: 'Voz aguda' },
+        { tag: '[deep voice]', label: 'Voz grave', description: 'Tono bajo' },
+        { tag: '[high-pitched]', label: 'Aguda', description: 'Tono alto' },
+        { tag: '[cracking voice]', label: 'Voz quebrada', description: 'Voz que se quiebra' },
+        { tag: '[echoing]', label: 'Con eco', description: 'Efecto de eco' },
+    ],
+    // Styles - Speaking manner
+    styles: [
+        { tag: '[analytical]', label: 'Analítico', description: 'Habla con lógica' },
+        { tag: '[animated]', label: 'Animado', description: 'Expresión viva' },
+        { tag: '[casual]', label: 'Casual', description: 'Informal y relajado' },
+        { tag: '[conversational]', label: 'Conversacional', description: 'Como charla' },
+        { tag: '[formal]', label: 'Formal', description: 'Profesional y serio' },
+        { tag: '[friendly]', label: 'Amigable', description: 'Tono de amigo' },
+        { tag: '[matter-of-fact]', label: 'Directo', description: 'Sin rodeos' },
+        { tag: '[playful]', label: 'Juguetón', description: 'Divertido' },
+        { tag: '[professional]', label: 'Profesional', description: 'Tono de negocio' },
+        { tag: '[storytelling]', label: 'Narrativo', description: 'Como cuento' },
+        { tag: '[deadpan]', label: 'Inexpresivo', description: 'Sin emoción aparente' },
+        { tag: '[dramatic]', label: 'Dramático', description: 'Teatral' },
+        { tag: '[monotone]', label: 'Monótono', description: 'Sin variación' },
+        { tag: '[upbeat]', label: 'Optimista', description: 'Positivo y alegre' },
+    ],
+    // Mood - Overall tone
+    mood: [
+        { tag: '[helpful tone]', label: 'Tono de ayuda', description: 'Dispuesto a asistir' },
+        { tag: '[welcoming]', label: 'Acogedor', description: 'Da la bienvenida' },
+        { tag: '[attentive]', label: 'Atento', description: 'Prestando atención' },
+        { tag: '[encouraging]', label: 'Alentador', description: 'Da ánimos' },
+        { tag: '[informative]', label: 'Informativo', description: 'Dando información' },
+        { tag: '[polite]', label: 'Cortés', description: 'Educado' },
+        { tag: '[respectful]', label: 'Respetuoso', description: 'Muestra respeto' },
+        { tag: '[supportive]', label: 'De apoyo', description: 'Brinda soporte' },
+        { tag: '[somber]', label: 'Sombrío', description: 'Serio y oscuro' },
+        { tag: '[lighthearted]', label: 'Alegre', description: 'Despreocupado' },
+        { tag: '[intense]', label: 'Intenso', description: 'Con fuerza' },
+        { tag: '[peaceful]', label: 'Pacífico', description: 'Tranquilo' },
+        { tag: '[tense]', label: 'Tenso', description: 'Con tensión' },
+        { tag: '[mysterious]', label: 'Misterioso', description: 'Enigmático' },
+        { tag: '[romantic]', label: 'Romántico', description: 'Amoroso' },
+    ],
+    // Accents - Regional variations
+    accents: [
+        { tag: '[British accent]', label: 'Británico', description: 'Acento británico' },
+        { tag: '[American accent]', label: 'Americano', description: 'Acento americano' },
+        { tag: '[Southern accent]', label: 'Sureño', description: 'Acento del sur de EEUU' },
+        { tag: '[New York accent]', label: 'Nueva York', description: 'Acento neoyorquino' },
+        { tag: '[Irish accent]', label: 'Irlandés', description: 'Acento irlandés' },
+        { tag: '[Scottish accent]', label: 'Escocés', description: 'Acento escocés' },
+        { tag: '[Australian accent]', label: 'Australiano', description: 'Acento australiano' },
+        { tag: '[French accent]', label: 'Francés', description: 'Acento francés' },
+        { tag: '[German accent]', label: 'Alemán', description: 'Acento alemán' },
+        { tag: '[Spanish accent]', label: 'Español', description: 'Acento español' },
+        { tag: '[Italian accent]', label: 'Italiano', description: 'Acento italiano' },
+        { tag: '[Russian accent]', label: 'Ruso', description: 'Acento ruso' },
+        { tag: '[Mexican accent]', label: 'Mexicano', description: 'Acento mexicano' },
+    ],
+    // Narrative - Storytelling elements
+    narrative: [
+        { tag: '[narrating]', label: 'Narrando', description: 'Voz de narrador' },
+        { tag: '[reading aloud]', label: 'Leyendo', description: 'Lectura en voz alta' },
+        { tag: '[announcing]', label: 'Anunciando', description: 'Tono de anuncio' },
+        { tag: '[introducing]', label: 'Presentando', description: 'Introducción' },
+        { tag: '[concluding]', label: 'Concluyendo', description: 'Cierre' },
+        { tag: '[recounting]', label: 'Relatando', description: 'Contando historia' },
+        { tag: '[describing]', label: 'Describiendo', description: 'Descripción' },
+        { tag: '[foreshadowing]', label: 'Presagiando', description: 'Anticipando' },
+        { tag: '[flashback]', label: 'Flashback', description: 'Recuerdo' },
+        { tag: '[voice-over]', label: 'Voz en off', description: 'Narración externa' },
+    ],
+    // Humor - Comedic elements
+    humor: [
+        { tag: '[joking]', label: 'Bromeando', description: 'Tono de broma' },
+        { tag: '[teasing]', label: 'Molestando', description: 'Burla amigable' },
+        { tag: '[witty]', label: 'Ingenioso', description: 'Con ingenio' },
+        { tag: '[punning]', label: 'Juego palabras', description: 'Haciendo puns' },
+        { tag: '[silly]', label: 'Tonto', description: 'Tono bobo' },
+        { tag: '[dry humor]', label: 'Humor seco', description: 'Sarcasmo sutil' },
+        { tag: '[self-deprecating]', label: 'Autodesprecio', description: 'Humor sobre sí mismo' },
+        { tag: '[mocking]', label: 'Burlándose', description: 'Imitación burlesca' },
+    ],
+    // Introspection - Internal thoughts
+    introspection: [
+        { tag: '[pondering]', label: 'Meditando', description: 'Pensando profundamente' },
+        { tag: '[reflecting]', label: 'Reflexionando', description: 'Mirando atrás' },
+        { tag: '[wondering]', label: 'Preguntándose', description: 'Con curiosidad' },
+        { tag: '[remembering]', label: 'Recordando', description: 'Evocando memorias' },
+        { tag: '[realizing]', label: 'Dándose cuenta', description: 'Momento de revelación' },
+        { tag: '[daydreaming]', label: 'Soñando despierto', description: 'En fantasía' },
+        { tag: '[contemplating]', label: 'Contemplando', description: 'En contemplación' },
+        { tag: '[doubting]', label: 'Dudando', description: 'Con incertidumbre' },
+    ],
+    // Effects - Sound effects
+    effects: [
+        { tag: '[radio effect]', label: 'Radio', description: 'Como por radio' },
+        { tag: '[phone effect]', label: 'Teléfono', description: 'Como por teléfono' },
+        { tag: '[megaphone]', label: 'Megáfono', description: 'Con megáfono' },
+        { tag: '[reverb]', label: 'Reverberación', description: 'Con reverb' },
+        { tag: '[distorted]', label: 'Distorsionado', description: 'Voz distorsionada' },
+        { tag: '[muffled]', label: 'Amortiguado', description: 'Voz tapada' },
+        { tag: '[underwater]', label: 'Bajo el agua', description: 'Efecto acuático' },
+    ],
+    // Environment - Setting context
+    environment: [
+        { tag: '[in a crowded room]', label: 'Lugar lleno', description: 'Ambiente ruidoso' },
+        { tag: '[outdoors]', label: 'Exterior', description: 'Al aire libre' },
+        { tag: '[in an empty room]', label: 'Sala vacía', description: 'Eco de espacio' },
+        { tag: '[intimate setting]', label: 'Íntimo', description: 'Ambiente cercano' },
+        { tag: '[public space]', label: 'Público', description: 'Espacio abierto' },
+        { tag: '[on stage]', label: 'En escenario', description: 'Proyectando' },
+    ],
+    // Genre - Thematic styles
+    genre: [
+        { tag: '[documentary style]', label: 'Documental', description: 'Narración informativa' },
+        { tag: '[news anchor]', label: 'Noticiero', description: 'Estilo de noticias' },
+        { tag: '[audiobook]', label: 'Audiolibro', description: 'Narración de libro' },
+        { tag: '[podcast host]', label: 'Podcast', description: 'Estilo podcast' },
+        { tag: '[commercial]', label: 'Comercial', description: 'Anuncio publicitario' },
+        { tag: '[movie trailer]', label: 'Trailer', description: 'Épico de película' },
+        { tag: '[meditation guide]', label: 'Meditación', description: 'Guía calmante' },
+        { tag: '[sports commentary]', label: 'Deportes', description: 'Comentarista' },
+    ],
+    // Sound Effects - Non-vocal sounds
+    soundEffects: [
+        { tag: '[door creaks]', label: 'Puerta', description: 'Puerta que rechina' },
+        { tag: '[footsteps]', label: 'Pasos', description: 'Sonido de pasos' },
+        { tag: '[wind blowing]', label: 'Viento', description: 'Sonido de viento' },
+        { tag: '[rain falling]', label: 'Lluvia', description: 'Sonido de lluvia' },
+        { tag: '[thunder]', label: 'Trueno', description: 'Sonido de trueno' },
+        { tag: '[clock ticking]', label: 'Reloj', description: 'Tic-tac' },
+        { tag: '[phone ringing]', label: 'Teléfono', description: 'Timbre' },
     ],
 };
 
-// Flatten all tags for quick access
-const ALL_TAGS = [
-    ...AUDIO_TAGS.emotions,
-    ...AUDIO_TAGS.reactions,
-    ...AUDIO_TAGS.pacing,
-    ...AUDIO_TAGS.volume,
-];
+// Category metadata for display
+export const CATEGORY_META: Record<string, { label: string; icon: string }> = {
+    emotion: { label: 'Emoción', icon: '💭' },
+    bodyStates: { label: 'Estados', icon: '🫁' },
+    dialogue: { label: 'Diálogo', icon: '💬' },
+    rhythm: { label: 'Ritmo', icon: '🎵' },
+    vocalEffects: { label: 'Efectos Voz', icon: '🎤' },
+    styles: { label: 'Estilos', icon: '🎭' },
+    mood: { label: 'Mood', icon: '🌡️' },
+    accents: { label: 'Acentos', icon: '🌍' },
+    narrative: { label: 'Narrativa', icon: '📖' },
+    humor: { label: 'Humor', icon: '😄' },
+    introspection: { label: 'Introspección', icon: '🤔' },
+    effects: { label: 'Efectos', icon: '📻' },
+    environment: { label: 'Ambiente', icon: '🏠' },
+    genre: { label: 'Género', icon: '🎬' },
+    soundEffects: { label: 'Sonidos', icon: '🔊' },
+};
+
+type AudioTagCategory = keyof typeof AUDIO_TAGS;
+
+// Flatten all tags for search
+const ALL_TAGS = Object.entries(AUDIO_TAGS).flatMap(([category, tags]) =>
+    tags.map(tag => ({ ...tag, category }))
+);
 
 interface SmartTextareaProps {
     value: string;
@@ -96,7 +332,8 @@ export default function SmartTextarea({
 
     // Audio enhancement state
     const [showAudioTags, setShowAudioTags] = useState(false);
-    const [selectedTagCategory, setSelectedTagCategory] = useState<'emotions' | 'reactions' | 'pacing' | 'volume'>('emotions');
+    const [selectedTagCategory, setSelectedTagCategory] = useState<AudioTagCategory>('emotion');
+    const [tagSearchQuery, setTagSearchQuery] = useState('');
 
     // Get prediction from API
     const fetchPrediction = useCallback(async (text: string) => {
@@ -386,55 +623,94 @@ export default function SmartTextarea({
 
             {/* Audio tags menu */}
             {showAudioTags && (
-                <div className="absolute bottom-full left-0 mb-2 w-80 bg-black/90 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50">
-                    <div className="p-2 border-b border-white/5 text-xs font-semibold text-white/50 uppercase tracking-wider flex justify-between items-center">
-                        <span>Tags de Audio (ElevenLabs v3)</span>
-                        <a
-                            href="https://elevenlabs.io/blog/v3-audiotags"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-purple-400 hover:text-purple-300 text-[10px]"
-                        >
-                            Docs
-                        </a>
+                <div className="absolute bottom-full left-0 mb-2 w-[420px] bg-black/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50">
+                    {/* Header with search */}
+                    <div className="p-2 border-b border-white/5">
+                        <div className="flex justify-between items-center mb-2">
+                            <span className="text-xs font-semibold text-white/50 uppercase tracking-wider">
+                                Tags de Audio (ElevenLabs v3)
+                            </span>
+                            <a
+                                href="https://audio-generation-plugin.com/eleven-v3-tag-library/"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-purple-400 hover:text-purple-300 text-[10px]"
+                            >
+                                1806 tags
+                            </a>
+                        </div>
+                        {/* Search input */}
+                        <div className="relative">
+                            <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-white/30" />
+                            <input
+                                type="text"
+                                value={tagSearchQuery}
+                                onChange={(e) => setTagSearchQuery(e.target.value)}
+                                placeholder="Buscar tags..."
+                                className="w-full bg-white/5 border border-white/10 rounded-lg pl-7 pr-7 py-1.5 text-xs text-white placeholder-white/30 outline-none focus:border-purple-500/50"
+                            />
+                            {tagSearchQuery && (
+                                <button
+                                    onClick={() => setTagSearchQuery('')}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/50"
+                                >
+                                    <X size={12} />
+                                </button>
+                            )}
+                        </div>
                     </div>
 
-                    {/* Category tabs */}
-                    <div className="flex border-b border-white/5">
-                        {(['emotions', 'reactions', 'pacing', 'volume'] as const).map((cat) => (
-                            <button
-                                key={cat}
-                                onClick={() => setSelectedTagCategory(cat)}
-                                className={`flex-1 px-2 py-1.5 text-xs transition-colors ${
-                                    selectedTagCategory === cat
-                                        ? 'text-purple-400 border-b-2 border-purple-400'
-                                        : 'text-white/50 hover:text-white/80'
-                                }`}
-                            >
-                                {cat === 'emotions' && 'Emociones'}
-                                {cat === 'reactions' && 'Reacciones'}
-                                {cat === 'pacing' && 'Ritmo'}
-                                {cat === 'volume' && 'Volumen'}
-                            </button>
-                        ))}
-                    </div>
+                    {/* Category tabs - scrollable */}
+                    {!tagSearchQuery && (
+                        <div className="flex overflow-x-auto border-b border-white/5 scrollbar-none">
+                            {(Object.keys(AUDIO_TAGS) as AudioTagCategory[]).map((cat) => (
+                                <button
+                                    key={cat}
+                                    onClick={() => setSelectedTagCategory(cat)}
+                                    className={`flex-shrink-0 px-2 py-1.5 text-[10px] transition-colors whitespace-nowrap ${
+                                        selectedTagCategory === cat
+                                            ? 'text-purple-400 border-b-2 border-purple-400 bg-purple-500/10'
+                                            : 'text-white/50 hover:text-white/80 hover:bg-white/5'
+                                    }`}
+                                >
+                                    <span className="mr-1">{CATEGORY_META[cat]?.icon}</span>
+                                    {CATEGORY_META[cat]?.label || cat}
+                                </button>
+                            ))}
+                        </div>
+                    )}
 
                     {/* Tags grid */}
-                    <div className="p-2 max-h-48 overflow-y-auto">
+                    <div className="p-2 max-h-56 overflow-y-auto">
                         <div className="grid grid-cols-2 gap-1">
-                            {AUDIO_TAGS[selectedTagCategory].map((item) => (
+                            {(tagSearchQuery
+                                ? ALL_TAGS.filter(t =>
+                                    t.tag.toLowerCase().includes(tagSearchQuery.toLowerCase()) ||
+                                    t.label.toLowerCase().includes(tagSearchQuery.toLowerCase()) ||
+                                    t.description.toLowerCase().includes(tagSearchQuery.toLowerCase())
+                                ).slice(0, 20)
+                                : AUDIO_TAGS[selectedTagCategory]
+                            ).map((item) => (
                                 <button
                                     key={item.tag}
                                     onClick={() => insertAudioTag(item.tag)}
                                     className="px-2 py-1.5 text-left bg-white/5 hover:bg-purple-500/20 rounded-lg transition-colors group"
                                 >
-                                    <div className="text-xs font-mono text-purple-400 group-hover:text-purple-300">
+                                    <div className="text-xs font-mono text-purple-400 group-hover:text-purple-300 truncate">
                                         {item.tag}
                                     </div>
-                                    <div className="text-[10px] text-white/40">{item.label}</div>
+                                    <div className="text-[10px] text-white/40 truncate">{item.label}</div>
                                 </button>
                             ))}
                         </div>
+                        {tagSearchQuery && ALL_TAGS.filter(t =>
+                            t.tag.toLowerCase().includes(tagSearchQuery.toLowerCase()) ||
+                            t.label.toLowerCase().includes(tagSearchQuery.toLowerCase())
+                        ).length === 0 && (
+                            <div className="text-center text-xs text-white/30 py-4">
+                                No se encontraron tags
+                            </div>
+                        )}
                     </div>
 
                     {/* Quick tip */}
