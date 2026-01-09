@@ -3,11 +3,14 @@
  *
  * These handlers are invoked when Ara (VAPI assistant) makes tool calls.
  * Each handler executes the requested action and returns a result for Ara to use.
+ *
+ * IMPORTANT: All data comes from the real database (Supabase), not static files.
+ * This ensures the voice agent always has up-to-date information.
  */
 
 import { supabase } from '../config/supabase';
 import { sendWhatsAppMessage } from './whapiService';
-import { normalizePhone, cleanupPhone } from '../utils/phoneUtils';
+import { cleanupPhone } from '../utils/phoneUtils';
 
 interface ToolCallContext {
     conversationId?: string;
@@ -23,7 +26,7 @@ interface ToolResult {
 }
 
 /**
- * Tool: send_whatsapp
+ * Tool: send_whatsapp / function_tool_wa
  * Sends a WhatsApp message to the customer during the call
  */
 export async function handleSendWhatsApp(
@@ -77,41 +80,157 @@ export async function handleSendWhatsApp(
 }
 
 /**
- * Tool: get_coa
- * Looks up a Certificate of Analysis and sends it via WhatsApp
+ * Tool: search_products
+ * Searches products in the catalog and returns info for the voice agent
+ * This queries the REAL products database, not static files
  */
-export async function handleGetCOA(
-    args: { batch_number?: string; product_name?: string },
+export async function handleSearchProducts(
+    args: { query: string; category?: string },
     context: ToolCallContext
 ): Promise<ToolResult> {
-    const { batch_number, product_name } = args;
+    const { query, category } = args;
+
+    try {
+        console.log(`[VapiTools] Searching products: query="${query}", category="${category}"`);
+
+        // Search products by title or product_type
+        let dbQuery = supabase
+            .from('products')
+            .select('id, title, handle, product_type, description_plain, variants, status')
+            .eq('status', 'active');
+
+        if (query) {
+            // Search in title (ilike for case-insensitive)
+            dbQuery = dbQuery.ilike('title', `%${query}%`);
+        }
+        if (category) {
+            dbQuery = dbQuery.ilike('product_type', `%${category}%`);
+        }
+
+        const { data: products, error } = await dbQuery.limit(5);
+
+        if (error) {
+            console.error('[VapiTools] DB Error:', error);
+        }
+
+        if (!products || products.length === 0) {
+            return {
+                success: false,
+                message: `No encontré productos con "${query}". ¿Podrías ser más específico? Tenemos gomitas, tinturas, tópicos y más.`
+            };
+        }
+
+        // Format products for voice agent
+        const productList = products.map(p => {
+            const variants = p.variants || [];
+            const totalStock = variants.reduce((sum: number, v: any) => sum + (v.inventory_quantity || 0), 0);
+            const prices = variants.map((v: any) => parseFloat(v.price) || 0).filter((p: number) => p > 0);
+            const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
+
+            return {
+                name: p.title,
+                type: p.product_type || 'General',
+                price: `$${minPrice} MXN`,
+                in_stock: totalStock > 0,
+                stock_qty: totalStock,
+                url: `https://extractoseum.com/products/${p.handle}`,
+                description_short: p.description_plain?.substring(0, 100) || ''
+            };
+        });
+
+        // Create a summary that Ara can naturally speak
+        const summary = productList.map(p =>
+            `${p.name} a ${p.price}${p.in_stock ? '' : ' (agotado)'}`
+        ).join('. ');
+
+        return {
+            success: true,
+            message: `Encontré ${products.length} producto(s): ${summary}`,
+            data: {
+                products: productList,
+                count: products.length
+            }
+        };
+
+    } catch (error: any) {
+        console.error('[VapiTools] search_products error:', error.message);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Tool: get_coa / cannabinoides-webhook
+ * Looks up a Certificate of Analysis from the REAL database
+ * Returns cannabinoid info and can send PDF via WhatsApp
+ */
+export async function handleGetCOA(
+    args: { batch_number?: string; product_name?: string; send_whatsapp?: boolean },
+    context: ToolCallContext
+): Promise<ToolResult> {
+    const { batch_number, product_name, send_whatsapp } = args;
     const { customerPhone, conversationId } = context;
 
     try {
         console.log(`[VapiTools] Looking up COA: batch=${batch_number}, product=${product_name}`);
 
-        // Search for COA in database
-        let query = supabase.from('coas').select('*');
+        let coa = null;
 
+        // Search by batch_id first (most accurate)
         if (batch_number) {
-            query = query.ilike('batch_number', `%${batch_number}%`);
-        }
-        if (product_name) {
-            query = query.ilike('product_name', `%${product_name}%`);
+            const { data } = await supabase
+                .from('coas')
+                .select('id, public_token, batch_id, lab_name, cannabinoids, pdf_url_original, pdf_url_branded, metadata, custom_name, analysis_date')
+                .ilike('batch_id', `%${batch_number}%`)
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+            coa = data;
         }
 
-        const { data: coas } = await query.limit(1).maybeSingle();
+        // If not found, try by custom_name (product name)
+        if (!coa && product_name) {
+            const { data } = await supabase
+                .from('coas')
+                .select('id, public_token, batch_id, lab_name, cannabinoids, pdf_url_original, pdf_url_branded, metadata, custom_name, analysis_date')
+                .ilike('custom_name', `%${product_name}%`)
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+            coa = data;
+        }
 
-        if (!coas) {
+        if (!coa) {
             return {
                 success: false,
-                message: 'No encontré el COA. ¿Puedes darme el número de lote o nombre exacto del producto?'
+                message: 'No encontré el COA con esos datos. ¿Tienes el número de lote? Usualmente viene en la etiqueta del producto, empieza con letras y números.'
             };
         }
 
-        // If we have customer phone, send it
-        if (customerPhone && coas.pdf_url) {
-            const message = `📄 Aquí está el COA del producto ${coas.product_name}:\n${coas.pdf_url}`;
+        // Extract cannabinoid info
+        const cannabinoids = coa.cannabinoids || [];
+        const thcEntry = cannabinoids.find((c: any) =>
+            c.analyte?.toLowerCase().includes('thc') &&
+            (c.analyte?.toLowerCase().includes('total') || c.analyte?.toLowerCase() === 'thc')
+        );
+        const cbdEntry = cannabinoids.find((c: any) =>
+            c.analyte?.toLowerCase().includes('cbd') &&
+            (c.analyte?.toLowerCase().includes('total') || c.analyte?.toLowerCase() === 'cbd')
+        );
+
+        const thcTotal = thcEntry?.result_pct || 'N/D';
+        const cbdTotal = cbdEntry?.result_pct || 'N/D';
+        const productName = coa.custom_name || coa.metadata?.product_name || `Lote ${coa.batch_id}`;
+        const pdfUrl = coa.pdf_url_branded || coa.pdf_url_original;
+        const viewerUrl = `https://coa.extractoseum.com/coa/${coa.public_token}`;
+
+        // Send via WhatsApp if requested
+        if (send_whatsapp && customerPhone && pdfUrl) {
+            const message = `📄 *COA - ${productName}*\n\n` +
+                `🔬 Lote: ${coa.batch_id}\n` +
+                `🧪 THC Total: ${thcTotal}%\n` +
+                `🌿 CBD Total: ${cbdTotal}%\n` +
+                `🏛️ Lab: ${coa.lab_name || 'N/D'}\n\n` +
+                `📎 Ver COA completo:\n${viewerUrl}`;
 
             await sendWhatsAppMessage({
                 to: customerPhone,
@@ -124,30 +243,40 @@ export async function handleGetCOA(
                     conversation_id: conversationId,
                     direction: 'outbound',
                     role: 'assistant',
-                    message_type: 'file',
+                    message_type: 'text',
                     content: message,
                     status: 'sent',
-                    raw_payload: { source: 'vapi_tool_call', coa_id: coas.id }
+                    raw_payload: { source: 'vapi_tool_call', coa_id: coa.id }
                 });
             }
 
             return {
                 success: true,
-                message: `Encontré el COA del lote ${coas.batch_number} para ${coas.product_name}. Ya te lo envié por WhatsApp.`,
+                message: `Encontré el COA del ${productName}. Tiene ${thcTotal}% de THC y ${cbdTotal}% de CBD. Ya te lo envié por WhatsApp.`,
                 data: {
-                    batch_number: coas.batch_number,
-                    product_name: coas.product_name,
-                    pdf_url: coas.pdf_url
+                    product_name: productName,
+                    batch_id: coa.batch_id,
+                    thc_total: thcTotal,
+                    cbd_total: cbdTotal,
+                    lab_name: coa.lab_name,
+                    sent_via_whatsapp: true
                 }
             };
         }
 
+        // Return info without sending (let Ara ask if they want it)
         return {
             success: true,
-            message: `Encontré el COA del lote ${coas.batch_number}. ¿Te lo envío por WhatsApp?`,
+            message: `Encontré el COA del ${productName}. Tiene ${thcTotal}% de THC y ${cbdTotal}% de CBD. Del laboratorio ${coa.lab_name || 'certificado'}. ¿Te lo envío por WhatsApp?`,
             data: {
-                batch_number: coas.batch_number,
-                product_name: coas.product_name
+                product_name: productName,
+                batch_id: coa.batch_id,
+                thc_total: thcTotal,
+                cbd_total: cbdTotal,
+                lab_name: coa.lab_name,
+                analysis_date: coa.analysis_date,
+                viewer_url: viewerUrl,
+                sent_via_whatsapp: false
             }
         };
 
@@ -159,7 +288,7 @@ export async function handleGetCOA(
 
 /**
  * Tool: lookup_order
- * Looks up order status by order number or gets the latest order for the customer
+ * Looks up order status from the REAL orders database
  */
 export async function handleLookupOrder(
     args: { order_number?: string },
@@ -215,26 +344,27 @@ export async function handleLookupOrder(
         if (!order) {
             return {
                 success: false,
-                message: 'No encontré el pedido. ¿Tienes el número de orden? Empieza con EUM o un número.'
+                message: 'No encontré el pedido. ¿Tienes el número de orden? Lo encuentras en el correo de confirmación.'
             };
         }
 
-        // Format status in Spanish
+        // Format status in Spanish (natural for voice)
         const statusMap: Record<string, string> = {
-            'pending': 'Pendiente de pago',
-            'paid': 'Pagado, preparando',
-            'processing': 'En preparación',
-            'shipped': 'Enviado',
-            'in_transit': 'En camino',
-            'delivered': 'Entregado',
-            'cancelled': 'Cancelado'
+            'pending': 'pendiente de pago',
+            'paid': 'pagado y en preparación',
+            'processing': 'en preparación',
+            'shipped': 'enviado',
+            'in_transit': 'en camino',
+            'out_for_delivery': 'en reparto',
+            'delivered': 'entregado',
+            'cancelled': 'cancelado'
         };
 
         const statusText = statusMap[order.status] || order.status;
 
         return {
             success: true,
-            message: `El pedido #${order.order_number} está: ${statusText}. Total: $${order.total} MXN.`,
+            message: `Tu pedido número ${order.order_number} está ${statusText}. El total fue de ${order.total} pesos.${order.tracking_number ? ` El número de rastreo es ${order.tracking_number}.` : ''}`,
             data: {
                 order_number: order.order_number,
                 status: order.status,
@@ -322,7 +452,7 @@ export async function handleCreateCoupon(
 
         return {
             success: true,
-            message: `Creé el cupón ${code} con ${discount_percent}% de descuento. ${customerPhone ? 'Ya te lo envié por WhatsApp.' : ''}`,
+            message: `Listo, te creé el cupón ${code} con ${discount_percent}% de descuento. ${customerPhone ? 'Te lo acabo de enviar por WhatsApp.' : ''} Es válido por 30 días.`,
             data: {
                 code,
                 discount_percent,
@@ -345,7 +475,7 @@ export async function handleEscalateToHuman(
     context: ToolCallContext
 ): Promise<ToolResult> {
     const { reason, wants_callback } = args;
-    const { conversationId, clientId, customerPhone } = context;
+    const { conversationId, customerPhone } = context;
 
     try {
         console.log(`[VapiTools] Escalation requested: ${reason}, callback: ${wants_callback}`);
@@ -363,8 +493,7 @@ export async function handleEscalateToHuman(
                 status: 'delivered'
             });
 
-            // Update conversation tags for visibility using RPC or direct update
-            // First get current tags, then append
+            // Update conversation tags for visibility
             const { data: conv } = await supabase
                 .from('conversations')
                 .select('tags, facts')
@@ -383,12 +512,10 @@ export async function handleEscalateToHuman(
                 .eq('id', conversationId);
         }
 
-        // TODO: Send notification to admin dashboard / OneSignal
-
         if (wants_callback) {
             return {
                 success: true,
-                message: 'Registré tu solicitud. Un supervisor te contactará en el siguiente horario disponible.',
+                message: 'Perfecto, registré tu solicitud. Un supervisor se comunicará contigo en el siguiente horario disponible.',
                 data: { callback_scheduled: true, reason }
             };
         }
@@ -407,7 +534,7 @@ export async function handleEscalateToHuman(
 
 /**
  * Tool: get_client_info
- * Returns information about the current customer
+ * Returns information about the current customer from the REAL database
  */
 export async function handleGetClientInfo(
     args: {},
@@ -439,27 +566,33 @@ export async function handleGetClientInfo(
         if (!client) {
             return {
                 success: false,
-                message: 'No encontré información del cliente en el sistema.'
+                message: 'No encontré información del cliente en el sistema. Puede ser cliente nuevo.'
             };
         }
 
         // Get order stats
         const { data: orders } = await supabase
             .from('orders')
-            .select('id, total, status')
-            .eq('client_id', client.id);
+            .select('id, total, status, created_at')
+            .eq('client_id', client.id)
+            .order('created_at', { ascending: false });
 
         const totalOrders = orders?.length || 0;
         const ltv = orders?.reduce((sum, o) => sum + (o.total || 0), 0) || 0;
+        const lastOrder = orders?.[0];
 
         return {
             success: true,
+            message: client.name
+                ? `El cliente es ${client.name}. Tiene ${totalOrders} pedidos con nosotros por un total de ${Math.round(ltv)} pesos.`
+                : `Cliente registrado con ${totalOrders} pedidos, total ${Math.round(ltv)} pesos.`,
             data: {
                 name: client.name,
                 email: client.email,
                 phone: client.phone,
                 total_orders: totalOrders,
                 ltv: Math.round(ltv),
+                last_order_date: lastOrder?.created_at,
                 created_at: client.created_at
             }
         };
@@ -481,25 +614,41 @@ export async function handleToolCall(
     console.log(`[VapiTools] Handling tool: ${toolName}`, args);
 
     switch (toolName) {
+        // WhatsApp sending
         case 'send_whatsapp':
-        case 'function_tool_wa': // Legacy name from n8n
+        case 'function_tool_wa': // Legacy name from VAPI dashboard
             return handleSendWhatsApp(args, context);
 
+        // Product search
+        case 'search_products':
+        case 'buscar_productos':
+            return handleSearchProducts(args, context);
+
+        // COA lookup
         case 'get_coa':
         case 'get_coa_and_send':
+        case 'cannabinoides-webhook': // Legacy name from VAPI dashboard
             return handleGetCOA(args, context);
 
+        // Order lookup
         case 'lookup_order':
+        case 'consultar_pedido':
             return handleLookupOrder(args, context);
 
+        // Coupon creation
         case 'create_coupon':
+        case 'crear_cupon':
             return handleCreateCoupon(args, context);
 
+        // Escalation
         case 'escalate_to_human':
+        case 'escalar_humano':
             return handleEscalateToHuman(args, context);
 
+        // Client info
         case 'get_client_info':
         case 'lookup_client':
+        case 'info_cliente':
             return handleGetClientInfo(args, context);
 
         default:
