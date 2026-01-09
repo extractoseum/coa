@@ -30,7 +30,7 @@ import CreateTicketModal from '../components/CreateTicketModal';
 import ImpersonationModal from '../components/ImpersonationModal';
 import type { Column, Conversation, AgentMetadata, ToolRegistryItem, ContactSnapshot } from '../types/crm';
 import { getAvatarGradient, getTagColor, getChannelIcon } from '../utils/crmUtils';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Screen } from '../telemetry/Screen';
 import AppLayout from '../components/Layout';
 import { ROUTES } from '../routes';
@@ -49,6 +49,7 @@ const AdminCRM: React.FC = () => {
     const { theme, setThemeMode: setTheme } = useTheme(); // Aliased for compatibility
     const { client: user, isSuperAdmin, impersonation } = useAuth(); // Client aliased to user for compatibility
     const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams();
     const token = localStorage.getItem('accessToken');
 
     // Impersonation modal state
@@ -550,6 +551,34 @@ const AdminCRM: React.FC = () => {
         telemetry.log('AdminCRM_Viewed', { user: user?.email });
         fetchData();
     }, []);
+
+    // Auto-select conversation when redirected from impersonation end
+    useEffect(() => {
+        const clientId = searchParams.get('client');
+        if (clientId && conversations.length > 0 && !selectedConv) {
+            // Find conversation by client ID (need to fetch client's phone/email first)
+            const fetchClientConversation = async () => {
+                try {
+                    const res = await fetch(`/api/v1/crm/clients/${clientId}/conversation`, {
+                        headers: { Authorization: `Bearer ${token}` }
+                    });
+                    const data = await res.json();
+                    if (data.success && data.data?.conversation) {
+                        // Find this conversation in our loaded conversations
+                        const conv = conversations.find(c => c.id === data.data.conversation.id);
+                        if (conv) {
+                            setSelectedConv(conv);
+                        }
+                    }
+                    // Clear the URL parameter
+                    setSearchParams({});
+                } catch (err) {
+                    console.error('Error fetching client conversation:', err);
+                }
+            };
+            fetchClientConversation();
+        }
+    }, [searchParams, conversations, selectedConv, token]);
 
     const fetchMessages = async (convId: string) => {
         try {

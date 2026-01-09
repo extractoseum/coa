@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, LogOut, Clock, User, ShoppingBag, ExternalLink } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { ROUTES } from '../routes';
 import SalesAgentPanel from './SalesAgentPanel';
 
 const SHOPIFY_STORE_URL = 'https://extractoseum.com';
 
 export default function ImpersonationBanner() {
+    const navigate = useNavigate();
     const { impersonation, endImpersonation, client } = useAuth();
     const [loading, setLoading] = useState(false);
     const [timeRemaining, setTimeRemaining] = useState('');
@@ -50,7 +53,11 @@ export default function ImpersonationBanner() {
     const handleExit = async () => {
         setLoading(true);
         try {
-            await endImpersonation();
+            const result = await endImpersonation();
+            if (result.success && result.impersonatedClientId) {
+                // Redirect to CRM with the client's conversation open
+                navigate(`${ROUTES.adminCrm}?client=${result.impersonatedClientId}`);
+            }
         } finally {
             setLoading(false);
         }

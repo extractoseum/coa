@@ -45,7 +45,7 @@ interface AuthContextType {
     // Impersonation
     impersonation: ImpersonationState;
     startImpersonation: (targetClientId: string, reason?: string) => Promise<{ success: boolean; error?: string }>;
-    endImpersonation: () => Promise<{ success: boolean; error?: string }>;
+    endImpersonation: () => Promise<{ success: boolean; error?: string; impersonatedClientId?: string }>;
     // Auth methods
     login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
     loginWithTotp: (email: string, token: string) => Promise<{ success: boolean; error?: string }>;
@@ -461,9 +461,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
     };
 
-    const endImpersonation = async (): Promise<{ success: boolean; error?: string }> => {
+    const endImpersonation = async (): Promise<{ success: boolean; error?: string; impersonatedClientId?: string }> => {
         try {
             const accessToken = localStorage.getItem('accessToken');
+            // Save the impersonated client ID before clearing state
+            const impersonatedClientId = impersonation.impersonatedClient?.id;
 
             const res = await fetch(`${API_BASE}/impersonation/end`, {
                 method: 'POST',
@@ -501,7 +503,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 await checkAuth();
             }
 
-            return { success: true };
+            return { success: true, impersonatedClientId };
         } catch (error) {
             console.error('End impersonation error:', error);
 
