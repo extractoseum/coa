@@ -6,11 +6,118 @@
  *
  * IMPORTANT: All data comes from the real database (Supabase), not static files.
  * This ensures the voice agent always has up-to-date information.
+ *
+ * Search mappings are loaded dynamically from the database for auto-learning.
  */
 
 import { supabase } from '../config/supabase';
 import { sendWhatsAppMessage } from './whapiService';
 import { cleanupPhone } from '../utils/phoneUtils';
+
+// Cache for search mappings (refreshed periodically)
+let searchMappingsCache: Record<string, string[]> = {};
+let lastMappingsFetch: number = 0;
+const MAPPINGS_CACHE_TTL = 60000; // 1 minute
+
+/**
+ * Get search mappings from database with caching
+ */
+async function getSearchMappings(): Promise<Record<string, string[]>> {
+    const now = Date.now();
+
+    // Return cached if still fresh
+    if (searchMappingsCache && Object.keys(searchMappingsCache).length > 0 && (now - lastMappingsFetch) < MAPPINGS_CACHE_TTL) {
+        return searchMappingsCache;
+    }
+
+    try {
+        const { data, error } = await supabase
+            .from('search_term_mappings')
+            .select('search_term, mapped_terms')
+            .eq('is_active', true)
+            .gte('confidence_score', 0.30);
+
+        if (error) {
+            console.error('[VapiTools] Error fetching search mappings:', error.message);
+            // Return fallback hardcoded mappings if DB fails
+            return getFallbackMappings();
+        }
+
+        // Convert to lookup object
+        const mappings: Record<string, string[]> = {};
+        for (const row of data || []) {
+            mappings[row.search_term.toLowerCase()] = row.mapped_terms;
+        }
+
+        // Update cache
+        searchMappingsCache = mappings;
+        lastMappingsFetch = now;
+
+        console.log(`[VapiTools] Loaded ${Object.keys(mappings).length} search mappings from DB`);
+        return mappings;
+
+    } catch (e: any) {
+        console.error('[VapiTools] Exception fetching mappings:', e.message);
+        return getFallbackMappings();
+    }
+}
+
+/**
+ * Fallback mappings if database is unavailable
+ */
+function getFallbackMappings(): Record<string, string[]> {
+    return {
+        'gomitas': ['comestibles', 'gummies', 'hot bites', 'candy', 'bites'],
+        'gummies': ['comestibles', 'gummies', 'hot bites', 'candy'],
+        'comestibles': ['comestibles', 'gummies', 'edibles', 'bites'],
+        'tintura': ['tinturas', 'aceite', 'oil', 'tintura'],
+        'tinturas': ['tinturas', 'aceite', 'oil'],
+        'topico': ['topicos', 'crema', 'stick', 'freezing'],
+        'topicos': ['topicos', 'crema', 'stick', 'freezing'],
+        'crema': ['topicos', 'crema', 'stick', 'freezing'],
+        'aceite': ['tinturas', 'aceite', 'oil'],
+        'recreativo': ['comestibles', 'delta', 'hhc', 'thc', 'bites'],
+        'cbd': ['cbd', 'cannabidiol', 'freezing'],
+        'hhc': ['hhc', 'hexahidrocannabinol', 'delta'],
+        'delta': ['delta', 'delta 8', 'delta 9', 'bites'],
+    };
+}
+
+/**
+ * Update mapping stats after a search
+ */
+async function updateMappingStats(searchTerm: string, wasSuccessful: boolean): Promise<void> {
+    try {
+        // Get current stats
+        const { data: mapping } = await supabase
+            .from('search_term_mappings')
+            .select('times_used, times_successful')
+            .eq('search_term', searchTerm.toLowerCase())
+            .eq('is_active', true)
+            .single();
+
+        if (mapping) {
+            const newTimesUsed = (mapping.times_used || 0) + 1;
+            const newTimesSuccessful = wasSuccessful ? (mapping.times_successful || 0) + 1 : (mapping.times_successful || 0);
+            const newConfidence = newTimesSuccessful / newTimesUsed;
+
+            await supabase
+                .from('search_term_mappings')
+                .update({
+                    times_used: newTimesUsed,
+                    times_successful: newTimesSuccessful,
+                    confidence_score: Math.min(1.0, Math.max(0.1, newConfidence)),
+                    last_used_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                })
+                .eq('search_term', searchTerm.toLowerCase())
+                .eq('is_active', true);
+        }
+    } catch (e) {
+        // Non-critical, just log
+        console.error('[VapiTools] Error updating mapping stats:', e);
+    }
+}
 
 interface ToolCallContext {
     conversationId?: string;
@@ -85,9 +192,10 @@ export async function handleSendWhatsApp(
  * This queries the REAL products database, not static files
  *
  * Search strategy:
- * 1. Map common Spanish terms to actual product keywords
- * 2. Search in title, product_type, and description
- * 3. If no query, return all active products
+ * 1. Load mappings from database (with fallback to hardcoded)
+ * 2. Map common Spanish terms to actual product keywords
+ * 3. Search in title, product_type, and description
+ * 4. Update mapping stats for learning
  */
 export async function handleSearchProducts(
     args: { query: string; category?: string },
@@ -98,29 +206,17 @@ export async function handleSearchProducts(
     try {
         console.log(`[VapiTools] Searching products: query="${query}", category="${category}"`);
 
-        // Mapping of common search terms to product keywords/types
-        const searchMappings: Record<string, string[]> = {
-            'gomitas': ['comestibles', 'gummies', 'hot bites', 'candy', 'bites'],
-            'gummies': ['comestibles', 'gummies', 'hot bites', 'candy'],
-            'comestibles': ['comestibles', 'gummies', 'edibles', 'bites'],
-            'tintura': ['tinturas', 'aceite', 'oil', 'tintura'],
-            'tinturas': ['tinturas', 'aceite', 'oil'],
-            'topico': ['topicos', 'crema', 'stick', 'freezing'],
-            'topicos': ['topicos', 'crema', 'stick', 'freezing'],
-            'crema': ['topicos', 'crema', 'stick', 'freezing'],
-            'aceite': ['tinturas', 'aceite', 'oil'],
-            'recreativo': ['comestibles', 'delta', 'hhc', 'thc', 'bites'],
-            'cbd': ['cbd', 'cannabidiol', 'freezing'],
-            'hhc': ['hhc', 'hexahidrocannabinol', 'delta'],
-            'delta': ['delta', 'delta 8', 'delta 9', 'bites'],
-        };
+        // Load mappings from database (with caching)
+        const searchMappings = await getSearchMappings();
 
         let products: any[] = [];
         const queryLower = (query || '').toLowerCase().trim();
+        let usedMapping = false;
 
         if (query) {
-            // Get expanded search terms
+            // Get expanded search terms from dynamic mappings
             const expandedTerms = searchMappings[queryLower] || [queryLower];
+            usedMapping = !!searchMappings[queryLower];
             console.log(`[VapiTools] Expanded search terms:`, expandedTerms);
 
             // Try each term until we find results
@@ -181,6 +277,11 @@ export async function handleSearchProducts(
         }
 
         console.log(`[VapiTools] Found ${products.length} products after search`);
+
+        // Update mapping stats for learning (non-blocking)
+        if (usedMapping && queryLower) {
+            updateMappingStats(queryLower, products.length > 0).catch(() => {});
+        }
 
         if (!products || products.length === 0) {
             // Get available product types for helpful suggestion

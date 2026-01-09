@@ -3,6 +3,7 @@ import { supabase } from '../config/supabase';
 import { normalizePhone } from '../utils/phoneUtils';
 import { vapiContextService } from './VapiContextService';
 import { handleToolCall } from './VapiToolHandlers';
+import { vapiEventLogger } from './VapiEventLogger';
 
 const VAPI_API_KEY = process.env.VAPI_API_KEY;
 const VAPI_BASE_URL = 'https://api.vapi.ai';
@@ -139,7 +140,7 @@ export class VapiService {
                     return this.handleToolCalls(message);
 
                 case 'status-update':
-                    await this.updateCallStatus(call);
+                    await this.handleStatusUpdate(call);
                     break;
 
                 case 'end-of-call-report':
@@ -147,11 +148,27 @@ export class VapiService {
                     break;
 
                 case 'transcript':
-                    // Optional: real-time transcript updates
+                    await this.handleTranscript(message);
+                    break;
+
+                case 'user-interrupted':
+                    await this.handleUserInterrupted(message);
+                    break;
+
+                case 'hang':
+                    await this.handleHang(message);
                     break;
             }
         } catch (e: any) {
             console.error(`[VapiService] Error handling ${type}:`, e.message);
+            // Log error event
+            if (call?.id) {
+                await vapiEventLogger.logEvent({
+                    vapi_call_id: call.id,
+                    event_type: 'error',
+                    event_data: { error: e.message, webhook_type: type }
+                });
+            }
         }
 
         return { success: true };
@@ -269,18 +286,39 @@ export class VapiService {
 
             console.log(`[VapiService] Executing Tool: ${functionName} (ID: ${toolCallId})`);
 
+            // Start timing for logging
+            const startTime = Date.now();
+            let parsedArgs: Record<string, any> = {};
+
             try {
-                const args = typeof functionArgs === 'string'
+                parsedArgs = typeof functionArgs === 'string'
                     ? JSON.parse(functionArgs)
                     : functionArgs || {};
 
-                console.log(`[VapiService] Tool args:`, args);
+                console.log(`[VapiService] Tool args:`, parsedArgs);
                 console.log(`[VapiService] Context:`, context);
 
                 // Use centralized tool handler
-                const result = await handleToolCall(functionName, args, context);
+                const result = await handleToolCall(functionName, parsedArgs, context);
+                const duration = Date.now() - startTime;
 
-                console.log(`[VapiService] Tool result:`, result);
+                console.log(`[VapiService] Tool result (${duration}ms):`, result);
+
+                // Log successful tool call
+                await vapiEventLogger.logToolCall({
+                    vapi_call_id: call?.id,
+                    conversation_id: context.conversationId,
+                    client_id: context.clientId,
+                    tool_name: functionName,
+                    tool_call_id: toolCallId,
+                    arguments: parsedArgs,
+                    arguments_raw: typeof functionArgs === 'string' ? functionArgs : undefined,
+                    success: result.success !== false,
+                    result: result,
+                    result_message: result.message,
+                    duration_ms: duration,
+                    customer_phone: context.customerPhone
+                });
 
                 // CRITICAL: Result must be a single-line string with no line breaks
                 // Line breaks cause VAPI to fail parsing and return "No result returned"
@@ -291,7 +329,25 @@ export class VapiService {
                     result: resultString
                 });
             } catch (e: any) {
+                const duration = Date.now() - startTime;
                 console.error(`[VapiService] Tool error for ${functionName}:`, e.message, e.stack);
+
+                // Log failed tool call
+                await vapiEventLogger.logToolCall({
+                    vapi_call_id: call?.id,
+                    conversation_id: context.conversationId,
+                    client_id: context.clientId,
+                    tool_name: functionName,
+                    tool_call_id: toolCallId,
+                    arguments: parsedArgs,
+                    arguments_raw: typeof functionArgs === 'string' ? functionArgs : undefined,
+                    success: false,
+                    error_message: e.message,
+                    error_stack: e.stack,
+                    duration_ms: duration,
+                    customer_phone: context.customerPhone
+                });
+
                 results.push({
                     toolCallId: toolCallId,
                     error: e.message.replace(/\n/g, ' ')
@@ -303,8 +359,21 @@ export class VapiService {
         return { results };
     }
 
-    private async updateCallStatus(call: any) {
+    /**
+     * Handle status update events
+     */
+    private async handleStatusUpdate(call: any) {
         if (!call?.id) return;
+
+        // Log the event
+        await vapiEventLogger.logStatusUpdate({
+            vapi_call_id: call.id,
+            conversation_id: call.metadata?.conversationId,
+            status: call.status,
+            raw_data: call
+        });
+
+        // Update database
         await supabase.from('voice_calls').update({
             status: call.status,
             started_at: call.startedAt,
@@ -313,35 +382,119 @@ export class VapiService {
     }
 
     /**
+     * Handle real-time transcript events
+     */
+    private async handleTranscript(message: any) {
+        const call = message.call;
+        if (!call?.id) return;
+
+        // Extract transcript data
+        const role = message.role; // 'assistant' or 'user'
+        const transcript = message.transcript;
+        const isFinal = message.transcriptType === 'final';
+
+        console.log(`[VapiService] Transcript (${isFinal ? 'final' : 'partial'}): [${role}] ${transcript?.substring(0, 50)}...`);
+
+        // Log to events table for realtime sync
+        await vapiEventLogger.logTranscript({
+            vapi_call_id: call.id,
+            conversation_id: call.metadata?.conversationId,
+            speaker: role === 'assistant' ? 'assistant' : 'user',
+            text: transcript || '',
+            is_final: isFinal,
+            seconds_from_start: message.timestamp ? (message.timestamp - call.startedAt) / 1000 : undefined,
+            raw_data: message
+        });
+    }
+
+    /**
+     * Handle user interruption events
+     */
+    private async handleUserInterrupted(message: any) {
+        const call = message.call;
+        if (!call?.id) return;
+
+        console.log(`[VapiService] User interrupted assistant`);
+
+        await vapiEventLogger.logEvent({
+            vapi_call_id: call.id,
+            conversation_id: call.metadata?.conversationId,
+            event_type: 'user-interrupted',
+            event_data: message
+        });
+
+        // Update interruption count using raw SQL increment
+        try {
+            const { data: currentCall } = await supabase
+                .from('voice_calls')
+                .select('interruption_count')
+                .eq('vapi_call_id', call.id)
+                .single();
+
+            await supabase
+                .from('voice_calls')
+                .update({ interruption_count: (currentCall?.interruption_count || 0) + 1 })
+                .eq('vapi_call_id', call.id);
+        } catch (e) {
+            console.error('[VapiService] Error updating interruption count:', e);
+        }
+    }
+
+    /**
+     * Handle hang/delay events (latency warnings)
+     */
+    private async handleHang(message: any) {
+        const call = message.call;
+        if (!call?.id) return;
+
+        console.warn(`[VapiService] Hang/delay detected in call ${call.id}`);
+
+        await vapiEventLogger.logEvent({
+            vapi_call_id: call.id,
+            conversation_id: call.metadata?.conversationId,
+            event_type: 'hang',
+            event_data: {
+                duration: message.duration,
+                reason: message.reason,
+                ...message
+            }
+        });
+    }
+
+    /**
      * Sync completed call to CRM conversation
      */
-    private async handleEndOfCall(report: any) {
-        const call = report.call;
+    private async handleEndOfCall(message: any) {
+        const call = message.call;
+        const report = message;
 
-        // Update voice_calls record
-        await supabase.from('voice_calls').update({
-            status: 'ended',
-            ended_at: new Date().toISOString(),
-            duration_seconds: report.durationSeconds,
-            transcript: report.transcript,
-            summary: report.summary,
-            recording_url: report.recordingUrl,
-            ended_reason: report.endedReason
-        }).eq('vapi_call_id', call.id);
+        // Log end of call report
+        await vapiEventLogger.logEndOfCallReport({
+            vapi_call_id: call.id,
+            conversation_id: call.metadata?.conversationId,
+            transcript: report.transcript || '',
+            summary: report.summary || '',
+            duration_seconds: report.durationSeconds || 0,
+            ended_reason: report.endedReason || 'unknown',
+            messages: report.messages || [],
+            cost: report.cost,
+            analysis: report.analysis
+        });
 
-        // Create CRM message with call summary
+        // Get voice call to find conversation
         const { data: voiceCall } = await supabase
             .from('voice_calls')
             .select('conversation_id')
             .eq('vapi_call_id', call.id)
             .single();
 
+        // Create CRM message with call summary
         if (voiceCall?.conversation_id) {
             await supabase.from('crm_messages').insert({
                 conversation_id: voiceCall.conversation_id,
                 direction: 'inbound',
                 role: 'system',
-                message_type: 'text', // Using text for now, or 'call_summary' if frontend supports it
+                message_type: 'call_summary',
                 content: `📞 **Llamada finalizada** (${Math.round(report.durationSeconds || 0)}s)\n\n**Resumen:** ${report.summary || 'N/A'}\n\n**Razón:** ${report.endedReason}\n\n[🎧 Escuchar Grabación](${report.recordingUrl})`,
                 status: 'delivered',
                 raw_payload: report
