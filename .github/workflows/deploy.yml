@@ -155,6 +155,18 @@ jobs:
               echo "ARA_EMAIL_USER=ara@extractoseum.com" >> .env
             fi
 
+            # Update Shopify App credentials (EUM Sales Agent)
+            if [ -n "${{ secrets.SHOPIFY_APP_CLIENT_ID }}" ]; then
+              sed -i '/^SHOPIFY_APP_CLIENT_ID=/d' .env 2>/dev/null || true
+              sed -i '/^SHOPIFY_APP_CLIENT_SECRET=/d' .env 2>/dev/null || true
+              sed -i '/^# Shopify App/d' .env 2>/dev/null || true
+
+              echo "" >> .env
+              echo "# Shopify App (EUM Sales Agent)" >> .env
+              echo "SHOPIFY_APP_CLIENT_ID=${{ secrets.SHOPIFY_APP_CLIENT_ID }}" >> .env
+              echo "SHOPIFY_APP_CLIENT_SECRET=${{ secrets.SHOPIFY_APP_CLIENT_SECRET }}" >> .env
+            fi
+
             npm install --omit=dev
             pm2 restart coa-backend
           timeout: 120s
