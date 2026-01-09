@@ -17,6 +17,8 @@ import { supabase } from '../config/supabase';
 import { handleToolCall } from './VapiToolHandlers';
 import { logger } from '../utils/Logger';
 import Anthropic from '@anthropic-ai/sdk';
+import { createClient, LiveTranscriptionEvents } from '@deepgram/sdk';
+import { Buffer } from 'buffer';
 
 // Twilio config - support both naming conventions
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || process.env.ACCOUNT_SID;
@@ -32,6 +34,8 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
 // Backend URL for webhooks
 const BACKEND_URL = process.env.BACKEND_URL || 'https://coa.extractoseum.com';
+
+const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY;
 
 // Initialize services
 const twilioClient = (TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN)
@@ -216,12 +220,9 @@ export class VoiceCallService {
                 }
             })();
 
-            // Generate personalized greeting
-            const greeting = context.clientName
-                ? `¡Hola ${context.clientName.split(' ')[0]}! Soy Ara de Extractos EUM.`
-                : '¡Hola! Soy Ara de Extractos EUM. ¿Con quién tengo el gusto?';
-
-            return this.generateGreetingTwiML(greeting, callSid);
+            // Streaming Mode: Connect immediately to WebSocket
+            // Generate personalized greeting is handled by the initial AI response in the stream
+            return this.generateIncomingCallTwiML(callSid);
         } catch (error: any) {
             logger.error('handleIncomingCall fatal error', error, { correlation_id: callSid });
             // Return a simple greeting anyway
@@ -396,20 +397,40 @@ export class VoiceCallService {
         conversationId?: string;
     }> {
         try {
-            // Clean phone for lookup
+            // Clean phone for lookup - try multiple formats
             const cleanPhone = phone.replace(/\D/g, '').slice(-10);
+            logger.info(`[getCustomerContext] Looking up phone: ${phone} -> cleaned: ${cleanPhone}`);
 
-            // Find client
-            const { data: client } = await supabase
+            // Try exact match on cleaned phone
+            let { data: client, error } = await supabase
                 .from('clients')
-                .select('id, name')
+                .select('id, name, phone')
                 .ilike('phone', `%${cleanPhone}%`)
                 .limit(1)
                 .maybeSingle();
 
+            if (error) {
+                logger.error(`[getCustomerContext] DB error:`, error);
+            }
+
+            // If not found, try with country code variations
+            if (!client && cleanPhone.length === 10) {
+                // Try with 52 prefix (Mexico)
+                const { data: client2 } = await supabase
+                    .from('clients')
+                    .select('id, name, phone')
+                    .or(`phone.ilike.%${cleanPhone}%,phone.ilike.%52${cleanPhone}%`)
+                    .limit(1)
+                    .maybeSingle();
+                client = client2;
+            }
+
             if (!client) {
+                logger.warn(`[getCustomerContext] No client found for phone: ${cleanPhone}`);
                 return {};
             }
+
+            logger.info(`[getCustomerContext] Found client: ${client.name} (${client.id}), phone in DB: ${client.phone}`);
 
             // Find or create conversation
             const { data: conversation } = await supabase
@@ -545,7 +566,192 @@ export class VoiceCallService {
     getActiveCallCount(): number {
         return activeCalls.size;
     }
+
+    /**
+     * Handle WebSocket connection for Audio Streaming
+     * Twilio <Stream> -> Deepgram -> Claude -> ElevenLabs -> Twilio
+     */
+    async handleStreamConnection(ws: WebSocket): Promise<void> {
+        logger.info('[VoiceStreaming] New WebSocket connection established');
+
+        let callSid = '';
+        let streamSid = '';
+        let deepgram: any = null;
+        let isAiProcessing = false;
+
+        // Message buffer for user speech
+        let transcriptBuffer: { text: string, timestamp: number }[] = [];
+        let transcriptTimer: NodeJS.Timeout | null = null;
+
+        // Initialize Deepgram
+        if (DEEPGRAM_API_KEY) {
+            const dgClient = createClient(DEEPGRAM_API_KEY);
+            deepgram = dgClient.listen.live({
+                model: 'nova-2',
+                language: 'es',
+                smart_format: true,
+                encoding: 'mulaw',
+                sample_rate: 8000,
+                channels: 1,
+            });
+
+            // Deepgram Open
+            deepgram.on(LiveTranscriptionEvents.Open, () => {
+                logger.info('[Deepgram] Connection opened', { correlation_id: callSid });
+            });
+
+            // Deepgram Close
+            deepgram.on(LiveTranscriptionEvents.Close, () => {
+                logger.info('[Deepgram] Connection closed', { correlation_id: callSid });
+            });
+
+            // Deepgram Transcription
+            deepgram.on(LiveTranscriptionEvents.Transcript, (data: any) => {
+                const transcript = data.channel?.alternatives?.[0]?.transcript;
+                if (transcript && transcript.trim().length > 0) {
+                    const isFinal = data.is_final;
+                    logger.debug(`[Deepgram] Transcript`, { text: transcript, isFinal, correlation_id: callSid });
+
+                    if (isFinal) {
+                        // Add to buffer
+                        transcriptBuffer.push({ text: transcript, timestamp: Date.now() });
+
+                        // Reset timer to process buffer if silence follows
+                        if (transcriptTimer) clearTimeout(transcriptTimer);
+
+                        transcriptTimer = setTimeout(() => {
+                            processTranscriptBuffer();
+                        }, 800); // 800ms silence threshold to assume turn end
+                    }
+                }
+            });
+
+            // Deepgram Error
+            deepgram.on(LiveTranscriptionEvents.Error, (err: any) => {
+                logger.error('[Deepgram] Error', err, { correlation_id: callSid });
+            });
+        } else {
+            logger.error('[VoiceStreaming] Deepgram API Key missing!');
+        }
+
+        const processTranscriptBuffer = async () => {
+            if (transcriptBuffer.length === 0 || isAiProcessing) return;
+
+            const fullText = transcriptBuffer.map(t => t.text).join(' ').trim();
+            transcriptBuffer = []; // Clear buffer
+
+            if (fullText.length < 2) return; // Ignore noise
+
+            logger.info(`[VoiceStreaming] Processing user input: "${fullText}"`, { correlation_id: callSid });
+            isAiProcessing = true;
+
+            try {
+                // Get Session
+                const session = activeCalls.get(callSid);
+                if (!session) {
+                    logger.warn('Session not found for streaming call', { correlation_id: callSid });
+                    return;
+                }
+
+                // Append to history
+                session.messages.push({ role: 'user', content: fullText });
+
+                // Get AI Response
+                const aiResponseText = await this.getClaudeResponse(session, fullText);
+
+                // Add to history
+                session.messages.push({ role: 'assistant', content: aiResponseText });
+
+                logger.info(`[VoiceStreaming] AI Response: "${aiResponseText}"`, { correlation_id: callSid });
+
+                // TTS via ElevenLabs (Streaming)
+                // NOTE: ElevenLabsService needs a stream method. 
+                // For now, we'll generate the full audio and send it as a media event.
+                // Ideally, we pipe the stream.
+
+                // Generate Audio Buffer
+                const audioBuffer = await elevenLabs.generateAudioAdvanced(aiResponseText, ELEVENLABS_VOICE_ID, {
+                    model_id: ELEVENLABS_MODEL as any,
+                    output_format: 'mp3_44100_128',
+                    voice_settings: { stability: 0.5, similarity_boost: 0.75 }
+                });
+
+                // Send to Twilio
+                const payload = audioBuffer.toString('base64');
+
+                const mediaMessage = {
+                    event: 'media',
+                    streamSid: streamSid,
+                    media: {
+                        payload
+                    }
+                };
+
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify(mediaMessage));
+
+                    // Send mark to track completion
+                    const markMessage = {
+                        event: 'mark',
+                        streamSid: streamSid,
+                        mark: { name: 'response_complete' }
+                    };
+                    ws.send(JSON.stringify(markMessage));
+                }
+
+            } catch (err: any) {
+                logger.error('[VoiceStreaming] Error processing turn', err, { correlation_id: callSid });
+            } finally {
+                isAiProcessing = false;
+            }
+        };
+
+        // Twilio WebSocket Events
+        ws.on('message', (message: string) => {
+            try {
+                const msg = JSON.parse(message);
+
+                switch (msg.event) {
+                    case 'start':
+                        callSid = msg.start.callSid;
+                        streamSid = msg.start.streamSid;
+                        logger.info(`[TwilioStream] Stream started`, { callSid, streamSid });
+
+                        // Recover session context if exists
+                        const session = activeCalls.get(callSid);
+                        if (session) {
+                            session.ws = ws;
+                            session.streamSid = streamSid;
+                        }
+                        break;
+
+                    case 'media':
+                        // Send audio to Deepgram
+                        if (deepgram && deepgram.getReadyState() === 1) { // 1 = OPEN
+                            const payload = Buffer.from(msg.media.payload, 'base64');
+                            deepgram.send(payload);
+                        }
+                        break;
+
+                    case 'stop':
+                        logger.info(`[TwilioStream] Stream stopped`, { callSid });
+                        if (deepgram) deepgram.finish();
+                        break;
+                }
+            } catch (e) {
+                // Ignore parse errors
+            }
+        });
+
+        ws.on('close', () => {
+            logger.info('[VoiceStreaming] WebSocket closed');
+            if (deepgram) deepgram.finish();
+        });
+    }
 }
 
 // Export singleton
 export const voiceCallService = new VoiceCallService();
+
+
+

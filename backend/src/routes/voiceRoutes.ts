@@ -111,18 +111,16 @@ router.post('/outbound-connect', async (req: Request, res: Response) => {
 
         console.log(`[VoiceRoutes] Outbound call answered: ${CallSid}`);
 
-        // For outbound calls, start with greeting and gather
-        const backendUrl = process.env.BACKEND_URL || 'https://coa-api-production.up.railway.app';
+        // For outbound calls, also connect to the WebSocket stream
+        const backUrl = process.env.BACKEND_URL || 'https://coa.extractoseum.com';
+        const wsUrl = backUrl.replace('https://', 'wss://').replace('http://', 'ws://');
+
+        // Reuse the logic? Or just generate the Stream TwiML directly?
+        // VoiceCallService has generateIncomingCallTwiML which connects to /api/voice/stream/:callSid
+        const twiml = voiceCallService.generateIncomingCallTwiML(CallSid);
 
         res.type('text/xml');
-        res.send(`<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Say voice="Polly.Mia-Neural" language="es-MX">Hola, soy Ara de Extractos EUM. ¿Cómo estás?</Say>
-    <Gather input="speech" timeout="5" speechTimeout="auto" action="${backendUrl}/api/voice/gather/${CallSid}" method="POST" language="es-MX">
-        <Say voice="Polly.Mia-Neural" language="es-MX">¿En qué puedo ayudarte hoy?</Say>
-    </Gather>
-    <Say voice="Polly.Mia-Neural" language="es-MX">No te escuché. Te llamaré más tarde. ¡Hasta pronto!</Say>
-</Response>`);
+        res.send(twiml);
 
     } catch (error: any) {
         console.error('[VoiceRoutes] Outbound connect error:', error.message);

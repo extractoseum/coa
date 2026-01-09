@@ -186,9 +186,28 @@ app.use('/api/v1/shopify-app', shopifyAppRoutes); // NEW: Shopify Sales Agent Ap
 // Telemetry Logs Endpoint (Surgical Injection)
 app.use('/api/v1/logs', logsRoutes); // Telemetry Logs
 
-// Start Server
-app.listen(config.port, () => {
-    console.log(`🚀 Server running on http://localhost:${config.port}`);
+// Start HTTP Server with WebSockets for Streaming
+import http from 'http';
+import { WebSocketServer } from 'ws';
+import { voiceCallService } from './services/VoiceCallService';
+
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server });
+
+// Handle WebSocket connections
+wss.on('connection', (ws, req) => {
+    // Check if it's a voice stream connection
+    if (req.url && req.url.includes('/api/voice/stream')) {
+        logger.info('[WebSocket] New Voice Stream Connection');
+        voiceCallService.handleStreamConnection(ws);
+    } else {
+        logger.warn('[WebSocket] Unknown connection path:', req.url);
+        ws.close();
+    }
+});
+
+server.listen(config.port, () => {
+    console.log(`🚀 Server running on http://localhost:${config.port} (with WebSockets)`);
 
     // Initialize cron jobs after server starts
     initCronJobs();
