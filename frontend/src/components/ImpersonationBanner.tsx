@@ -17,7 +17,8 @@ export default function ImpersonationBanner() {
 
     // Build store URL with token on mount
     useEffect(() => {
-        const token = localStorage.getItem('token');
+        // accessToken is the correct key used by AuthContext
+        const token = localStorage.getItem('accessToken');
         if (token) {
             setStoreUrl(`${SHOPIFY_STORE_URL}?eum_token=${encodeURIComponent(token)}`);
         }
