@@ -17,8 +17,8 @@ import { supabase } from '../config/supabase';
 import { handleToolCall } from './VapiToolHandlers';
 import Anthropic from '@anthropic-ai/sdk';
 
-// Twilio config
-const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
+// Twilio config - support both naming conventions
+const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || process.env.ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_PHONE_NUMBER = process.env.TWILIO_PHONE_NUMBER;
 

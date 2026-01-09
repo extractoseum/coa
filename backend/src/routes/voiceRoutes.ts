@@ -201,11 +201,18 @@ router.post('/end/:callSid', async (req: Request, res: Response) => {
  * Get current voice service status
  */
 router.get('/status', (req: Request, res: Response) => {
+    const twilioConfigured = !!(process.env.TWILIO_ACCOUNT_SID || process.env.ACCOUNT_SID);
+    const claudeConfigured = !!process.env.ANTHROPIC_API_KEY;
+
     res.json({
         service: 'VoiceCallService',
         provider: 'Twilio + Claude',
         activeCalls: voiceCallService.getActiveCallCount(),
-        configured: !!(process.env.TWILIO_ACCOUNT_SID && process.env.ANTHROPIC_API_KEY)
+        configured: twilioConfigured && claudeConfigured,
+        debug: {
+            twilio: twilioConfigured,
+            claude: claudeConfigured
+        }
     });
 });
 
