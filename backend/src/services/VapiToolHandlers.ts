@@ -157,7 +157,11 @@ export async function handleSendWhatsApp(
     const { customerPhone, conversationId } = context;
 
     if (!customerPhone) {
-        return { success: false, error: 'No se pudo identificar el teléfono del cliente' };
+        console.error('[VapiTools] send_whatsapp failed: Missing customerPhone in context');
+        return {
+            success: false,
+            error: 'No se pudo identificar el teléfono del cliente. Pídele su número para enviarlo.'
+        };
     }
 
     try {
@@ -410,7 +414,7 @@ export async function handleGetCOA(
             coa = data;
         }
 
-        // If not found, try by custom_name (product name)
+        // If not found, try by product_name in COAs table
         if (!coa && product_name) {
             const { data } = await supabase
                 .from('coas')
@@ -422,10 +426,38 @@ export async function handleGetCOA(
             coa = data;
         }
 
+        // If STILL not found, check PRODUCTS table metadata/tags for COA links
+        if (!coa && product_name) {
+            console.log(`[VapiTools] COA not found in table. Checking product metadata for: ${product_name}`);
+
+            const { data: products } = await supabase
+                .from('products')
+                .select('id, title, metadata, tags')
+                .ilike('title', `%${product_name}%`)
+                .limit(1);
+
+            const product = products?.[0];
+
+            if (product?.metadata?.coa_url || product?.metadata?.coa_pdf) {
+                // Construct a "Virtual COA" from metadata
+                coa = {
+                    batch_id: product.metadata.batch_id || 'N/D',
+                    lab_name: product.metadata.lab_name || 'Laboratorio Externo',
+                    cannabinoids: product.metadata.cannabinoids || [],
+                    pdf_url_original: product.metadata.coa_url || product.metadata.coa_pdf,
+                    custom_name: product.title,
+                    analysis_date: product.metadata.coa_date,
+                    public_token: 'metadata' // Flag implies no real COA record
+                };
+                console.log(`[VapiTools] Found Virtual COA in product metadata: ${product.title}`);
+            }
+        }
+
         if (!coa) {
             return {
                 success: false,
-                message: 'No encontré el COA con esos datos. ¿Tienes el número de lote? Usualmente viene en la etiqueta del producto, empieza con letras y números.'
+                message: 'No encontré el COA con esos datos. ¿Tienes el número de lote? Usualmente viene en la etiqueta del producto, empieza con letras y números.',
+                error: 'COA not found in table or metadata'
             };
         }
 
