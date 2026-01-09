@@ -374,7 +374,17 @@ export async function handleSearchProducts(
                 score += 1000;
             }
 
-            // 4. Stock Availability (Small boost to break ties)
+            // 4. Category Boost (NEW)
+            if ((queryLower === 'gomitas' || queryLower === 'gummies' || queryLower === 'comestibles') && typeLower === 'comestibles') {
+                score += 500;
+            }
+
+            // 5. Anti-Rank: Hot Bites are NOT gomitas (per user instruction)
+            if ((queryLower === 'gomitas' || queryLower === 'gummies') && titleLower.includes('hot bites')) {
+                score -= 2000;
+            }
+
+            // 6. Stock Availability (Small boost to break ties)
             const totalStock = (p.variants || []).reduce((sum: number, v: any) => sum + (v.inventory_quantity || 0), 0);
             if (totalStock > 0) score += 5;
 
@@ -419,16 +429,25 @@ export async function handleSearchProducts(
             const prices = variants.map((v: any) => parseFloat(v.price) || 0).filter((p: number) => p > 0);
             const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
 
-            // Clean description for speech
-            const desc = p.description_plain?.split('.')[0] || '';
+            // Clean description: Remove HTML/CSS and take first few meaningful sentences
+            let cleanDesc = (p.description_plain || '')
+                .replace(/<style[^>]*>.*<\/style>/gms, '') // Remove CSS blocks
+                .replace(/<[^>]*>/g, '') // Remove HTML tags
+                .replace(/\.cannabis-minimal[^{]*\{[^}]*\}/g, '') // Remove specific CSS classes
+                .replace(/\s+/g, ' ') // Collapse whitespace
+                .trim();
+
+            // Take first 300 chars or first two sentences
+            const sentences = cleanDesc.split(/[.!?]+/).filter((s: string) => s.trim().length > 10);
+            const shortDesc = sentences.slice(0, 2).join('. ') + (sentences.length > 2 ? '...' : '');
 
             return {
                 name: p.title,
-                description: p.description_plain, // [NEW] Full context for AI
+                description: cleanDesc, // Give full cleaned desc to AI context
                 price: minPrice,
                 stock: totalStock > 0 ? 'Sí' : 'No',
-                stock_quantity: totalStock, // [NEW] Explicit quantity for AI context
-                summary: `${p.title} a $${minPrice}`
+                stock_quantity: totalStock,
+                summary: `${p.title} a $${minPrice}. ${shortDesc}`
             };
         });
 
