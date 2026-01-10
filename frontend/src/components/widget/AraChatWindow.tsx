@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Send, Loader2, Bell, ChevronDown, User, Bot, AlertCircle } from 'lucide-react';
+import { X, Send, Loader2, Bell, ChevronDown, User, Bot, AlertCircle, ThumbsUp, ThumbsDown, Sparkles } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
 import type { Notification } from './hooks/useNotifications';
 
@@ -15,6 +15,11 @@ interface ChatMessage {
     role: 'user' | 'assistant';
     createdAt: string;
     isTemp?: boolean;
+    confidence?: 'high' | 'medium' | 'low';
+    feedback?: {
+        rating: 'positive' | 'negative' | null;
+        submitted_at?: string;
+    };
 }
 
 interface AraChatWindowProps {
@@ -23,6 +28,7 @@ interface AraChatWindowProps {
     isSending: boolean;
     error: string | null;
     onSend: (text: string) => void;
+    onSubmitFeedback: (messageId: string, rating: 'positive' | 'negative', correction?: string) => Promise<boolean>;
     onClose: () => void;
     onMinimize: () => void;
     clientName?: string;
@@ -38,6 +44,7 @@ const AraChatWindow: React.FC<AraChatWindowProps> = ({
     isSending,
     error,
     onSend,
+    onSubmitFeedback,
     onClose,
     onMinimize,
     clientName,
@@ -49,6 +56,9 @@ const AraChatWindow: React.FC<AraChatWindowProps> = ({
     const { theme } = useTheme();
     const [input, setInput] = useState('');
     const [showNotifications, setShowNotifications] = useState(false);
+    const [correctionMsgId, setCorrectionMsgId] = useState<string | null>(null);
+    const [correctionText, setCorrectionText] = useState('');
+    const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
 
@@ -243,8 +253,8 @@ const AraChatWindow: React.FC<AraChatWindowProps> = ({
                     >
                         <div
                             className={`max-w-[85%] rounded-2xl px-4 py-2.5 ${msg.role === 'user'
-                                    ? 'rounded-br-md'
-                                    : 'rounded-bl-md'
+                                ? 'rounded-br-md'
+                                : 'rounded-bl-md'
                                 } ${msg.isTemp ? 'opacity-70' : ''}`}
                             style={{
                                 backgroundColor: msg.role === 'user'
@@ -254,17 +264,104 @@ const AraChatWindow: React.FC<AraChatWindowProps> = ({
                                 border: msg.role === 'assistant' ? `1px solid ${theme.border}` : 'none'
                             }}
                         >
+                            {msg.role === 'assistant' && msg.confidence && (
+                                <div className="flex items-center gap-1 mb-1">
+                                    <Sparkles size={10} className={
+                                        msg.confidence === 'high' ? 'text-green-400' :
+                                            msg.confidence === 'medium' ? 'text-yellow-400' : 'text-red-400'
+                                    } />
+                                    <span className={`text-[10px] font-bold uppercase tracking-tight ${msg.confidence === 'high' ? 'text-green-400/70' :
+                                        msg.confidence === 'medium' ? 'text-yellow-400/70' : 'text-red-400/70'
+                                        }`}>
+                                        Confianza {msg.confidence === 'high' ? 'Alta' : msg.confidence === 'medium' ? 'Media' : 'Baja'}
+                                    </span>
+                                </div>
+                            )}
+
                             <p className="text-sm whitespace-pre-wrap break-words">
                                 {msg.content}
                             </p>
-                            <p
-                                className="text-[10px] mt-1 text-right"
-                                style={{
-                                    color: msg.role === 'user' ? 'rgba(255,255,255,0.7)' : theme.textMuted
-                                }}
-                            >
-                                {formatTime(msg.createdAt)}
-                            </p>
+
+                            <div className="flex items-center justify-between mt-1">
+                                {msg.role === 'assistant' && !msg.isTemp && (
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={() => !msg.feedback && onSubmitFeedback(msg.id, 'positive')}
+                                            className={`p-1 rounded hover:bg-white/10 transition-colors ${msg.feedback?.rating === 'positive' ? 'text-green-400' : 'text-white/30'}`}
+                                            disabled={!!msg.feedback || isSubmittingFeedback}
+                                            title="Me sirvió"
+                                        >
+                                            <ThumbsUp size={12} />
+                                        </button>
+                                        <div className="relative">
+                                            <button
+                                                onClick={() => {
+                                                    if (!msg.feedback) {
+                                                        setCorrectionMsgId(msg.id);
+                                                        setCorrectionText('');
+                                                    }
+                                                }}
+                                                className={`p-1 rounded hover:bg-white/10 transition-colors ${msg.feedback?.rating === 'negative' ? 'text-red-400' : 'text-white/30'}`}
+                                                disabled={!!msg.feedback || isSubmittingFeedback}
+                                                title="No me sirvió"
+                                            >
+                                                <ThumbsDown size={12} />
+                                            </button>
+
+                                            {correctionMsgId === msg.id && (
+                                                <div
+                                                    className="absolute bottom-full left-0 mb-2 w-64 p-3 rounded-xl shadow-xl z-20 border animate-in fade-in slide-in-from-bottom-2 duration-200"
+                                                    style={{ backgroundColor: theme.cardBg, borderColor: theme.border }}
+                                                >
+                                                    <p className="text-xs font-semibold mb-2" style={{ color: theme.text }}>¿Qué falló o cómo debería ser?</p>
+                                                    <textarea
+                                                        value={correctionText}
+                                                        onChange={(e) => setCorrectionText(e.target.value)}
+                                                        placeholder="Escribe la corrección..."
+                                                        className="w-full h-20 px-2 py-1.5 text-xs rounded-lg border outline-none mb-2"
+                                                        style={{ backgroundColor: theme.cardBg2, borderColor: theme.border, color: theme.text }}
+                                                        autoFocus
+                                                    />
+                                                    <div className="flex gap-2 justify-end">
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setCorrectionMsgId(null);
+                                                            }}
+                                                            className="px-2 py-1 text-[10px] rounded hover:bg-white/5"
+                                                            style={{ color: theme.textMuted }}
+                                                        >
+                                                            Cancelar
+                                                        </button>
+                                                        <button
+                                                            onClick={async (e) => {
+                                                                e.stopPropagation();
+                                                                setIsSubmittingFeedback(true);
+                                                                await onSubmitFeedback(msg.id, 'negative', correctionText);
+                                                                setIsSubmittingFeedback(false);
+                                                                setCorrectionMsgId(null);
+                                                            }}
+                                                            disabled={!correctionText.trim() || isSubmittingFeedback}
+                                                            className="px-3 py-1 text-[10px] rounded text-white disabled:opacity-50"
+                                                            style={{ backgroundColor: theme.accent }}
+                                                        >
+                                                            Enviar
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                                <p
+                                    className="text-[10px] text-right flex-1"
+                                    style={{
+                                        color: msg.role === 'user' ? 'rgba(255,255,255,0.7)' : theme.textMuted
+                                    }}
+                                >
+                                    {formatTime(msg.createdAt)}
+                                </p>
+                            </div>
                         </div>
                     </div>
                 ))}
@@ -301,18 +398,20 @@ const AraChatWindow: React.FC<AraChatWindowProps> = ({
             </div>
 
             {/* Error Banner */}
-            {error && (
-                <div
-                    className="px-4 py-2 flex items-center gap-2 text-sm"
-                    style={{ backgroundColor: '#fef2f2', color: '#dc2626' }}
-                >
-                    <AlertCircle size={16} />
-                    <span className="flex-1">{error}</span>
-                    <button onClick={clearError} className="font-medium">
-                        Cerrar
-                    </button>
-                </div>
-            )}
+            {
+                error && (
+                    <div
+                        className="px-4 py-2 flex items-center gap-2 text-sm"
+                        style={{ backgroundColor: '#fef2f2', color: '#dc2626' }}
+                    >
+                        <AlertCircle size={16} />
+                        <span className="flex-1">{error}</span>
+                        <button onClick={clearError} className="font-medium">
+                            Cerrar
+                        </button>
+                    </div>
+                )
+            }
 
             {/* Input Area */}
             <div
@@ -354,7 +453,7 @@ const AraChatWindow: React.FC<AraChatWindowProps> = ({
                     </button>
                 </div>
             </div>
-        </div>
+        </div >
     );
 };
 

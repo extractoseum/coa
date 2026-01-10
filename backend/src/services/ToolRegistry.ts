@@ -2,6 +2,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from '../utils/Logger';
+import { UCVTService } from './UCVTService';
 
 export interface RegistryTool {
     name: string;
@@ -16,7 +17,6 @@ export interface RegistryTool {
 export class ToolRegistry {
     private static instance: ToolRegistry;
     private tools: RegistryTool[] = [];
-    private readonly REGISTRY_PATH = path.join(__dirname, '../../data/ai_knowledge_base/core/tools_registry.json');
 
     private constructor() {
         this.loadRegistry();
@@ -30,18 +30,12 @@ export class ToolRegistry {
     }
 
     /**
-     * Load tools from tools_registry.json
+     * Load tools from UCVT
      */
     private loadRegistry() {
         try {
-            if (!fs.existsSync(this.REGISTRY_PATH)) {
-                logger.error(`[ToolRegistry] Registry file not found at ${this.REGISTRY_PATH}`);
-                return;
-            }
-
-            const content = fs.readFileSync(this.REGISTRY_PATH, 'utf-8');
-            this.tools = JSON.parse(content);
-            logger.info(`[ToolRegistry] Loaded ${this.tools.length} tools from registry.`);
+            this.tools = UCVTService.getToolsRegistry();
+            logger.info(`[ToolRegistry] Loaded ${this.tools.length} tools from UCVT.`);
         } catch (error) {
             logger.error('[ToolRegistry] Error loading registry:', error);
         }

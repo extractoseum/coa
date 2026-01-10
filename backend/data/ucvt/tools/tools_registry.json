@@ -1,0 +1,775 @@
+[
+    {
+        "category": "orders",
+        "name": "get_recent_orders",
+        "description": "Retrieves the most recent orders from the system.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "number",
+                    "description": "Number of orders to return (default 10)"
+                }
+            }
+        },
+        "examples": [
+            {
+                "name": "get_recent_orders",
+                "args": {
+                    "limit": 5
+                }
+            }
+        ]
+    },
+    {
+        "category": "users",
+        "name": "search_clients",
+        "description": "Search for clients in the local database by name, email or phone.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search term"
+                }
+            },
+            "required": [
+                "query"
+            ]
+        },
+        "examples": [
+            {
+                "name": "search_clients",
+                "args": {
+                    "query": "Juan Perez"
+                }
+            }
+        ]
+    },
+    {
+        "category": "system",
+        "name": "get_system_health",
+        "description": "Verifies the integrity of the database using the internal ledger.",
+        "input_schema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "category": "files",
+        "name": "read_file_content",
+        "description": "Read the content of a file (code, config, logs) from the backend server.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Relative path from project root (e.g. \"src/index.ts\")"
+                }
+            },
+            "required": [
+                "file_path"
+            ]
+        }
+    },
+    {
+        "category": "files",
+        "name": "list_directory",
+        "description": "List files and folders in a directory.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "dir_path": {
+                    "type": "string",
+                    "description": "Relative path directory (default \"./\")"
+                }
+            }
+        }
+    },
+    {
+        "category": "system",
+        "name": "get_logs",
+        "description": "Retrieve recent server logs.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "enum": [
+                        "error",
+                        "out"
+                    ],
+                    "description": "Log type (error or out)"
+                },
+                "lines": {
+                    "type": "number",
+                    "description": "Number of lines to retrieve"
+                }
+            }
+        }
+    },
+    {
+        "category": "users",
+        "name": "get_active_clients_count_today",
+        "description": "Returns the count of active clients in the last 24h.",
+        "input_schema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "category": "coa",
+        "name": "get_recent_scans_details",
+        "description": "Returns a detailed list of recent COA scans.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "number",
+                    "description": "Number of recent scans to fetch (default 10)."
+                }
+            }
+        }
+    },
+    {
+        "category": "system",
+        "name": "restart_backend_service",
+        "description": "Restarts the backend server process (PM2). Use with caution.",
+        "input_schema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "category": "shopping-bag",
+        "name": "search_products",
+        "description": "Busca productos en el catálogo de Extractos EUM. Usa para encontrar gomitas, tinturas, tópicos, etc.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Término de búsqueda (ej: \"gomitas\", \"aceite cbd\", \"crema\")"
+                },
+                "category": {
+                    "type": "string",
+                    "description": "Categoría opcional (comestibles, tinturas, topicos)"
+                }
+            },
+            "required": [
+                "query"
+            ]
+        }
+    },
+    {
+        "category": "shopping-cart",
+        "name": "create_checkout_link",
+        "description": "Creates a Shopify Draft Order and generates a payment link (invoice_url).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "variant_id": {
+                                "type": "number",
+                                "description": "The specific variant ID"
+                            },
+                            "quantity": {
+                                "type": "number",
+                                "description": "Quantity"
+                            }
+                        },
+                        "required": [
+                            "variant_id",
+                            "quantity"
+                        ]
+                    }
+                }
+            },
+            "required": [
+                "items"
+            ]
+        }
+    },
+    {
+        "category": "search",
+        "name": "search_knowledge_base",
+        "description": "Search for relevant information in the knowledge base using vector search.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query"
+                }
+            },
+            "required": [
+                "query"
+            ]
+        }
+    },
+    {
+        "category": "whatsapp",
+        "name": "send_whatsapp",
+        "description": "Envía información al WhatsApp del cliente (links, COAs, detalles de productos).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "description": "Mensaje a enviar al cliente"
+                },
+                "media_url": {
+                    "type": "string",
+                    "description": "URL de imagen o documento para adjuntar (opcional)"
+                }
+            },
+            "required": [
+                "message"
+            ]
+        }
+    },
+    {
+        "category": "mail",
+        "name": "send_email",
+        "description": "Send a professional email to a client.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "to": {
+                    "type": "string",
+                    "description": "Email address"
+                },
+                "subject": {
+                    "type": "string",
+                    "description": "Email subject"
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Email body (HTML or text)"
+                }
+            },
+            "required": [
+                "to",
+                "subject",
+                "message"
+            ]
+        }
+    },
+    {
+        "category": "shopify",
+        "name": "search_shopify_customers",
+        "description": "Search for customers in Shopify by name or email.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Name or email to search"
+                }
+            },
+            "required": [
+                "query"
+            ]
+        }
+    },
+    {
+        "category": "shopify",
+        "name": "get_shopify_order",
+        "description": "Get details for a specific Shopify order.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "order_id": {
+                    "type": "string",
+                    "description": "Shopify order ID"
+                }
+            },
+            "required": [
+                "order_id"
+            ]
+        }
+    },
+    {
+        "category": "bell",
+        "name": "send_push_notification",
+        "description": "Send a push notification to a specific client via OneSignal.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "client_id": {
+                    "type": "string",
+                    "description": "Local client ID"
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Notification title"
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Notification message"
+                }
+            },
+            "required": [
+                "client_id",
+                "title",
+                "message"
+            ]
+        }
+    },
+    {
+        "category": "truck",
+        "name": "update_tracking",
+        "description": "Force a refresh of the tracking status for an order.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "order_id": {
+                    "type": "string",
+                    "description": "Local order ID"
+                }
+            },
+            "required": [
+                "order_id"
+            ]
+        }
+    },
+    {
+        "category": "whatsapp",
+        "name": "check_whatsapp_status",
+        "description": "Check WhatsApp Business connection status.",
+        "input_schema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "category": "voice",
+        "name": "initiate_voice_call",
+        "description": "Initiate a real-time voice call using Vapi AI.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "phone": {
+                    "type": "string",
+                    "description": "Customer phone number"
+                },
+                "customer_name": {
+                    "type": "string",
+                    "description": "Customer name (optional)"
+                },
+                "conversation_id": {
+                    "type": "string",
+                    "description": "CRM Conversation ID"
+                }
+            },
+            "required": [
+                "phone"
+            ]
+        }
+    },
+    {
+        "category": "voice",
+        "name": "get_voice_call_history",
+        "description": "Get voice call logs for a conversation.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "conversation_id": {
+                    "type": "string",
+                    "description": "CRM Conversation ID"
+                }
+            },
+            "required": [
+                "conversation_id"
+            ]
+        }
+    },
+    {
+        "category": "crm",
+        "name": "get_conversation_summary",
+        "description": "Get summary and context of a CRM conversation.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "conversation_id": {
+                    "type": "string",
+                    "description": "CRM Conversation ID"
+                }
+            },
+            "required": [
+                "conversation_id"
+            ]
+        }
+    },
+    {
+        "category": "crm",
+        "name": "get_contact_360",
+        "description": "Get full Customer 360 profile (LTV, orders, risk, tags).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "phone": {
+                    "type": "string",
+                    "description": "Contact phone number"
+                }
+            },
+            "required": [
+                "phone"
+            ]
+        }
+    },
+    {
+        "category": "crm",
+        "name": "move_conversation_to_column",
+        "description": "Move conversation to a specific Kanban column.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "conversation_id": {
+                    "type": "string",
+                    "description": "Conversation UUID"
+                },
+                "column_name": {
+                    "type": "string",
+                    "description": "Target column name"
+                }
+            },
+            "required": [
+                "conversation_id",
+                "column_name"
+            ]
+        }
+    },
+    {
+        "category": "analytics",
+        "name": "get_system_insights",
+        "description": "Get system health alerts, error spikes, and performance insights.",
+        "input_schema": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "category": "analytics",
+        "name": "get_ai_usage_stats",
+        "description": "Get AI API usage stats (tokens, costs) by model.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "type": "number",
+                    "description": "Lookback period in days (default 7)"
+                }
+            }
+        }
+    },
+    {
+        "category": "analytics",
+        "name": "get_behavior_insights",
+        "description": "Get browsing behavior insights for a specific contact.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "phone": {
+                    "type": "string",
+                    "description": "Contact phone number"
+                }
+            },
+            "required": [
+                "phone"
+            ]
+        }
+    },
+    {
+        "name": "get_order_tracking",
+        "description": "Get tracking info (Estafeta/Fedex) for a Shopify order.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "order_id": {
+                    "type": "string",
+                    "description": "Shopify order ID"
+                }
+            },
+            "required": [
+                "order_id"
+            ]
+        },
+        "category": "truck",
+        "required_permissions": [
+            "read_orders"
+        ]
+    },
+    {
+        "name": "search_order_by_number",
+        "description": "Search for an order by its visible order number (e.g., #EUM_1441_SHOP, EUM1441, 1441). Use this when a customer provides a specific order number. Returns order details, status, tracking, and items.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "order_number": {
+                    "type": "string",
+                    "description": "The order number provided by the customer (e.g., EUM_1441_SHOP, #1441, or just 1441)"
+                }
+            },
+            "required": [
+                "order_number"
+            ]
+        },
+        "category": "orders",
+        "required_permissions": [
+            "read_orders"
+        ],
+        "examples": [
+            {
+                "name": "search_order_by_number",
+                "args": {
+                    "order_number": "1441"
+                }
+            },
+            {
+                "name": "search_order_by_number",
+                "args": {
+                    "order_number": "EUM_1441_SHOP"
+                }
+            }
+        ]
+    },
+    {
+        "name": "create_shopify_coupon",
+        "description": "Create a unique discount coupon in Shopify.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string",
+                    "description": "Coupon code"
+                },
+                "amount_off": {
+                    "type": "number",
+                    "description": "Amount off"
+                },
+                "type": {
+                    "type": "string",
+                    "enum": [
+                        "percentage",
+                        "fixed_amount"
+                    ],
+                    "description": "Discount type"
+                }
+            },
+            "required": [
+                "code",
+                "amount_off",
+                "type"
+            ]
+        },
+        "category": "shopping-cart",
+        "required_permissions": [
+            "write_discounts"
+        ]
+    },
+    {
+        "name": "sync_products_from_shopify",
+        "description": "Force sync products from Shopify to local DB.",
+        "input_schema": {
+            "type": "object",
+            "properties": {}
+        },
+        "category": "system",
+        "required_permissions": [
+            "sync_data"
+        ]
+    },
+    {
+        "name": "generate_voice_message",
+        "description": "Generate voice audio from text (TTS) for sending.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "description": "Text to speak"
+                },
+                "voice_id": {
+                    "type": "string",
+                    "description": "ElevenLabs voice ID"
+                }
+            },
+            "required": [
+                "text"
+            ]
+        },
+        "category": "mic",
+        "required_permissions": [
+            "generate_audio"
+        ]
+    },
+    {
+        "name": "get_coa_details",
+        "description": "Get detailed metadata of a specific COA.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "coa_id": {
+                    "type": "string",
+                    "description": "COA UUID"
+                }
+            },
+            "required": [
+                "coa_id"
+            ]
+        },
+        "category": "coa",
+        "required_permissions": [
+            "read_coas"
+        ]
+    },
+    {
+        "category": "orders",
+        "name": "get_abandoned_checkouts",
+        "description": "Retrieves pending abandoned checkouts (carts). Use this to identify recovery opportunities.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "number",
+                    "description": "Number of checkouts to return (default 10)"
+                }
+            }
+        },
+        "examples": [
+            {
+                "name": "get_abandoned_checkouts",
+                "args": {
+                    "limit": 5
+                }
+            }
+        ]
+    },
+    {
+        "category": "communication",
+        "name": "send_sms_notification",
+        "description": "Send an SMS notification via Twilio (High Reliability). Use for urgent alerts or verification codes.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "phone": {
+                    "type": "string",
+                    "description": "Phone number (E.164 format, e.g. +521...)"
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Message content"
+                }
+            },
+            "required": [
+                "phone",
+                "message"
+            ]
+        }
+    },
+    {
+        "category": "communication",
+        "name": "make_verification_call",
+        "description": "Initiate a Twilio voice call to speak a verification code (OTP).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "phone": {
+                    "type": "string",
+                    "description": "Phone number (E.164 format)"
+                },
+                "code": {
+                    "type": "string",
+                    "description": "The numeric code to speak (e.g. \"123456\")"
+                }
+            },
+            "required": [
+                "phone",
+                "code"
+            ]
+        }
+    },
+    {
+        "category": "browser",
+        "name": "browser_action",
+        "description": "Control the Cortex Browser (Grounder) to navigate, click, or extract data from live websites.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": [
+                        "navigate",
+                        "extract",
+                        "screenshot"
+                    ],
+                    "description": "The action to perform."
+                },
+                "target": {
+                    "type": "string",
+                    "description": "URL (for navigate) or empty for others."
+                }
+            },
+            "required": [
+                "action",
+                "target"
+            ]
+        }
+    },
+    {
+        "category": "orders",
+        "name": "lookup_order",
+        "description": "Busca pedidos del cliente. Si el cliente está autenticado, puedes llamar esta herramienta SIN parámetros y automáticamente buscará todos sus pedidos. También puedes buscar por número de orden específico.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "order_number": {
+                    "type": "string",
+                    "description": "Número de orden específico (ej: \"EUM_1234_SHOP\"). Opcional si el cliente está autenticado."
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "category": "coa",
+        "name": "get_coa",
+        "description": "Obtiene el Certificado de Análisis (COA) de un producto por número de lote o nombre.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "batch_number": {
+                    "type": "string",
+                    "description": "Número de lote del producto"
+                },
+                "product_name": {
+                    "type": "string",
+                    "description": "Nombre del producto para buscar su COA"
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "category": "system",
+        "name": "audit_decision",
+        "description": "AUDITORÍA: Explica por qué tomaste una decisión previa o de dónde sacaste un dato (como un precio). Requiere el ID del mensaje anterior.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message_id": {
+                    "type": "string",
+                    "description": "El ID del mensaje que quieres auditar/explicar."
+                }
+            },
+            "required": [
+                "message_id"
+            ]
+        }
+    }
+]

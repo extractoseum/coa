@@ -25,7 +25,8 @@ import {
     getNotifications,
     markNotificationRead,
     getNotificationCount,
-    getSessionStatus
+    getSessionStatus,
+    submitFeedback
 } from '../controllers/widgetController';
 
 const router = Router();
@@ -90,6 +91,11 @@ router.post('/message', sendMessage);
  * Query params: ?limit=50&before=<messageId>
  */
 router.get('/messages', getMessages);
+
+/**
+ * Submit feedback for a message
+ */
+router.post('/feedback', submitFeedback);
 
 // ============================================
 // NOTIFICATIONS

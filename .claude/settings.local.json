@@ -18,7 +18,15 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git push:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(cd /Users/bdelatorre8/COA\\\\ Viewer\\\\ 2.0/backend && npx ts-node src/scripts/check_shopify_webhooks.ts:*)",
+      "Bash(cd /Users/bdelatorre8/COA\\\\ Viewer\\\\ 2.0/backend && npx ts-node:*)",
+      "Bash(for i in 1 2 3 4 5)",
+      "Bash(do echo \"=== Batch $i ===\")",
+      "Bash(npx ts-node:*)",
+      "Bash(done)",
+      "Bash(sqlite3)",
+      "Bash(psql:*)"
     ]
   }
 }

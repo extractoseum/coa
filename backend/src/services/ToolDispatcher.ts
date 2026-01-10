@@ -20,7 +20,11 @@ export class ToolDispatcher {
     ): Promise<DispatchResult> {
         const agentToolService = AgentToolService.getInstance();
 
-        logger.info(`[ToolDispatcher] Executing ${toolName} for client: ${context.clientId || 'unknown'}`);
+        logger.info(`[ToolDispatcher] Executing ${toolName} for client: ${context.clientId || 'unknown'}`, {
+            correlation_id: context.correlationId,
+            tool: toolName,
+            clientId: context.clientId
+        });
 
         try {
             switch (toolName) {

@@ -37,6 +37,7 @@ export class AuditCollector {
 
 export interface ToolContext {
     conversationId?: string;
+    correlationId?: string;
     clientId?: string;
     customerPhone?: string;
     customerEmail?: string;

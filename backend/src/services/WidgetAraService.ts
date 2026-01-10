@@ -74,6 +74,7 @@ interface WidgetChatContext {
     clientId: string;
     conversationId: string;
     sessionId: string;
+    correlationId?: string;
     customerPhone?: string;
     customerEmail?: string;
     customerName?: string;
@@ -154,15 +155,16 @@ export class WidgetAraService {
         // 3. Build context-aware system prompt
         let systemPrompt = WIDGET_SYSTEM_PROMPT;
 
+        // Add confidence instructions
+        systemPrompt += `\n\n${IntelligenceService.getInstance().generateConfidenceInstructions()}`;
+
         // LOAD AGENT KNOWLEDGE
         const agentId = context.agentId || 'sales_ara';
         const agentKnowledge = await this.loadAgentKnowledge(agentId, message, auditCollector);
 
         if (agentKnowledge) {
-            // Replace generic system prompt with agent identity and knowledge
-            systemPrompt = agentKnowledge;
-        } else {
-            console.warn(`[WidgetAra] No knowledge found for agent ${agentId}, using fallback.`);
+            // Append agent knowledge (we don't replace the whole thing to keep widget rules and confidence)
+            systemPrompt += `\n\n### CONOCIMIENTO ESPECÍFICO DEL AGENTE:\n${agentKnowledge}`;
         }
 
         // Add customer context if available
@@ -276,10 +278,45 @@ export class WidgetAraService {
             (block): block is Anthropic.TextBlock => block.type === 'text'
         );
 
-        const araContent = textBlocks.map(b => b.text).join('\n').trim() ||
+        const rawAraContent = textBlocks.map((b: any) => b.text).join('\n').trim() ||
             'Gracias por tu mensaje. ¿Hay algo más en lo que pueda ayudarte?';
 
-        // 6. Store Ara response
+        // Extract confidence from content if present: [[CONFIDENCE:HIGH]]
+        let confidence: 'high' | 'medium' | 'low' | undefined;
+        let araContent = rawAraContent;
+
+        const confidenceMatch = rawAraContent.match(/\[\[CONFIDENCE:(HIGH|MEDIUM|LOW)\]\]/i);
+        if (confidenceMatch) {
+            confidence = confidenceMatch[1].toLowerCase() as any;
+            // Clean up content for display (remove tag)
+            araContent = rawAraContent.replace(/\[\[CONFIDENCE:(HIGH|MEDIUM|LOW)\]\]/i, '').trim();
+        }
+
+        // 6. Sync with Local Analytics (Phase 5/7)
+        try {
+            const { AIConversationService } = require('./aiConversationService');
+            const convService = AIConversationService.getInstance();
+            // Try to get or create local conversation to match Supabase
+            let localConv = convService.getConversation(context.conversationId);
+            if (!localConv) {
+                // Initial sync mirror
+                localConv = convService.createConversation('widget_client', 'claude-sonnet-4-20250514');
+                // Force ID match for consistency if possible, or just let them diverge but linked
+            }
+            // Add messages to local storage for Dashboard
+            convService.addMessage(context.conversationId, 'user', message);
+            convService.addMessage(context.conversationId, 'assistant', araContent, confidence);
+            // Record agent and snaps
+            const relevantSnaps = IntelligenceService.getInstance().findRelevantSnaps(
+                path.join(__dirname, '../../data/ai_knowledge_base', 'agents_public', agentId),
+                message
+            );
+            convService.updateAgentContext(context.conversationId, agentId, relevantSnaps.map(s => s.fileName));
+        } catch (analyticsErr: any) {
+            console.warn(`[WidgetAra] Failed to sync with local analytics:`, analyticsErr.message);
+        }
+
+        // 7. Store Ara response in Supabase
         const { data: araMsg, error: araMsgError } = await supabase
             .from('crm_messages')
             .insert({
@@ -293,6 +330,7 @@ export class WidgetAraService {
                 raw_payload: {
                     source: 'widget_chat',
                     model: 'claude-sonnet-4-20250514',
+                    confidence,
                     tools_used: toolResults.map(t => t.toolUseId),
                     duration_ms: Date.now() - startTime,
                     iterations,
@@ -343,6 +381,7 @@ export class WidgetAraService {
     ): Promise<any> {
         const toolContext = {
             conversationId: context.conversationId,
+            correlationId: context.correlationId,
             clientId: context.clientId,
             customerPhone: context.customerPhone,
             customerEmail: context.customerEmail,

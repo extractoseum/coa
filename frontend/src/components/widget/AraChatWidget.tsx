@@ -37,6 +37,7 @@ const AraChatWidget: React.FC = () => {
         isSending,
         error: chatError,
         sendMessage,
+        submitFeedback,
         clearError
     } = useWidgetChat(session?.sessionToken || null, conversationId, isAuthenticated);
 
@@ -102,6 +103,7 @@ const AraChatWidget: React.FC = () => {
                     isSending={isSending}
                     error={chatError}
                     onSend={handleSend}
+                    onSubmitFeedback={submitFeedback}
                     onClose={() => setIsOpen(false)}
                     onMinimize={() => setIsMinimized(true)}
                     clientName={client?.name}

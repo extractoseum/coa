@@ -619,6 +619,7 @@ export const sendMessage = async (req: Request, res: Response) => {
             clientId: session.client_id,
             conversationId: session.conversation_id,
             sessionId: session.id,
+            correlationId: req.correlationId,
             customerPhone: session.client?.phone,
             customerEmail: session.client?.email,
             customerName: session.client?.name,
@@ -940,6 +941,73 @@ export const linkWithAppAuth = async (req: Request, res: Response) => {
 
     } catch (err: any) {
         console.error('[Widget] Link with app auth error:', err);
+        res.status(500).json({ success: false, error: 'Server error' });
+    }
+};
+
+/**
+ * Submit feedback for a message
+ * POST /api/v1/widget/feedback
+ */
+export const submitFeedback = async (req: Request, res: Response) => {
+    try {
+        const { session, error: sessionError } = await getSessionFromRequest(req);
+        if (!session?.client_id) {
+            return res.status(401).json({ success: false, error: sessionError || 'Not authenticated' });
+        }
+
+        const { messageId, rating, correction } = req.body;
+        if (!messageId || !rating) {
+            return res.status(400).json({ success: false, error: 'messageId and rating are required' });
+        }
+
+        // 1. Update Supabase (crm_messages) by merging feedback into raw_payload
+        const { data: currentMsg } = await supabase
+            .from('crm_messages')
+            .select('raw_payload')
+            .eq('id', messageId)
+            .single();
+
+        const newPayload = {
+            ...(currentMsg?.raw_payload || {}),
+            feedback: {
+                rating,
+                correction: correction || null,
+                submitted_at: new Date().toISOString()
+            }
+        };
+
+        const { error: supabaseError } = await supabase
+            .from('crm_messages')
+            .update({
+                raw_payload: newPayload
+            })
+            .eq('id', messageId)
+            .eq('conversation_id', session.conversation_id);
+
+        if (supabaseError) {
+            console.error('[Widget] Supabase feedback error:', supabaseError);
+        }
+
+        // 2. Sync with local AIConversationService for Dashboard
+        try {
+            const { AIConversationService } = await import('../services/aiConversationService');
+            const convService = AIConversationService.getInstance();
+            convService.addMessageFeedback(
+                session.conversation_id,
+                messageId,
+                rating as 'positive' | 'negative',
+                session.client_id,
+                correction
+            );
+        } catch (syncErr: any) {
+            console.warn('[Widget] Local feedback sync failed:', syncErr.message);
+        }
+
+        res.json({ success: true, message: 'Feedback submitted' });
+
+    } catch (err: any) {
+        console.error('[Widget] Submit feedback error:', err);
         res.status(500).json({ success: false, error: 'Server error' });
     }
 };

@@ -8,12 +8,17 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 
 const API_BASE = '/api/v1/widget';
 
-interface ChatMessage {
+export interface ChatMessage {
     id: string;
     content: string;
     role: 'user' | 'assistant';
     createdAt: string;
     isTemp?: boolean;
+    confidence?: 'high' | 'medium' | 'low';
+    feedback?: {
+        rating: 'positive' | 'negative' | null;
+        submitted_at?: string;
+    };
 }
 
 interface UseWidgetChatReturn {
@@ -22,6 +27,7 @@ interface UseWidgetChatReturn {
     isSending: boolean;
     error: string | null;
     sendMessage: (text: string) => Promise<void>;
+    submitFeedback: (messageId: string, rating: 'positive' | 'negative', correction?: string) => Promise<boolean>;
     loadHistory: () => Promise<void>;
     clearError: () => void;
 }
@@ -174,6 +180,40 @@ export function useWidgetChat(
         };
     }, [sessionToken, isAuthenticated, conversationId, messages]);
 
+    // Submit feedback
+    const submitFeedback = useCallback(async (messageId: string, rating: 'positive' | 'negative', correction?: string) => {
+        if (!sessionToken || !isAuthenticated) return false;
+
+        try {
+            const res = await fetch(`${API_BASE}/feedback`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Widget-Session': sessionToken
+                },
+                body: JSON.stringify({ messageId, rating, correction })
+            });
+            const data = await res.json();
+
+            if (data.success) {
+                setMessages(prev => prev.map(m => {
+                    if (m.id === messageId) {
+                        return {
+                            ...m,
+                            feedback: { rating, submitted_at: new Date().toISOString() }
+                        };
+                    }
+                    return m;
+                }));
+                return true;
+            }
+            return false;
+        } catch (err) {
+            console.error('[Widget] Submit feedback error:', err);
+            return false;
+        }
+    }, [sessionToken, isAuthenticated]);
+
     const clearError = useCallback(() => setError(null), []);
 
     return {
@@ -182,6 +222,7 @@ export function useWidgetChat(
         isSending,
         error,
         sendMessage,
+        submitFeedback,
         loadHistory,
         clearError
     };

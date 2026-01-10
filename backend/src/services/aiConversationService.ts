@@ -16,6 +16,7 @@ export interface Message {
     role: 'user' | 'assistant' | 'system' | 'tool';
     content: string;
     timestamp: string;
+    correlationId?: string;                  // Phase 3: Traceability
     metadata?: any;
     confidence?: 'high' | 'medium' | 'low'; // Phase 4: AI confidence level
     feedback?: MessageFeedback;              // Phase 5: User feedback on this message
@@ -137,23 +138,25 @@ export class AIConversationService {
 
     public addMessage(
         conversationId: string,
-        role: 'user' | 'assistant' | 'system' | 'tool',
+        role: Message['role'],
         content: string,
-        confidence?: 'high' | 'medium' | 'low'
-    ): Message | null {
+        confidence?: Message['confidence'],
+        correlationId?: string
+    ): Message {
         const conversation = this.getConversation(conversationId);
-        if (!conversation) return null;
+        if (!conversation) throw new Error('Conversation not found');
 
         const now = new Date().toISOString();
-        const message: Message = {
+        const newMessage: Message = {
             id: crypto.randomUUID(),
             role,
             content,
             timestamp: now,
-            confidence: confidence || undefined
+            confidence,
+            correlationId
         };
 
-        conversation.messages.push(message);
+        conversation.messages.push(newMessage);
         conversation.updatedAt = now;
 
         // Auto-update title if it's the first user message and title is default
@@ -162,7 +165,7 @@ export class AIConversationService {
         }
 
         fs.writeFileSync(this.getFilePath(conversationId), JSON.stringify(conversation, null, 2));
-        return message;
+        return newMessage;
     }
 
     public deleteConversation(id: string): boolean {
