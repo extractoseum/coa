@@ -49,17 +49,13 @@ const WIDGET_TOOLS: Anthropic.Tool[] = [
     },
     {
         name: 'lookup_order',
-        description: 'Busca el estado de un pedido por número de orden o teléfono del cliente.',
+        description: 'Busca pedidos del cliente. Si el cliente está autenticado, puedes llamar esta herramienta SIN parámetros y automáticamente buscará todos sus pedidos. También puedes buscar por número de orden específico.',
         input_schema: {
             type: 'object' as const,
             properties: {
                 order_number: {
                     type: 'string',
-                    description: 'Número de orden (ej: "EUM1234")'
-                },
-                phone: {
-                    type: 'string',
-                    description: 'Teléfono del cliente para buscar pedidos'
+                    description: 'Número de orden específico (ej: "EUM_1234_SHOP"). Opcional si el cliente está autenticado.'
                 }
             },
             required: []
@@ -234,10 +230,11 @@ export class WidgetAraService {
 
         // Add customer context if available
         if (context.customerName || context.customerPhone || context.customerEmail) {
-            systemPrompt += `\n\nCONTEXTO DEL CLIENTE:`;
+            systemPrompt += `\n\nCONTEXTO DEL CLIENTE AUTENTICADO:`;
             if (context.customerName) systemPrompt += `\n- Nombre: ${context.customerName}`;
             if (context.customerPhone) systemPrompt += `\n- Teléfono: ${context.customerPhone}`;
             if (context.customerEmail) systemPrompt += `\n- Email: ${context.customerEmail}`;
+            systemPrompt += `\n\nIMPORTANTE: Este cliente está autenticado. Cuando pregunte por "mi pedido" o "mis pedidos", usa la herramienta lookup_order SIN parámetros - automáticamente buscará sus pedidos usando su cuenta. NO necesitas pedirle número de orden ni teléfono.`;
         }
 
         // 4. Call Claude with tools

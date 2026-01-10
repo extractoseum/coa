@@ -94,9 +94,11 @@ export default function MyOrders() {
             case 'created':
                 return { bg: 'rgba(234, 179, 8, 0.2)', color: '#eab308' };
             case 'cancelled':
+            case 'voided':
                 return { bg: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' };
             case 'pending':
-                return { bg: 'rgba(249, 115, 22, 0.2)', color: '#f97316' }; // Orange for pending
+            case 'pending_payment':
+                return { bg: 'rgba(249, 115, 22, 0.2)', color: '#f97316' }; // Orange for pending payment
             default:
                 return { bg: 'rgba(156, 163, 175, 0.2)', color: '#9ca3af' };
         }
@@ -104,8 +106,9 @@ export default function MyOrders() {
 
     const getStatusText = (status: string) => {
         switch (status.toLowerCase()) {
-            case 'created': return 'Recibido';
-            case 'paid': return 'Confirmado';
+            case 'pending_payment': return 'Pendiente de Pago';
+            case 'created': return 'Confirmado';
+            case 'paid': return 'Pagado';
             case 'fulfilled': return 'Empacado';
             case 'pending_pickup': return 'Guía Generada';
             case 'in_transit': return 'En Camino';
@@ -114,13 +117,16 @@ export default function MyOrders() {
             case 'success': // Estafeta uses 'success' for delivered
                 return 'Entregado';
             case 'cancelled': return 'Cancelado';
+            case 'voided': return 'Anulado';
             case 'pending': return 'Pendiente Recolección';
             default: return status;
         }
     };
 
     const resolveDisplayStatus = (order: Order) => {
-        if (order.status === 'cancelled') return 'cancelled';
+        // Check cancelled/voided first
+        if (order.status === 'cancelled' || order.financial_status === 'voided') return 'cancelled';
+        if (order.financial_status === 'voided') return 'voided';
 
         const trackings = order.order_tracking || [];
         if (trackings.length > 0) {
@@ -143,6 +149,11 @@ export default function MyOrders() {
         // Use fulfillment_status if available (from Shopify)
         if (order.fulfillment_status === 'fulfilled') return 'fulfilled';
         if (order.fulfillment_status === 'partial') return 'processing';
+
+        // Check financial_status for payment state
+        if (order.financial_status === 'pending') return 'pending_payment';
+        if (order.financial_status === 'paid') return 'paid';
+        if (order.financial_status === 'authorized') return 'paid'; // Treat authorized as paid
 
         // Fallback to status field
         return order.status;
