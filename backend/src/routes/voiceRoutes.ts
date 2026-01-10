@@ -725,4 +725,116 @@ router.get('/test-context/:phone', async (req: Request, res: Response) => {
     }
 });
 
+/**
+ * GET /api/voice/test-whatsapp/:phone
+ * Test the complete send_whatsapp flow - simulates what happens during a voice call
+ */
+router.get('/test-whatsapp/:phone', async (req: Request, res: Response) => {
+    const { sendWhatsAppMessage } = await import('../services/whapiService');
+    const { normalizePhone } = await import('../utils/phoneUtils');
+    const { phone } = req.params;
+    const testMessage = req.query.msg as string || 'Test message from voice call debug';
+    const logs: string[] = [];
+
+    const log = (msg: string) => {
+        logs.push(`${new Date().toISOString()} - ${msg}`);
+    };
+
+    try {
+        log(`Input phone: ${phone}`);
+
+        // Step 1: Normalize for Whapi
+        const normalizedPhone = normalizePhone(phone, 'whapi');
+        log(`Normalized for Whapi: ${normalizedPhone}`);
+
+        // Step 2: Normalize for Twilio (what comes in during call)
+        const twilioFormat = normalizePhone(phone, 'twilio');
+        log(`Twilio format would be: ${twilioFormat}`);
+
+        // Step 3: Show what normalizePhone does step by step
+        const cleanDigits = phone.replace(/\D/g, '');
+        log(`Clean digits: ${cleanDigits} (length: ${cleanDigits.length})`);
+
+        if (cleanDigits.length === 10) {
+            log(`Case: 10 digits -> Would add 521 prefix for Whapi`);
+        } else if (cleanDigits.length === 12 && cleanDigits.startsWith('52')) {
+            log(`Case: 12 digits starting with 52 -> Would convert to 521 for Whapi`);
+        } else if (cleanDigits.length === 13 && cleanDigits.startsWith('521')) {
+            log(`Case: 13 digits starting with 521 -> Already correct for Whapi`);
+        } else {
+            log(`Case: Unhandled format - ${cleanDigits.length} digits`);
+        }
+
+        // Step 4: Actually try to send (only if ?send=true)
+        let sendResult: any = null;
+        if (req.query.send === 'true') {
+            log(`SENDING WhatsApp to ${normalizedPhone}...`);
+            sendResult = await sendWhatsAppMessage({
+                to: phone,  // Pass raw phone - let service normalize
+                body: testMessage
+            });
+            log(`Send result: ${JSON.stringify(sendResult)}`);
+        } else {
+            log(`DRY RUN - Add ?send=true to actually send`);
+        }
+
+        res.json({
+            input: phone,
+            normalizedForWhapi: normalizedPhone,
+            twilioFormat,
+            cleanDigits,
+            logs,
+            sendResult,
+            instructions: 'Add ?send=true&msg=Your message to actually send'
+        });
+    } catch (error: any) {
+        log(`ERROR: ${error.message}`);
+        res.json({ error: error.message, logs });
+    }
+});
+
+/**
+ * GET /api/voice/call-logs/:phone
+ * Get recent voice calls for a phone number with full details
+ */
+router.get('/call-logs/:phone', async (req: Request, res: Response) => {
+    const { supabase } = await import('../config/supabase');
+    const { phone } = req.params;
+    const cleanPhone = phone.replace(/\D/g, '').slice(-10);
+
+    try {
+        const { data: calls, error } = await supabase
+            .from('voice_calls')
+            .select('*')
+            .or(`phone_number.ilike.%${cleanPhone}%`)
+            .order('created_at', { ascending: false })
+            .limit(10);
+
+        if (error) {
+            return res.json({ error: error.message });
+        }
+
+        res.json({
+            phone: cleanPhone,
+            callCount: calls?.length || 0,
+            calls: calls?.map(c => ({
+                id: c.id,
+                vapi_call_id: c.vapi_call_id,
+                phone: c.phone_number,
+                direction: c.direction,
+                status: c.status,
+                duration: c.duration_seconds,
+                client_id: c.client_id,
+                client_name: c.client_name,
+                client_type: c.client_type,
+                created_at: c.created_at,
+                transcript: c.transcript?.substring(0, 500),
+                has_recording: !!c.recording_url
+            }))
+        });
+    } catch (error: any) {
+        res.json({ error: error.message });
+    }
+});
+
 export default router;

@@ -166,10 +166,19 @@ export async function handleSendWhatsApp(
     context: ToolCallContext
 ): Promise<ToolResult> {
     const { message, media_url } = args;
-    const { customerPhone, conversationId } = context;
+    const { customerPhone, conversationId, clientId } = context;
+
+    // Enhanced logging for debugging
+    console.log(`[VapiTools] send_whatsapp CALLED with:`, {
+        customerPhone,
+        conversationId,
+        clientId,
+        messageLength: message?.length,
+        hasMediaUrl: !!media_url
+    });
 
     if (!customerPhone) {
-        console.error('[VapiTools] send_whatsapp failed: Missing customerPhone in context');
+        console.error('[VapiTools] send_whatsapp FAILED: Missing customerPhone in context', { context });
         return {
             success: false,
             error: 'No se pudo identificar el teléfono del cliente. Pídele su número para enviarlo.'
@@ -177,12 +186,14 @@ export async function handleSendWhatsApp(
     }
 
     try {
-        console.log(`[VapiTools] Sending WhatsApp to ${customerPhone}: ${message.substring(0, 50)}...`);
+        console.log(`[VapiTools] Sending WhatsApp to ${customerPhone}: ${message.substring(0, 100)}...`);
 
         const result = await sendWhatsAppMessage({
             to: customerPhone,
             body: message
         });
+
+        console.log(`[VapiTools] sendWhatsAppMessage result:`, result);
 
         if (result.sent) {
             // Log in CRM messages if we have conversation context
