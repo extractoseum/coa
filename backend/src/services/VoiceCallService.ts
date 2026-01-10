@@ -439,6 +439,7 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
 
     /**
      * Get customer context from database with full profile
+     * Searches in both clients table AND conversations table by contact_handle
      */
     private async getCustomerContext(phone: string): Promise<{
         clientId?: string;
@@ -454,7 +455,7 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
             const cleanPhone = phone.replace(/\D/g, '').slice(-10);
             logger.info(`[getCustomerContext] Looking up phone: ${phone} -> cleaned: ${cleanPhone}`);
 
-            // Try exact match on cleaned phone with full profile
+            // === STRATEGY 1: Search in clients table ===
             let { data: client, error } = await supabase
                 .from('clients')
                 .select('id, name, phone, email, tags, total_spent, order_count, notes')
@@ -477,8 +478,46 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
                 client = client2;
             }
 
+            // === STRATEGY 2: Search in conversations by contact_handle ===
+            // This catches cases where the phone number exists in CRM but not in clients table
+            const { data: existingConversation } = await supabase
+                .from('conversations')
+                .select('id, contact_handle, facts, column_id, tags')
+                .ilike('contact_handle', `%${cleanPhone}%`)
+                .order('updated_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            // If we found a conversation but no client, extract context from conversation facts
+            if (!client && existingConversation) {
+                const facts = existingConversation.facts as any || {};
+                logger.info(`[getCustomerContext] Found conversation for phone: ${cleanPhone}, name from facts: ${facts.user_name}`);
+
+                // Determine client type from conversation context
+                let clientType = 'returning'; // Has conversation = returning customer
+                if (facts.intent_score && facts.intent_score >= 80) {
+                    clientType = 'vip'; // High intent = treat as VIP
+                }
+
+                return {
+                    clientName: facts.user_name || undefined,
+                    clientTags: existingConversation.tags || [],
+                    clientType,
+                    conversationId: existingConversation.id,
+                    recentOrders: [],
+                    totalSpent: 0
+                };
+            }
+
             if (!client) {
-                logger.warn(`[getCustomerContext] No client found for phone: ${cleanPhone}`);
+                logger.warn(`[getCustomerContext] No client or conversation found for phone: ${cleanPhone}`);
+
+                // Still try to use existing conversation if found
+                if (existingConversation) {
+                    return {
+                        conversationId: existingConversation.id
+                    };
+                }
                 return {};
             }
 
@@ -501,25 +540,32 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
                 .order('created_at', { ascending: false })
                 .limit(3);
 
-            // Find or create conversation
-            const { data: conversation } = await supabase
-                .from('conversations')
-                .select('id')
-                .eq('client_id', client.id)
-                .eq('is_archived', false)
-                .order('updated_at', { ascending: false })
-                .limit(1)
-                .maybeSingle();
+            // Use existing conversation if found, or find by contact_handle
+            let conversationId = existingConversation?.id;
 
-            let conversationId = conversation?.id;
+            if (!conversationId) {
+                // Try to find conversation by contact_handle matching client phone
+                const { data: convByHandle } = await supabase
+                    .from('conversations')
+                    .select('id')
+                    .ilike('contact_handle', `%${cleanPhone}%`)
+                    .order('updated_at', { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
 
+                conversationId = convByHandle?.id;
+            }
+
+            // If still no conversation, create one
             if (!conversationId) {
                 const { data: newConv } = await supabase
                     .from('conversations')
                     .insert({
-                        client_id: client.id,
+                        contact_handle: cleanPhone,
                         channel: 'voice',
-                        is_archived: false
+                        facts: {
+                            user_name: client.name
+                        }
                     })
                     .select('id')
                     .single();
