@@ -156,8 +156,13 @@ export class VoiceCallService {
     generateIncomingCallTwiML(callSid: string): string {
         const wsUrl = BACKEND_URL.replace('https://', 'wss://').replace('http://', 'ws://');
 
+        // Enable call recording with webhook callback
+        // Recording will be saved to Twilio and URL sent to our webhook
         return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
+    <Start>
+        <Record recordingStatusCallback="${BACKEND_URL}/api/voice/recording-status" recordingStatusCallbackEvent="completed"/>
+    </Start>
     <Connect>
         <Stream url="${wsUrl}/api/voice/stream/${callSid}">
             <Parameter name="callSid" value="${callSid}"/>

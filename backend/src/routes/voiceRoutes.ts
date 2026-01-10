@@ -158,6 +158,53 @@ router.post('/status', async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /api/voice/recording-status
+ * Twilio webhook for recording completion - saves audio URL to database
+ */
+router.post('/recording-status', async (req: Request, res: Response) => {
+    try {
+        const {
+            CallSid,
+            RecordingSid,
+            RecordingUrl,
+            RecordingStatus,
+            RecordingDuration
+        } = req.body;
+
+        logger.info(`[VoiceRoutes] Recording status: ${RecordingStatus} for call ${CallSid}`);
+
+        if (RecordingStatus === 'completed' && RecordingUrl) {
+            // RecordingUrl from Twilio is the base URL, add .mp3 for playable format
+            const audioUrl = `${RecordingUrl}.mp3`;
+
+            const { supabase } = await import('../config/supabase');
+
+            // Update voice_call record with recording URL
+            const { error } = await supabase
+                .from('voice_calls')
+                .update({
+                    recording_url: audioUrl,
+                    recording_sid: RecordingSid,
+                    duration_seconds: parseInt(RecordingDuration) || 0
+                })
+                .eq('vapi_call_id', CallSid);
+
+            if (error) {
+                logger.error(`[VoiceRoutes] Failed to save recording URL`, error, { CallSid });
+            } else {
+                logger.info(`[VoiceRoutes] Recording saved for ${CallSid}: ${audioUrl}`);
+            }
+        }
+
+        res.sendStatus(200);
+
+    } catch (error: any) {
+        logger.error('[VoiceRoutes] Recording status error:', error);
+        res.sendStatus(500);
+    }
+});
+
+/**
  * POST /api/voice/call
  * API endpoint to initiate outbound calls (from CRM/Frontend)
  */

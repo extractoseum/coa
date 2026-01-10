@@ -720,31 +720,94 @@ export async function handleLookupOrder(
             };
         }
 
+        // Determine actual status from Shopify fields (financial_status + fulfillment_status)
+        // Priority: fulfillment_status > financial_status > status
+        let actualStatus = order.status || 'created';
+
+        // Map Shopify financial_status
+        if (order.financial_status) {
+            const financialMap: Record<string, string> = {
+                'pending': 'pending',
+                'authorized': 'authorized',
+                'paid': 'paid',
+                'partially_paid': 'partially_paid',
+                'refunded': 'refunded',
+                'voided': 'cancelled'
+            };
+            actualStatus = financialMap[order.financial_status] || actualStatus;
+        }
+
+        // Map Shopify fulfillment_status (overrides financial if exists)
+        if (order.fulfillment_status) {
+            const fulfillmentMap: Record<string, string> = {
+                'fulfilled': 'shipped',
+                'partial': 'processing',
+                'restocked': 'refunded'
+            };
+            actualStatus = fulfillmentMap[order.fulfillment_status] || actualStatus;
+        }
+
+        // Also check tracking_status for more specific status
+        if (order.tracking_status) {
+            const trackingMap: Record<string, string> = {
+                'pre_transit': 'processing',
+                'in_transit': 'in_transit',
+                'out_for_delivery': 'out_for_delivery',
+                'delivered': 'delivered',
+                'available_for_pickup': 'available_for_pickup',
+                'return_to_sender': 'return_to_sender',
+                'failure': 'delivery_failed',
+                'unknown': 'in_transit'
+            };
+            if (trackingMap[order.tracking_status]) {
+                actualStatus = trackingMap[order.tracking_status];
+            }
+        }
+
         // Format status in Spanish (natural for voice)
         const statusMap: Record<string, string> = {
+            'created': 'recién creado',
             'pending': 'pendiente de pago',
+            'authorized': 'pago autorizado, en preparación',
             'paid': 'pagado y en preparación',
             'processing': 'en preparación',
             'shipped': 'enviado',
             'in_transit': 'en camino',
             'out_for_delivery': 'en reparto',
             'delivered': 'entregado',
-            'cancelled': 'cancelado'
+            'available_for_pickup': 'listo para recoger',
+            'cancelled': 'cancelado',
+            'refunded': 'reembolsado',
+            'return_to_sender': 'regresado al remitente',
+            'delivery_failed': 'entrega fallida'
         };
 
-        const statusText = statusMap[order.status] || order.status;
+        const statusText = statusMap[actualStatus] || actualStatus;
+        const totalAmount = order.total_amount || order.total || 0;
+
+        // Build tracking info
+        let trackingInfo = '';
+        if (order.tracking_number) {
+            trackingInfo = ` El número de rastreo es ${order.tracking_number}.`;
+            if (order.tracking_status === 'delivered') {
+                trackingInfo += ' Ya fue entregado.';
+            }
+        }
 
         return {
             success: true,
-            message: `Tu pedido número ${order.order_number} está ${statusText}. El total fue de ${order.total} pesos.${order.tracking_number ? ` El número de rastreo es ${order.tracking_number}.` : ''}`,
+            message: `Tu pedido número ${order.order_number} está ${statusText}. El total fue de ${totalAmount} pesos.${trackingInfo}`,
             data: {
                 order_number: order.order_number,
-                status: order.status,
+                status: actualStatus,
                 status_text: statusText,
-                total: order.total,
+                total: totalAmount,
                 created_at: order.created_at,
                 tracking_number: order.tracking_number,
-                estimated_delivery: order.estimated_delivery
+                tracking_status: order.tracking_status,
+                financial_status: order.financial_status,
+                fulfillment_status: order.fulfillment_status,
+                line_items: order.line_items
             }
         };
 
