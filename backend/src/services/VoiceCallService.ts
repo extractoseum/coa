@@ -229,16 +229,19 @@ export class VoiceCallService {
                     await supabase.from('voice_calls').insert({
                         vapi_call_id: callSid,
                         conversation_id: context.conversationId,
+                        client_id: context.clientId,
                         direction: 'inbound',
                         phone_number: from,
                         status: 'in-progress',
                         started_at: new Date().toISOString(),
-                        metadata: {
+                        context_injected: !!context.clientId,
+                        context_data: context.clientId ? {
                             clientName: context.clientName,
                             clientType: context.clientType,
                             clientTags: context.clientTags,
-                            totalSpent: context.totalSpent
-                        }
+                            totalSpent: context.totalSpent,
+                            recentOrders: context.recentOrders
+                        } : null
                     });
                     logger.debug('Call logged to DB with context', { correlation_id: callSid });
                 } catch (dbError: any) {
@@ -645,27 +648,53 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
         content: string
     ): Promise<void> {
         try {
-            // Save to voice_calls transcript (update metadata)
-            const { data: existingCall } = await supabase
+            // Get existing call record
+            const { data: existingCall, error: fetchError } = await supabase
                 .from('voice_calls')
-                .select('metadata')
+                .select('transcript, messages_json')
                 .eq('vapi_call_id', session.callSid)
                 .single();
 
-            const metadata = existingCall?.metadata || {};
-            const transcripts = metadata.transcripts || [];
-            transcripts.push({
+            if (fetchError) {
+                logger.warn(`Could not fetch existing call for transcript`, {
+                    correlation_id: session.callSid,
+                    error: fetchError.message
+                });
+            }
+
+            // Build new transcript entry
+            const newEntry = {
                 role,
                 content,
                 timestamp: new Date().toISOString()
-            });
+            };
 
-            await supabase
+            // Append to messages_json array
+            const messagesJson = existingCall?.messages_json || [];
+            messagesJson.push(newEntry);
+
+            // Append to transcript text (human-readable format)
+            const roleLabel = role === 'user' ? 'Cliente' : 'Ara';
+            const existingTranscript = existingCall?.transcript || '';
+            const newTranscript = existingTranscript
+                ? `${existingTranscript}\n[${roleLabel}]: ${content}`
+                : `[${roleLabel}]: ${content}`;
+
+            // Update the voice_calls record
+            const { error: updateError } = await supabase
                 .from('voice_calls')
                 .update({
-                    metadata: { ...metadata, transcripts }
+                    transcript: newTranscript,
+                    messages_json: messagesJson
                 })
                 .eq('vapi_call_id', session.callSid);
+
+            if (updateError) {
+                logger.error(`Failed to update transcript`, {
+                    correlation_id: session.callSid,
+                    error: updateError.message
+                });
+            }
 
             // Also save to conversation messages if we have a conversation
             if (session.conversationId) {
@@ -673,11 +702,7 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
                     conversation_id: session.conversationId,
                     content,
                     from_customer: role === 'user',
-                    channel: 'voice',
-                    metadata: {
-                        callSid: session.callSid,
-                        transcribed: true
-                    }
+                    channel: 'voice'
                 });
             }
 

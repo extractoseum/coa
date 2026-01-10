@@ -362,7 +362,7 @@ router.get('/debug-calls', async (req: Request, res: Response) => {
         // Format the response
         const formattedCalls = calls?.map(call => ({
             id: call.id,
-            call_sid: call.call_sid,
+            call_sid: call.vapi_call_id,
             phone_number: call.phone_number,
             direction: call.direction,
             status: call.status,
@@ -371,9 +371,11 @@ router.get('/debug-calls', async (req: Request, res: Response) => {
             ended_at: call.ended_at,
             client_id: call.client_id,
             conversation_id: call.conversation_id,
-            transcripts: call.metadata?.transcripts || [],
-            transcript_count: call.metadata?.transcripts?.length || 0,
-            metadata_keys: call.metadata ? Object.keys(call.metadata) : []
+            transcript: call.transcript,
+            messages_json: call.messages_json || [],
+            message_count: call.messages_json?.length || 0,
+            context_injected: call.context_injected,
+            context_data: call.context_data
         }));
 
         res.json({
@@ -419,7 +421,8 @@ router.get('/debug-calls/:callSid', async (req: Request, res: Response) => {
 
         res.json({
             call,
-            transcripts: call?.metadata?.transcripts || [],
+            transcript: call?.transcript,
+            messages_json: call?.messages_json || [],
             related_messages: messages
         });
 
