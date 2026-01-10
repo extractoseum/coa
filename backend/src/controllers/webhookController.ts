@@ -388,9 +388,10 @@ const processOrderInternal = async (order: any, eventType: 'create' | 'update') 
     const shopifyOrderId = order.id?.toString();
     const orderNumber = order.name;
     const financialStatus = order.financial_status; // e.g., 'paid', 'pending'
+    const fulfillmentStatus = order.fulfillment_status; // e.g., 'fulfilled', 'partial', null
     const email = order.email || order.customer?.email;
 
-    console.log(`[Webhook] Order ${eventType} received: ${orderNumber} (Status: ${financialStatus})`);
+    console.log(`[Webhook] Order ${eventType} received: ${orderNumber} (Financial: ${financialStatus}, Fulfillment: ${fulfillmentStatus})`);
 
     // Log raw webhook
     await logWebhook(`shopify_order_${eventType}_raw`, order);
@@ -448,6 +449,8 @@ const processOrderInternal = async (order: any, eventType: 'create' | 'update') 
                 shopify_order_id: shopifyOrderId,
                 order_number: orderNumber,
                 status: newStatus,
+                financial_status: financialStatus,
+                fulfillment_status: fulfillmentStatus,
                 total_amount: order.total_price,
                 currency: order.currency,
                 shopify_created_at: order.created_at,
@@ -713,6 +716,8 @@ export const handleFulfillmentUpdate = async (req: Request, res: Response) => {
                                 shopify_order_id: shopifyOrderId,
                                 order_number: shopifyOrder.name,
                                 status: shopifyOrder.financial_status === 'paid' ? 'paid' : 'created',
+                                financial_status: shopifyOrder.financial_status,
+                                fulfillment_status: shopifyOrder.fulfillment_status,
                                 total_amount: shopifyOrder.total_price,
                                 currency: shopifyOrder.currency,
                                 shopify_created_at: shopifyOrder.created_at,
@@ -732,10 +737,14 @@ export const handleFulfillmentUpdate = async (req: Request, res: Response) => {
             }
 
             if (order) {
-                // Update order status
+                // Update order status and fulfillment_status
                 await supabase
                     .from('orders')
-                    .update({ status: 'fulfilled', updated_at: new Date().toISOString() })
+                    .update({
+                        status: 'fulfilled',
+                        fulfillment_status: 'fulfilled',
+                        updated_at: new Date().toISOString()
+                    })
                     .eq('id', order.id);
 
                 // Process each tracking number (could be multi-piece shipment)
