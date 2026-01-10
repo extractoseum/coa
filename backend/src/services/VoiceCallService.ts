@@ -310,14 +310,15 @@ export class VoiceCallService {
         }
 
         // Build rich context from client profile
+        // Use context if we have clientId OR clientName (for clients found via conversations)
         let contextInfo = '';
-        if (session.clientId) {
+        if (session.clientId || session.clientName) {
             const greetingName = session.clientName ? session.clientName.split(' ')[0] : '';
             const clientTypeLabel = {
                 'gold': 'Cliente Gold - trato VIP',
                 'partner': 'Partner del Club - descuentos especiales',
                 'club': 'Miembro del Club',
-                'vip': 'Cliente VIP Minorista',
+                'vip': 'Cliente VIP - alta intención de compra',
                 'returning': 'Cliente recurrente',
                 'new': 'Cliente nuevo'
             }[session.clientType || 'new'] || 'Cliente';
@@ -328,11 +329,12 @@ export class VoiceCallService {
 - Tipo: ${clientTypeLabel}
 - Tags: ${(session.clientTags || []).join(', ') || 'ninguno'}
 - Teléfono: ${session.customerPhone}
-- ID: ${session.clientId}
+${session.clientId ? `- ID Cliente: ${session.clientId}` : '- Cliente identificado por conversación previa'}
 
 INSTRUCCIONES DE PERSONALIZACIÓN:
+- IMPORTANTE: Saluda al cliente por su nombre "${greetingName}" en tu primera respuesta
 - Si es Gold/VIP/Partner: Trato especial, menciona beneficios exclusivos
-- Si es cliente recurrente: Pregunta si quiere reordenar lo de siempre
+- Si es cliente recurrente/VIP: Pregunta si quiere reordenar lo de siempre
 - Si es nuevo: Sé más explicativo sobre productos
 - SIEMPRE usa el nombre del cliente en la conversación`;
         }
@@ -953,6 +955,65 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
                         if (session) {
                             session.ws = ws;
                             session.streamSid = streamSid;
+
+                            // Send personalized initial greeting
+                            (async () => {
+                                try {
+                                    // Build personalized greeting
+                                    let greeting = '¡Hola! Soy Ara de Extractos EUM. ¿En qué puedo ayudarte hoy?';
+
+                                    if (session.clientName) {
+                                        const firstName = session.clientName.split(' ')[0];
+                                        const typeGreeting = {
+                                            'gold': `¡Hola ${firstName}! Soy Ara de Extractos EUM. Es un gusto atenderte, miembro Gold. ¿En qué puedo ayudarte hoy?`,
+                                            'vip': `¡Hola ${firstName}! Soy Ara de Extractos EUM. Me alegra escucharte de nuevo. ¿En qué te puedo apoyar?`,
+                                            'partner': `¡Hola ${firstName}! Soy Ara de Extractos EUM. Bienvenido, partner. ¿En qué te ayudo?`,
+                                            'returning': `¡Hola ${firstName}! Soy Ara de Extractos EUM. Qué gusto escucharte de nuevo. ¿En qué te puedo ayudar?`,
+                                            'club': `¡Hola ${firstName}! Soy Ara de Extractos EUM. ¿En qué puedo ayudarte hoy?`
+                                        }[session.clientType || 'returning'] || `¡Hola ${firstName}! Soy Ara de Extractos EUM. ¿En qué puedo ayudarte hoy?`;
+                                        greeting = typeGreeting;
+                                    }
+
+                                    logger.info(`[VoiceStreaming] Sending personalized greeting`, {
+                                        correlation_id: callSid,
+                                        clientName: session.clientName,
+                                        clientType: session.clientType,
+                                        greeting
+                                    });
+
+                                    // Add greeting to conversation history
+                                    session.messages.push({ role: 'assistant', content: greeting, timestamp: new Date() });
+
+                                    // Save greeting to transcript
+                                    this.saveTranscript(session, 'assistant', greeting);
+
+                                    // Generate TTS audio
+                                    const audioBuffer = await elevenLabs.generateAudioAdvanced(greeting, ELEVENLABS_VOICE_ID, {
+                                        model_id: ELEVENLABS_MODEL as any,
+                                        output_format: 'ulaw_8000',
+                                        voice_settings: { stability: 0.5, similarity_boost: 0.75 }
+                                    });
+
+                                    // Send audio to Twilio
+                                    const mediaMessage = {
+                                        event: 'media',
+                                        streamSid: streamSid,
+                                        media: { payload: audioBuffer.toString('base64') }
+                                    };
+
+                                    if (ws.readyState === WebSocket.OPEN) {
+                                        ws.send(JSON.stringify(mediaMessage));
+                                        ws.send(JSON.stringify({
+                                            event: 'mark',
+                                            streamSid: streamSid,
+                                            mark: { name: 'greeting_complete' }
+                                        }));
+                                    }
+
+                                } catch (greetErr: any) {
+                                    logger.error('[VoiceStreaming] Error sending greeting', greetErr, { correlation_id: callSid });
+                                }
+                            })();
                         }
                         break;
 
