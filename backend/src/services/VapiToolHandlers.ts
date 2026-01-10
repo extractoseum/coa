@@ -707,6 +707,9 @@ export async function handleLookupOrder(
 
     console.log(`[VapiTools] lookup_order: order_number=${order_number}, clientId=${clientId}, customerPhone=${customerPhone}`);
 
+    // Select with order_tracking join to get carrier status
+    const orderSelect = '*, order_tracking(carrier, tracking_number, current_status, tracking_url)';
+
     try {
         let order;
         let searchMethod = '';
@@ -716,7 +719,7 @@ export async function handleLookupOrder(
             // Search by order number
             const { data } = await supabase
                 .from('orders')
-                .select('*')
+                .select(orderSelect)
                 .ilike('order_number', `%${order_number}%`)
                 .limit(1)
                 .maybeSingle();
@@ -726,7 +729,7 @@ export async function handleLookupOrder(
             // Get latest order for client
             const { data } = await supabase
                 .from('orders')
-                .select('*')
+                .select(orderSelect)
                 .eq('client_id', clientId)
                 .order('created_at', { ascending: false })
                 .limit(1)
@@ -749,7 +752,7 @@ export async function handleLookupOrder(
                 console.log(`[VapiTools] lookup_order: found snapshot with client_id ${snapshot.client_id}`);
                 const { data } = await supabase
                     .from('orders')
-                    .select('*')
+                    .select(orderSelect)
                     .eq('client_id', snapshot.client_id)
                     .order('created_at', { ascending: false })
                     .limit(1)
@@ -765,7 +768,7 @@ export async function handleLookupOrder(
                 console.log(`[VapiTools] lookup_order: searching by snapshot email ${snapshot.email}`);
                 const { data: orderByEmail } = await supabase
                     .from('orders')
-                    .select('*')
+                    .select(orderSelect)
                     .ilike('customer_email', snapshot.email)
                     .order('created_at', { ascending: false })
                     .limit(1)
@@ -789,7 +792,7 @@ export async function handleLookupOrder(
                     console.log(`[VapiTools] lookup_order: found client ${client.id} in clients table`);
                     const { data } = await supabase
                         .from('orders')
-                        .select('*')
+                        .select(orderSelect)
                         .eq('client_id', client.id)
                         .order('created_at', { ascending: false })
                         .limit(1)
@@ -803,7 +806,7 @@ export async function handleLookupOrder(
                 console.log(`[VapiTools] lookup_order: fallback - searching orders by customer_phone ${cleanPhone}`);
                 const { data: orderByPhone } = await supabase
                     .from('orders')
-                    .select('*')
+                    .select(orderSelect)
                     .or(`customer_phone.ilike.%${cleanPhone}%,customer_phone.ilike.%52${cleanPhone}%`)
                     .order('created_at', { ascending: false })
                     .limit(1)
@@ -860,9 +863,16 @@ export async function handleLookupOrder(
             actualStatus = fulfillmentMap[order.fulfillment_status] || actualStatus;
         }
 
-        // Also check tracking_status for more specific status
-        if (order.tracking_status) {
-            const normalizedTracking = order.tracking_status.toLowerCase();
+        // Get tracking info from joined order_tracking table
+        const tracking = order.order_tracking?.[0];
+        const trackingStatus = tracking?.current_status;
+        const trackingNumber = tracking?.tracking_number;
+        const trackingCarrier = tracking?.carrier;
+        const trackingUrl = tracking?.tracking_url;
+
+        // Also check tracking status for more specific status (from order_tracking table)
+        if (trackingStatus) {
+            const normalizedTracking = trackingStatus.toLowerCase();
             const trackingMap: Record<string, string> = {
                 'pre_transit': 'processing',
                 'in_transit': 'in_transit',
@@ -879,7 +889,7 @@ export async function handleLookupOrder(
             }
         }
 
-        console.log(`[VapiTools] lookup_order status resolution: financial=${order.financial_status}, fulfillment=${order.fulfillment_status}, tracking=${order.tracking_status} => ${actualStatus}`);
+        console.log(`[VapiTools] lookup_order status resolution: financial=${order.financial_status}, fulfillment=${order.fulfillment_status}, tracking=${trackingStatus} => ${actualStatus}`);
 
         // Format status in Spanish (natural for voice)
         const statusMap: Record<string, string> = {
@@ -904,9 +914,9 @@ export async function handleLookupOrder(
 
         // Build tracking info
         let trackingInfo = '';
-        if (order.tracking_number) {
-            trackingInfo = ` El número de rastreo es ${order.tracking_number}.`;
-            if (order.tracking_status === 'delivered') {
+        if (trackingNumber) {
+            trackingInfo = ` El número de rastreo es ${trackingNumber}${trackingCarrier ? ` (${trackingCarrier})` : ''}.`;
+            if (actualStatus === 'delivered') {
                 trackingInfo += ' Ya fue entregado.';
             }
         }
@@ -920,8 +930,10 @@ export async function handleLookupOrder(
                 status_text: statusText,
                 total: totalAmount,
                 created_at: order.created_at,
-                tracking_number: order.tracking_number,
-                tracking_status: order.tracking_status,
+                tracking_number: trackingNumber,
+                tracking_status: trackingStatus,
+                tracking_carrier: trackingCarrier,
+                tracking_url: trackingUrl,
                 financial_status: order.financial_status,
                 fulfillment_status: order.fulfillment_status,
                 line_items: order.line_items
