@@ -88,6 +88,20 @@ export async function handleLookupOrder(
         return { success: false, message: 'No encontré pedidos asociados.' };
     }
 
+    // MULTIPLE ORDERS - Return list summary
+    if (result.count > 1) {
+        const orderSummary = result.orders.map((o: any, i: number) =>
+            `${i + 1}. ${o.order_number}: ${o.fulfillment_status} ($${o.total} MXN)`
+        ).join('\n');
+
+        return {
+            success: true,
+            message: `Encontré ${result.count} pedidos asociados a tu cuenta:\n\n${orderSummary}\n\n¿Quieres más detalles de alguno en específico?`,
+            data: result
+        };
+    }
+
+    // SINGLE ORDER - Detailed response
     const order = result.orders[0];
     return {
         success: true,
