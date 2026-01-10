@@ -437,7 +437,7 @@ export class CRMService {
                         toEmail: clientEmail,
                         subject: conv.facts?.last_subject ? `Re: ${conv.facts.last_subject}` : 'Mensaje de Extractos EUM',
                         body: content,
-                        type: 'informational' as MessageType, // WhatsApp → Email → Push with email backup
+                        type: 'instant' as MessageType, // WhatsApp → SMS → Push (fast delivery with SMS fallback)
                         conversationId: conversationId,
                         metadata: { source: 'crm_dispatch', channel: conv.channel }
                     });
@@ -467,13 +467,25 @@ export class CRMService {
                 res = emailRes;
             }
 
-            // Update status in DB
+            // Build delivery info for UI display
+            const deliveryInfo: Record<string, any> = {
+                channel_used: res?.channelUsed || conv.channel,
+                channels_attempted: res?.channelsAttempted || [conv.channel],
+                email_sent: res?.emailSent || false,
+                delivered_at: success ? new Date().toISOString() : null,
+                error: errorMsg || null
+            };
+
+            // Update status in DB with delivery channel info
             await supabase
                 .from('crm_messages')
                 .update({
                     status: success ? 'delivered' : 'failed',
-                    external_id: externalId, // SAVE THE EXTERNAL ID
-                    raw_payload: !success ? { error: errorMsg } : (res as any)?.message || res || {}
+                    external_id: externalId,
+                    raw_payload: {
+                        ...((res as any)?.message || res || {}),
+                        delivery_info: deliveryInfo
+                    }
                 })
                 .eq('id', messageId)
                 .select('id, status, external_id');
