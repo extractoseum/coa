@@ -2,12 +2,14 @@
  * useWidgetAuth - Widget authentication hook
  *
  * Manages widget session state and OTP authentication flow.
+ * Automatically links with existing app auth if user is logged in.
  */
 
 import { useState, useEffect, useCallback } from 'react';
 
 const API_BASE = '/api/v1/widget';
 const SESSION_KEY = 'ara_widget_session';
+const APP_TOKEN_KEY = 'accessToken'; // Main app's auth token key
 
 interface WidgetClient {
     id: string;
@@ -41,6 +43,39 @@ export function useWidgetAuth(): UseWidgetAuthReturn {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
+    // Try to link widget session with existing app authentication
+    const tryLinkWithAppAuth = async (widgetToken: string): Promise<boolean> => {
+        const appToken = localStorage.getItem(APP_TOKEN_KEY);
+        if (!appToken) return false;
+
+        try {
+            const res = await fetch(`${API_BASE}/auth/link`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Widget-Session': widgetToken,
+                    'Authorization': `Bearer ${appToken}`
+                }
+            });
+            const data = await res.json();
+
+            if (data.success && data.client) {
+                setSession({
+                    sessionToken: widgetToken,
+                    isAuthenticated: true,
+                    client: data.client,
+                    conversationId: data.conversationId,
+                    expiresAt: ''
+                });
+                console.log('[Widget] Auto-linked with app auth');
+                return true;
+            }
+        } catch (err) {
+            console.warn('[Widget] Failed to link with app auth:', err);
+        }
+        return false;
+    };
+
     // Initialize or restore session
     useEffect(() => {
         const init = async () => {
@@ -59,6 +94,15 @@ export function useWidgetAuth(): UseWidgetAuthReturn {
                     const data = await res.json();
 
                     if (data.success) {
+                        // If session exists but not authenticated, try app auth
+                        if (!data.isAuthenticated) {
+                            const linked = await tryLinkWithAppAuth(storedToken);
+                            if (linked) {
+                                setIsLoading(false);
+                                return;
+                            }
+                        }
+
                         setSession({
                             sessionToken: storedToken,
                             isAuthenticated: data.isAuthenticated,
@@ -86,6 +130,14 @@ export function useWidgetAuth(): UseWidgetAuthReturn {
 
                 if (createData.success) {
                     localStorage.setItem(SESSION_KEY, createData.sessionToken);
+
+                    // Try to auto-link with app auth for new sessions
+                    const linked = await tryLinkWithAppAuth(createData.sessionToken);
+                    if (linked) {
+                        setIsLoading(false);
+                        return;
+                    }
+
                     setSession({
                         sessionToken: createData.sessionToken,
                         isAuthenticated: false,

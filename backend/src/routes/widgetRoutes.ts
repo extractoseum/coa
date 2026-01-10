@@ -18,6 +18,7 @@ import {
     createSession,
     sendWidgetOTP,
     verifyWidgetOTP,
+    linkWithAppAuth,
     getConversation,
     sendMessage,
     getMessages,
@@ -60,6 +61,12 @@ router.post('/auth/send-otp', sendWidgetOTP);
  * Links session to client account on success
  */
 router.post('/auth/verify-otp', verifyWidgetOTP);
+
+/**
+ * Link widget session with existing app authentication
+ * If user is already logged into the app (has valid JWT), skip OTP
+ */
+router.post('/auth/link', linkWithAppAuth);
 
 // ============================================
 // CONVERSATION & MESSAGING

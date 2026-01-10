@@ -791,3 +791,136 @@ export const markNotificationRead = async (req: Request, res: Response) => {
         res.status(500).json({ success: false, error: 'Server error' });
     }
 };
+
+// ============================================
+// APP AUTH LINKING
+// ============================================
+
+/**
+ * Link widget session with existing app authentication
+ * POST /api/v1/widget/auth/link
+ *
+ * If user is already logged into the main app, they can skip OTP
+ * by providing their JWT token from the app.
+ */
+export const linkWithAppAuth = async (req: Request, res: Response) => {
+    try {
+        const { session, error: sessionError } = await getSessionFromRequest(req);
+        if (!session) {
+            return res.status(401).json({ success: false, error: sessionError });
+        }
+
+        // Already authenticated via widget
+        if (session.client_id) {
+            return res.json({
+                success: true,
+                client: {
+                    id: session.client.id,
+                    name: session.client.name,
+                    email: session.client.email,
+                    phone: session.client.phone
+                },
+                conversationId: session.conversation_id
+            });
+        }
+
+        // Get JWT from Authorization header
+        const authHeader = req.headers.authorization;
+        if (!authHeader?.startsWith('Bearer ')) {
+            return res.status(401).json({ success: false, error: 'No app token provided' });
+        }
+
+        const token = authHeader.slice(7);
+
+        // Verify JWT
+        const jwt = await import('jsonwebtoken');
+        let decoded: any;
+        try {
+            decoded = jwt.default.verify(token, process.env.JWT_SECRET!);
+        } catch (jwtErr) {
+            return res.status(401).json({ success: false, error: 'Invalid app token' });
+        }
+
+        // Get client from token
+        const clientId = decoded.sub || decoded.userId || decoded.id;
+        if (!clientId) {
+            return res.status(401).json({ success: false, error: 'Invalid token payload' });
+        }
+
+        const { data: client, error: clientError } = await supabase
+            .from('clients')
+            .select('*')
+            .eq('id', clientId)
+            .eq('is_active', true)
+            .single();
+
+        if (clientError || !client) {
+            return res.status(404).json({ success: false, error: 'Client not found' });
+        }
+
+        // Get or create widget conversation
+        const { data: existingConv } = await supabase
+            .from('conversations')
+            .select('id')
+            .eq('client_id', client.id)
+            .eq('channel', 'WIDGET')
+            .eq('status', 'active')
+            .single();
+
+        let conversationId = existingConv?.id;
+
+        if (!conversationId) {
+            const { data: chip } = await supabase
+                .from('channel_chips')
+                .select('default_entry_column_id')
+                .eq('channel_id', session.origin?.includes('shopify') ? 'widget_shopify' : 'widget_ara')
+                .single();
+
+            const { data: newConv, error: convError } = await supabase
+                .from('conversations')
+                .insert({
+                    client_id: client.id,
+                    channel: 'WIDGET',
+                    contact_handle: client.email || client.phone || 'widget',
+                    status: 'active',
+                    column_id: chip?.default_entry_column_id || null,
+                    widget_session_id: session.id,
+                    platform: 'widget',
+                    traffic_source: session.origin?.includes('shopify') ? 'shopify' : 'direct'
+                })
+                .select()
+                .single();
+
+            if (!convError && newConv) {
+                conversationId = newConv.id;
+            }
+        }
+
+        // Link session to client
+        await supabase
+            .from('widget_sessions')
+            .update({
+                client_id: client.id,
+                conversation_id: conversationId,
+                authenticated_at: new Date().toISOString()
+            })
+            .eq('id', session.id);
+
+        console.log(`[Widget] Session ${session.id} linked to client ${client.id} via app auth`);
+
+        res.json({
+            success: true,
+            client: {
+                id: client.id,
+                name: client.name,
+                email: client.email,
+                phone: client.phone
+            },
+            conversationId
+        });
+
+    } catch (err: any) {
+        console.error('[Widget] Link with app auth error:', err);
+        res.status(500).json({ success: false, error: 'Server error' });
+    }
+};
