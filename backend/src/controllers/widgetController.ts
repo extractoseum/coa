@@ -841,9 +841,10 @@ export const linkWithAppAuth = async (req: Request, res: Response) => {
             return res.status(401).json({ success: false, error: 'Invalid app token' });
         }
 
-        // Get client from token
-        const clientId = decoded.sub || decoded.userId || decoded.id;
+        // Get client from token (JWT uses 'clientId' field)
+        const clientId = decoded.clientId || decoded.sub || decoded.userId || decoded.id;
         if (!clientId) {
+            console.error('[Widget] Invalid token payload:', decoded);
             return res.status(401).json({ success: false, error: 'Invalid token payload' });
         }
 
