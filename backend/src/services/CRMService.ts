@@ -1,8 +1,9 @@
 import { supabase } from '../config/supabase';
 import { AIService, CustomerContext } from './aiService';
 import { logger } from '../utils/Logger'; // Phase 31: Structured Logging
-import { sendWhatsAppMessage, sendWhatsAppVoice, getContactInfo } from './whapiService';
+import { sendWhatsAppVoice, getContactInfo } from './whapiService';
 import { sendDataEmail, sendAraEmail } from './emailService';
+import { sendSmartMessage, MessageType } from './SmartCommunicationService';
 import { searchShopifyCustomers, getShopifyCustomerOrders, searchShopifyCustomerByPhone } from './shopifyService';
 import { ChannelRouter } from './channelRouter';
 import { ChipEngine } from './chipEngine';
@@ -407,24 +408,53 @@ export class CRMService {
 
             let externalId: string | null = null;
             let res: any;
-            if (conv.channel === 'WA') {
+
+            // Try to get client email for SmartCommunication fallback
+            let clientEmail: string | undefined;
+            const cleanPhone = conv.contact_handle?.replace(/\D/g, '').slice(-10);
+            if (cleanPhone) {
+                const { data: clientData } = await supabase
+                    .from('clients')
+                    .select('email')
+                    .ilike('phone', `%${cleanPhone}%`)
+                    .limit(1)
+                    .maybeSingle();
+                clientEmail = clientData?.email || undefined;
+            }
+
+            if (conv.channel === 'WA' || conv.channel === 'IG' || conv.channel === 'FB') {
                 if (type === 'audio') {
+                    // Audio still uses direct WhatsApp (no fallback for voice notes)
                     res = await sendWhatsAppVoice(conv.contact_handle, content, customToken);
+                    success = res.sent;
+                    errorMsg = res.error || '';
+                    externalId = res.message?.id || null;
                 } else {
-                    res = await sendWhatsAppMessage({ to: conv.contact_handle, body: content }, customToken);
+                    // Use SmartCommunication for text messages (with fallback)
+                    console.log(`[CRMService] Using SmartCommunication for ${conv.channel} message to ${conv.contact_handle}`);
+                    const smartResult = await sendSmartMessage({
+                        to: conv.contact_handle,
+                        toEmail: clientEmail,
+                        subject: conv.facts?.last_subject ? `Re: ${conv.facts.last_subject}` : 'Mensaje de Extractos EUM',
+                        body: content,
+                        type: 'informational' as MessageType, // WhatsApp → Email → Push with email backup
+                        conversationId: conversationId,
+                        metadata: { source: 'crm_dispatch', channel: conv.channel }
+                    });
+
+                    success = smartResult.success;
+                    errorMsg = smartResult.error || '';
+                    externalId = smartResult.channelResults?.whatsapp?.messageId ||
+                                 smartResult.channelResults?.email?.messageId || null;
+                    res = smartResult;
+
+                    // Log which channel was actually used
+                    if (smartResult.success && smartResult.channelUsed !== 'whatsapp') {
+                        console.log(`[CRMService] WhatsApp unavailable, message sent via ${smartResult.channelUsed}`);
+                    }
                 }
-                success = res.sent;
-                errorMsg = res.error || '';
-                externalId = res.message?.id || null;
-            } else if (conv.channel === 'IG' || conv.channel === 'FB') {
-                // Bridge through Whapi if configured, or future direct integrations
-                console.log(`[CRMService] Bridging ${conv.channel} message for ${conv.contact_handle}...`);
-                res = await sendWhatsAppMessage({ to: conv.contact_handle, body: content }, customToken);
-                success = res.sent;
-                errorMsg = res.error || '';
-                externalId = res.message?.id || null;
             } else if (conv.channel === 'EMAIL') {
-                // Use Ara's email for CRM conversations
+                // Use Ara's email for CRM conversations (direct, no fallback needed)
                 const emailRes = await sendAraEmail({
                     to: conv.contact_handle,
                     subject: conv.facts?.last_subject ? `Re: ${conv.facts.last_subject}` : '[EUM] Mensaje de Ara',
