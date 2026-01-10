@@ -12,6 +12,7 @@
 
 import { supabase } from '../config/supabase';
 import { sendWhatsAppMessage } from './whapiService';
+import { sendSmartMessage } from './SmartCommunicationService';
 import { cleanupPhone } from '../utils/phoneUtils';
 
 // Cache for search mappings (refreshed periodically)
@@ -159,7 +160,10 @@ interface ToolResult {
 
 /**
  * Tool: send_whatsapp / function_tool_wa
- * Sends a WhatsApp message to the customer during the call
+ * Sends a message to the customer during the call using SmartCommunicationService
+ *
+ * Uses intelligent fallback: WhatsApp → SMS → Email
+ * Email is ALWAYS sent as backup so customer has permanent record
  */
 export async function handleSendWhatsApp(
     args: { message: string; media_url?: string },
@@ -186,38 +190,75 @@ export async function handleSendWhatsApp(
     }
 
     try {
-        console.log(`[VapiTools] Sending WhatsApp to ${customerPhone}: ${message.substring(0, 100)}...`);
+        console.log(`[VapiTools] Sending message via SmartCommunicationService to ${customerPhone}`);
 
-        const result = await sendWhatsAppMessage({
+        // Use SmartCommunicationService for intelligent fallback
+        const result = await sendSmartMessage({
             to: customerPhone,
-            body: message
+            subject: 'Información de tu llamada con Extractos EUM',
+            body: message,
+            type: 'informational', // WhatsApp → Email → Push with email backup
+            clientId,
+            conversationId,
+            metadata: { source: 'voice_call', media_url }
         });
 
-        console.log(`[VapiTools] sendWhatsAppMessage result:`, result);
+        console.log(`[VapiTools] SmartCommunication result:`, {
+            success: result.success,
+            channelUsed: result.channelUsed,
+            channelsAttempted: result.channelsAttempted,
+            emailSent: result.emailSent
+        });
 
-        if (result.sent) {
-            // Log in CRM messages if we have conversation context
-            if (conversationId) {
-                await supabase.from('crm_messages').insert({
-                    conversation_id: conversationId,
-                    direction: 'outbound',
-                    role: 'assistant',
-                    message_type: media_url ? 'image' : 'text',
-                    content: message,
-                    status: 'sent',
-                    raw_payload: { source: 'vapi_tool_call', media_url }
-                });
+        // Log in CRM messages if we have conversation context
+        if (conversationId && result.success) {
+            await supabase.from('crm_messages').insert({
+                conversation_id: conversationId,
+                direction: 'outbound',
+                role: 'assistant',
+                message_type: media_url ? 'image' : 'text',
+                content: message,
+                status: 'sent',
+                raw_payload: {
+                    source: 'vapi_tool_call',
+                    media_url,
+                    channel_used: result.channelUsed,
+                    channels_attempted: result.channelsAttempted,
+                    email_sent: result.emailSent
+                }
+            });
+        }
+
+        if (result.success) {
+            // Build response message based on what channels were used
+            let successMessage = '';
+            if (result.channelUsed === 'whatsapp') {
+                successMessage = 'Mensaje enviado por WhatsApp exitosamente';
+            } else if (result.channelUsed === 'sms') {
+                successMessage = 'WhatsApp no disponible, pero te envié la información por SMS';
+            } else if (result.channelUsed === 'email') {
+                successMessage = 'Te envié la información por correo electrónico';
+            } else if (result.channelUsed === 'push') {
+                successMessage = 'Te envié una notificación con la información';
+            }
+
+            if (result.emailSent && result.channelUsed !== 'email') {
+                successMessage += '. También te envié una copia por correo para que tengas la información guardada';
             }
 
             return {
                 success: true,
-                message: 'Mensaje enviado por WhatsApp exitosamente',
-                data: { messageId: result.message?.id }
+                message: successMessage,
+                data: {
+                    channelUsed: result.channelUsed,
+                    emailSent: result.emailSent,
+                    channelResults: result.channelResults
+                }
             };
         } else {
             return {
                 success: false,
-                error: result.error || 'Error enviando mensaje de WhatsApp'
+                error: result.error || 'No pude enviar el mensaje por ningún canal. Por favor verifica tu información de contacto.'
             };
         }
     } catch (error: any) {

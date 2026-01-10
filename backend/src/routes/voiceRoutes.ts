@@ -837,4 +837,153 @@ router.get('/call-logs/:phone', async (req: Request, res: Response) => {
     }
 });
 
+/**
+ * GET /api/voice/comm-health
+ * Get health status of all communication channels
+ */
+router.get('/comm-health', async (req: Request, res: Response) => {
+    const { getChannelHealth, runHealthCheck } = await import('../services/SmartCommunicationService');
+
+    try {
+        // Run health check if requested
+        const doCheck = req.query.check === 'true';
+        const health = doCheck ? await runHealthCheck() : getChannelHealth();
+
+        // Calculate summary
+        const healthy = health.filter(h => h.status === 'healthy').length;
+        const degraded = health.filter(h => h.status === 'degraded').length;
+        const down = health.filter(h => h.status === 'down').length;
+
+        res.json({
+            summary: {
+                total: health.length,
+                healthy,
+                degraded,
+                down,
+                overallStatus: down > 0 ? 'degraded' : healthy === health.length ? 'healthy' : 'degraded'
+            },
+            channels: health,
+            timestamp: new Date().toISOString(),
+            hint: 'Add ?check=true to run live health check'
+        });
+    } catch (error: any) {
+        res.json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/voice/comm-test
+ * Test sending a message through SmartCommunicationService
+ */
+router.post('/comm-test', async (req: Request, res: Response) => {
+    const { sendSmartMessage } = await import('../services/SmartCommunicationService');
+
+    try {
+        const { to, message, type = 'informational', subject } = req.body;
+
+        if (!to || !message) {
+            return res.status(400).json({ error: 'Missing required fields: to, message' });
+        }
+
+        const result = await sendSmartMessage({
+            to,
+            subject: subject || 'Test desde SmartCommunicationService',
+            body: message,
+            type: type as any,
+            metadata: { source: 'comm_test_endpoint' }
+        });
+
+        res.json({
+            success: result.success,
+            channelUsed: result.channelUsed,
+            channelsAttempted: result.channelsAttempted,
+            emailSent: result.emailSent,
+            channelResults: result.channelResults,
+            error: result.error
+        });
+    } catch (error: any) {
+        res.json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/voice/comm-reset/:channel
+ * Reset health status of a channel after manual intervention
+ */
+router.post('/comm-reset/:channel', async (req: Request, res: Response) => {
+    const { resetChannelHealth, getChannelHealth } = await import('../services/SmartCommunicationService');
+
+    try {
+        const { channel } = req.params;
+        const tokenIndex = parseInt(req.query.tokenIndex as string) || 0;
+
+        if (!['whatsapp', 'email', 'sms', 'push'].includes(channel)) {
+            return res.status(400).json({ error: 'Invalid channel. Must be: whatsapp, email, sms, or push' });
+        }
+
+        resetChannelHealth(channel as any, tokenIndex);
+
+        res.json({
+            success: true,
+            message: `Channel ${channel}[${tokenIndex}] health reset`,
+            currentHealth: getChannelHealth()
+        });
+    } catch (error: any) {
+        res.json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/voice/comm-logs/:phone
+ * Get communication logs for a phone number
+ */
+router.get('/comm-logs/:phone', async (req: Request, res: Response) => {
+    const { supabase } = await import('../config/supabase');
+    const { phone } = req.params;
+    const cleanPhone = phone.replace(/\D/g, '').slice(-10);
+
+    try {
+        const { data: logs, error } = await supabase
+            .from('communication_logs')
+            .select('*')
+            .or(`recipient.ilike.%${cleanPhone}%`)
+            .order('created_at', { ascending: false })
+            .limit(20);
+
+        if (error) {
+            return res.json({ error: error.message });
+        }
+
+        // Calculate stats
+        const stats = {
+            total: logs?.length || 0,
+            successful: logs?.filter(l => l.success).length || 0,
+            failed: logs?.filter(l => !l.success).length || 0,
+            byChannel: {} as Record<string, number>
+        };
+
+        logs?.forEach(l => {
+            if (l.channel_used) {
+                stats.byChannel[l.channel_used] = (stats.byChannel[l.channel_used] || 0) + 1;
+            }
+        });
+
+        res.json({
+            phone: cleanPhone,
+            stats,
+            logs: logs?.map(l => ({
+                id: l.id,
+                type: l.message_type,
+                success: l.success,
+                channelUsed: l.channel_used,
+                channelsAttempted: l.channels_attempted,
+                results: l.channel_results,
+                createdAt: l.created_at
+            }))
+        });
+    } catch (error: any) {
+        res.json({ error: error.message });
+    }
+});
+
 export default router;
