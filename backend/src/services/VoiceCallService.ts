@@ -660,13 +660,19 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
 
             logger.info(`[getCustomerContext] Found client: ${client.name} (${client.id}), type: ${clientType}, tags: ${tags.join(', ')}`);
 
-            // Get recent orders for context
-            const { data: recentOrders } = await supabase
+            // Get recent orders for context - use client_id to find orders
+            const { data: recentOrders, error: orderErr } = await supabase
                 .from('orders')
-                .select('id, order_number, status, total, created_at')
+                .select('id, order_number, status, total_amount, financial_status, fulfillment_status, created_at')
                 .eq('client_id', client.id)
                 .order('created_at', { ascending: false })
-                .limit(3);
+                .limit(5);
+
+            if (orderErr) {
+                logger.warn(`[getCustomerContext] Error fetching orders for client ${client.id}:`, orderErr);
+            } else {
+                logger.info(`[getCustomerContext] Found ${recentOrders?.length || 0} orders for client ${client.id}`);
+            }
 
             // Use existing conversation if found, or find by contact_handle
             let conversationId = existingConversation?.id;
