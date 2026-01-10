@@ -23,6 +23,8 @@ interface Order {
     id: string;
     order_number: string;
     status: string;
+    financial_status?: string;
+    fulfillment_status?: string;
     total_amount: number;
     currency: string;
     shopify_created_at: string;
@@ -80,6 +82,7 @@ export default function MyOrders() {
     const getStatusColor = (status: string) => {
         switch (status.toLowerCase()) {
             case 'delivered':
+            case 'success': // Estafeta uses 'success' for delivered
                 return { bg: 'rgba(34, 197, 94, 0.2)', color: '#22c55e' };
             case 'in_transit':
             case 'out_for_delivery':
@@ -107,7 +110,9 @@ export default function MyOrders() {
             case 'pending_pickup': return 'Guía Generada';
             case 'in_transit': return 'En Camino';
             case 'out_for_delivery': return 'En Reparto';
-            case 'delivered': return 'Entregado';
+            case 'delivered':
+            case 'success': // Estafeta uses 'success' for delivered
+                return 'Entregado';
             case 'cancelled': return 'Cancelado';
             case 'pending': return 'Pendiente Recolección';
             default: return status;
@@ -119,10 +124,10 @@ export default function MyOrders() {
 
         const trackings = order.order_tracking || [];
         if (trackings.length > 0) {
-            // Prioritize tracking statuses
-            if (trackings.some(t => t.current_status === 'delivered')) return 'delivered';
-            if (trackings.some(t => t.current_status === 'out_for_delivery')) return 'out_for_delivery';
-            if (trackings.some(t => t.current_status === 'in_transit')) return 'in_transit';
+            // Prioritize tracking statuses - check for delivered/success
+            if (trackings.some(t => t.current_status?.toLowerCase() === 'delivered' || t.current_status?.toLowerCase() === 'success')) return 'delivered';
+            if (trackings.some(t => t.current_status?.toLowerCase() === 'out_for_delivery')) return 'out_for_delivery';
+            if (trackings.some(t => t.current_status?.toLowerCase() === 'in_transit')) return 'in_transit';
 
             // Guide exists but carrier hasn't picked up yet
             // Check if tracking exists but status is pending/null (no movement from carrier)
@@ -135,6 +140,11 @@ export default function MyOrders() {
             }
         }
 
+        // Use fulfillment_status if available (from Shopify)
+        if (order.fulfillment_status === 'fulfilled') return 'fulfilled';
+        if (order.fulfillment_status === 'partial') return 'processing';
+
+        // Fallback to status field
         return order.status;
     };
 

@@ -870,9 +870,6 @@ export async function handleLookupOrder(
         const trackingCarrier = tracking?.carrier;
         const trackingUrl = tracking?.tracking_url;
 
-        console.log(`[VapiTools] lookup_order order_tracking data:`, JSON.stringify(order.order_tracking));
-        console.log(`[VapiTools] lookup_order tracking extracted: status=${trackingStatus}, number=${trackingNumber}, carrier=${trackingCarrier}`);
-
         // Also check tracking status for more specific status (from order_tracking table)
         if (trackingStatus) {
             const normalizedTracking = trackingStatus.toLowerCase();
