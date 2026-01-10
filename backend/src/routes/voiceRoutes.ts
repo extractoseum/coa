@@ -436,6 +436,64 @@ router.get('/debug-calls', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/voice/debug-orders/:phone
+ * Debug order lookup by phone - verify data format
+ */
+router.get('/debug-orders/:phone', async (req: Request, res: Response) => {
+    const { supabase } = await import('../config/supabase');
+    const { phone } = req.params;
+    const cleanPhone = phone.replace(/\D/g, '').slice(-10);
+
+    try {
+        // Search 1: Direct phone match
+        const { data: orders1 } = await supabase
+            .from('orders')
+            .select('id, order_number, phone, email, financial_status, fulfillment_status, total_amount')
+            .or(`phone.ilike.%${cleanPhone}%,phone.ilike.%52${cleanPhone}%`)
+            .limit(5);
+
+        // Search 2: Get sample orders to see phone format
+        const { data: sampleOrders } = await supabase
+            .from('orders')
+            .select('order_number, phone')
+            .not('phone', 'is', null)
+            .limit(10);
+
+        // Search 3: Check conversation format
+        const { data: conversation } = await supabase
+            .from('conversations')
+            .select('id, contact_handle, contact_name, facts')
+            .ilike('contact_handle', `%${cleanPhone}%`)
+            .limit(1)
+            .maybeSingle();
+
+        // Search 4: Look for order 1441 specifically
+        const { data: order1441 } = await supabase
+            .from('orders')
+            .select('order_number, phone, email, financial_status')
+            .ilike('order_number', '%1441%')
+            .limit(1)
+            .maybeSingle();
+
+        res.json({
+            input: phone,
+            cleanedPhone: cleanPhone,
+            ordersFoundByPhone: orders1?.length || 0,
+            orders: orders1,
+            samplePhoneFormats: sampleOrders?.map(o => ({ order: o.order_number, phone: o.phone })),
+            conversationFound: conversation ? {
+                id: conversation.id,
+                contact_handle: conversation.contact_handle,
+                contact_name: conversation.contact_name
+            } : null,
+            order1441: order1441
+        });
+    } catch (error: any) {
+        res.json({ error: error.message });
+    }
+});
+
+/**
  * GET /api/voice/debug-calls/:callSid
  * View specific call with full transcript
  */
