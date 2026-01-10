@@ -527,18 +527,7 @@ export async function sendSmartMessage(params: SendMessageParams): Promise<SendR
 
     } else {
         // For INSTANT and INFORMATIONAL, use fallback chain sequentially
-
-        // Always send email in background for backup (unless it's in the chain)
         const emailInChain = fallbackChain.includes('email');
-        if (!emailInChain) {
-            // Fire and forget email backup
-            sendViaEmail(to, subject || 'Información de Extractos EUM', body, toEmail)
-                .then(r => {
-                    result.emailSent = r.success;
-                    result.channelResults['email'] = r;
-                })
-                .catch(e => console.error('[SmartComm] Email backup failed:', e));
-        }
 
         // Try channels in order until one succeeds
         for (const channel of fallbackChain) {
@@ -573,6 +562,24 @@ export async function sendSmartMessage(params: SendMessageParams): Promise<SendR
                 break; // Stop trying other channels
             } else {
                 console.log(`[SmartComm] ${channel} failed: ${channelResult.error}, trying next...`);
+            }
+        }
+
+        // If all primary channels failed and email wasn't in the chain, try email as last resort backup
+        if (!result.success && !emailInChain) {
+            console.log(`[SmartComm] All primary channels failed, trying email as backup...`);
+            result.channelsAttempted.push('email');
+
+            const emailResult = await sendViaEmail(to, subject || 'Información de Extractos EUM', body, toEmail);
+            result.channelResults['email'] = emailResult;
+
+            if (emailResult.success) {
+                result.emailSent = true;
+                result.channelUsed = 'email';
+                result.success = true;
+                console.log(`[SmartComm] Message sent via email (backup)`);
+            } else {
+                console.log(`[SmartComm] Email backup also failed: ${emailResult.error}`);
             }
         }
     }

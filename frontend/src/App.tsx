@@ -44,8 +44,23 @@ import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
 import AdminSidekick from './components/AdminSidekick';
 import FloatingDock from './components/FloatingDock';
+import { AraChatWidget } from './components/widget';
 import { requestPermission } from './services/onesignalService';
 
+/**
+ * FloatingWidgetSwitcher - Shows AdminSidekick for super_admin, AraChatWidget for others
+ */
+function FloatingWidgetSwitcher() {
+  const { isSuperAdmin } = useAuth();
+
+  // Super admins get the full AI admin assistant
+  if (isSuperAdmin) {
+    return <AdminSidekick />;
+  }
+
+  // Everyone else gets the customer-facing Ara chat widget
+  return <AraChatWidget />;
+}
 
 function Home() {
   const navigate = useNavigate();
@@ -476,9 +491,10 @@ function App() {
               <BuildStamp />
             </Suspense>
 
+            {/* Floating Widget: AdminSidekick for super_admin, AraChatWidget for everyone else */}
             <div className="z-40 relative md:z-auto">
               <FloatingDock initialBottom={80} initialRight={24}>
-                <AdminSidekick />
+                <FloatingWidgetSwitcher />
               </FloatingDock>
             </div>
             <QAOverlay />
