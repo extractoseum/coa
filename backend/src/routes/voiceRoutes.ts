@@ -497,13 +497,14 @@ router.get('/debug-orders/:phone', async (req: Request, res: Response) => {
             .limit(1)
             .maybeSingle();
 
-        // Search 8: If snapshot has client_id, find orders by that client_id
+        // Search 8: Find orders by client_id (from snapshot OR from clients table)
         let ordersByClientId: any[] = [];
-        if (snapshot?.client_id) {
+        const clientIdToSearch = snapshot?.client_id || clientByPhone?.[0]?.id;
+        if (clientIdToSearch) {
             const { data: ordersFromClient } = await supabase
                 .from('orders')
-                .select('id, order_number, customer_phone, customer_email, total_amount, financial_status')
-                .eq('client_id', snapshot.client_id)
+                .select('id, order_number, customer_phone, customer_email, total_amount, financial_status, client_id')
+                .eq('client_id', clientIdToSearch)
                 .order('created_at', { ascending: false })
                 .limit(5);
             ordersByClientId = ordersFromClient || [];
@@ -524,7 +525,7 @@ router.get('/debug-orders/:phone', async (req: Request, res: Response) => {
             clientsFoundByPhone: clientByPhone?.length || 0,
             clients: clientByPhone,
             sampleClientPhones: sampleClients?.map(c => ({ name: c.name?.substring(0, 15), phone: c.phone })),
-            // NEW: Snapshot-based lookup (the key to finding orders!)
+            // Snapshot lookup
             snapshot: snapshot ? {
                 name: snapshot.name,
                 client_id: snapshot.client_id,
@@ -532,11 +533,14 @@ router.get('/debug-orders/:phone', async (req: Request, res: Response) => {
                 ltv: snapshot.ltv,
                 orders_count: snapshot.orders_count
             } : null,
+            // Client ID used for order search
+            clientIdUsed: clientIdToSearch || null,
             ordersByClientId: ordersByClientId.map(o => ({
                 order_number: o.order_number,
                 customer_phone: o.customer_phone,
                 customer_email: o.customer_email,
-                total_amount: o.total_amount
+                total_amount: o.total_amount,
+                client_id: o.client_id
             }))
         });
     } catch (error: any) {
