@@ -498,6 +498,7 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
             }
 
             // === STRATEGY 1: Search in clients table ===
+            logger.info(`[getCustomerContext] Searching clients table for phone containing: ${cleanPhone}`);
             let { data: client, error } = await supabase
                 .from('clients')
                 .select('id, name, phone, email, tags, total_spent, order_count, notes')
@@ -506,18 +507,25 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
                 .maybeSingle();
 
             if (error) {
-                logger.error(`[getCustomerContext] DB error:`, error);
+                logger.error(`[getCustomerContext] DB error searching clients:`, error);
             }
+
+            logger.info(`[getCustomerContext] Strategy 1 result: client=${client ? client.name : 'null'}, id=${client?.id || 'null'}`);
 
             // If not found, try with country code variations
             if (!client && cleanPhone.length === 10) {
-                const { data: client2 } = await supabase
+                logger.info(`[getCustomerContext] Strategy 1 failed, trying with 52 prefix`);
+                const { data: client2, error: err2 } = await supabase
                     .from('clients')
                     .select('id, name, phone, email, tags, total_spent, order_count, notes')
                     .or(`phone.ilike.%${cleanPhone}%,phone.ilike.%52${cleanPhone}%`)
                     .limit(1)
                     .maybeSingle();
+                if (err2) {
+                    logger.error(`[getCustomerContext] DB error on retry:`, err2);
+                }
                 client = client2;
+                logger.info(`[getCustomerContext] Strategy 1B result: client=${client ? client.name : 'null'}, id=${client?.id || 'null'}`);
             }
 
             // === STRATEGY 2: Search in conversations by contact_handle ===
@@ -658,7 +666,7 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
             else if (tags.includes('VIP Minorista')) clientType = 'vip';
             else if ((client.order_count || 0) > 0) clientType = 'returning';
 
-            logger.info(`[getCustomerContext] Found client: ${client.name} (${client.id}), type: ${clientType}, tags: ${tags.join(', ')}`);
+            logger.info(`[getCustomerContext] SUCCESS! Found client: ${client.name} (${client.id}), type: ${clientType}, tags: ${tags.join(', ')}`);
 
             // Get recent orders for context - use client_id to find orders
             const { data: recentOrders, error: orderErr } = await supabase
@@ -709,7 +717,7 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
                 logger.info(`[getCustomerContext] Created new conversation: ${conversationId} with chip: ${channelChipId}`);
             }
 
-            return {
+            const result = {
                 clientId: client.id,
                 clientName: client.name,
                 clientTags: tags,
@@ -720,9 +728,11 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
                 recentOrders: recentOrders || [],
                 totalSpent: client.total_spent || 0
             };
+            logger.info(`[getCustomerContext] RETURNING context with clientId=${result.clientId}, clientName=${result.clientName}, orders=${result.recentOrders?.length || 0}`);
+            return result;
 
         } catch (error: any) {
-            logger.error('Error getting context', error);
+            logger.error('[getCustomerContext] CATCH ERROR:', error);
             return {};
         }
     }
