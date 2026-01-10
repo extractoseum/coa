@@ -1,6 +1,6 @@
 
 import express from 'express';
-import { getColumns, moveConversation, handleInbound, updateColumnConfig, getConversations, createConversation, getMessages, sendMessage, archiveConversation, deleteConversation, getContactSnapshot, getClientOrders, getOrderDetails, createCoupon, searchClients, startConversationWithClient, createeDarkStoreTicket, getConversationTickets, updateTicketStatus, getClientConversation, smartComposePredict, smartComposeEnhanceAudio, smartComposeHelpWrite, sendInternalNote, getInternalNotes, submitAIFeedback, sendReplyMessage, scheduleMessage, getScheduledMessages, cancelScheduledMessage, generateConversationSummary, getConversationSentiment, updateConversationTags } from '../controllers/crmController';
+import { getColumns, moveConversation, handleInbound, updateColumnConfig, getConversations, createConversation, getMessages, sendMessage, archiveConversation, deleteConversation, getContactSnapshot, getClientOrders, getOrderDetails, createCoupon, searchClients, startConversationWithClient, createeDarkStoreTicket, getConversationTickets, updateTicketStatus, getClientConversation, smartComposePredict, smartComposeEnhanceAudio, smartComposeHelpWrite, sendInternalNote, getInternalNotes, submitAIFeedback, sendReplyMessage, scheduleMessage, getScheduledMessages, cancelScheduledMessage, generateConversationSummary, getConversationSentiment, updateConversationTags, getUnifiedContactView } from '../controllers/crmController';
 import { requireAuth, requireRole } from '../middleware/authMiddleware';
 
 const router = express.Router();
@@ -25,6 +25,7 @@ router.post('/conversations', requireAuth, requireRole('admin', 'super_admin', '
 router.patch('/conversations/:id/archive', requireAuth, requireRole('admin', 'super_admin', 'staff'), archiveConversation);
 router.delete('/conversations/:id', requireAuth, requireRole('admin', 'super_admin', 'staff'), deleteConversation);
 router.get('/contacts/:handle/snapshot', requireAuth, requireRole('admin', 'super_admin', 'staff'), getContactSnapshot);
+router.get('/contacts/:handle/unified', requireAuth, requireRole('admin', 'super_admin', 'staff'), getUnifiedContactView);
 router.get('/contacts/:handle/orders', requireAuth, requireRole('admin', 'super_admin', 'staff'), getClientOrders);
 router.get('/orders/:orderId', requireAuth, requireRole('admin', 'super_admin', 'staff'), getOrderDetails);
 router.post('/coupons', requireAuth, requireRole('admin', 'super_admin', 'staff'), createCoupon);

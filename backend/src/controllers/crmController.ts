@@ -1686,6 +1686,125 @@ export const updateConversationTags = async (req: Request, res: Response): Promi
     }
 };
 
+/**
+ * Get unified contact view for multi-channel card
+ * GET /api/v1/crm/contacts/:handle/unified
+ * Returns all conversations and voice calls across channels for a single contact
+ */
+export const getUnifiedContactView = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { handle } = req.params;
+
+        if (!handle) {
+            res.status(400).json({ success: false, error: 'Missing handle' });
+            return;
+        }
+
+        // Normalize handle to get last 10 digits
+        const cleanHandle = handle.replace(/\D/g, '').slice(-10);
+
+        // 1. Get contact snapshot
+        const { data: snapshot, error: snapErr } = await supabase
+            .from('crm_contact_snapshots')
+            .select('*')
+            .or(`handle.ilike.%${cleanHandle}%`)
+            .maybeSingle();
+
+        // 2. Get all conversations for this contact
+        const { data: conversations, error: convErr } = await supabase
+            .from('conversations')
+            .select('id, channel, status, last_message_at, traffic_source, column_id, contact_name, facts')
+            .or(`contact_handle.ilike.%${cleanHandle}%`)
+            .order('last_message_at', { ascending: false });
+
+        // 3. Get voice calls for this contact
+        const { data: voiceCalls, error: voiceErr } = await supabase
+            .from('voice_calls')
+            .select('id, vapi_call_id, direction, status, duration_seconds, recording_url, recording_sid, transcript, created_at, ended_at, user_sentiment, context_data')
+            .or(`phone_number.ilike.%${cleanHandle}%`)
+            .order('created_at', { ascending: false })
+            .limit(20);
+
+        // 4. Get recent orders for this contact
+        const { data: orders, error: orderErr } = await supabase
+            .from('orders')
+            .select('id, order_number, total_amount, financial_status, fulfillment_status, created_at')
+            .or(`phone.ilike.%${cleanHandle}%,email.ilike.%${cleanHandle}%`)
+            .order('created_at', { ascending: false })
+            .limit(10);
+
+        // Calculate aggregate metrics
+        const activeChannels = [...new Set(conversations?.map(c => c.channel) || [])];
+        if (voiceCalls && voiceCalls.length > 0) {
+            activeChannels.push('voice');
+        }
+
+        const totalVoiceDuration = voiceCalls?.reduce((sum, vc) => sum + (vc.duration_seconds || 0), 0) || 0;
+
+        // Find most recent activity across all channels
+        const lastMessageAt = conversations?.[0]?.last_message_at;
+        const lastVoiceCallAt = voiceCalls?.[0]?.created_at;
+        const lastActivityAt = lastMessageAt && lastVoiceCallAt
+            ? new Date(lastMessageAt) > new Date(lastVoiceCallAt) ? lastMessageAt : lastVoiceCallAt
+            : lastMessageAt || lastVoiceCallAt;
+
+        res.json({
+            success: true,
+            data: {
+                // Contact info
+                contact_handle: handle,
+                contact_name: snapshot?.name || conversations?.[0]?.contact_name || null,
+                primary_channel: snapshot?.channel || conversations?.[0]?.channel || 'unknown',
+
+                // Snapshot data
+                snapshot: snapshot || null,
+
+                // Channel activity
+                active_channels: [...new Set(activeChannels)],
+                conversations_by_channel: conversations?.reduce((acc, c) => {
+                    acc[c.channel] = (acc[c.channel] || 0) + 1;
+                    return acc;
+                }, {} as Record<string, number>) || {},
+
+                // All conversations
+                conversations: conversations || [],
+
+                // Voice calls
+                voice_calls: voiceCalls?.map(vc => ({
+                    id: vc.id,
+                    call_sid: vc.vapi_call_id,
+                    direction: vc.direction,
+                    status: vc.status,
+                    duration_seconds: vc.duration_seconds,
+                    recording_url: vc.recording_url,
+                    transcript: vc.transcript?.substring(0, 500), // Truncate for list view
+                    full_transcript: vc.transcript,
+                    created_at: vc.created_at,
+                    ended_at: vc.ended_at,
+                    sentiment: vc.user_sentiment,
+                    context: vc.context_data
+                })) || [],
+
+                // Orders
+                recent_orders: orders || [],
+
+                // Aggregate metrics
+                metrics: {
+                    total_conversations: conversations?.length || 0,
+                    total_voice_calls: voiceCalls?.length || 0,
+                    total_voice_duration_seconds: totalVoiceDuration,
+                    total_orders: orders?.length || 0,
+                    ltv: snapshot?.ltv || 0,
+                    last_activity_at: lastActivityAt
+                }
+            }
+        });
+    } catch (error: any) {
+        console.error('[CRM] getUnifiedContactView error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
 // Get sentiment analysis for a conversation
 export const getConversationSentiment = async (req: Request, res: Response): Promise<void> => {
     try {
