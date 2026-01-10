@@ -116,6 +116,9 @@ const AdminCRM: React.FC = () => {
     const [isResizingResourceDock, setIsResizingResourceDock] = useState(false);
     const [showCreateTicketModal, setShowCreateTicketModal] = useState(false);
 
+    // Channel Health State
+    const [channelHealth, setChannelHealth] = useState<{ status: string; channels: any[] } | null>(null);
+
     // Scheduled Messages State
     const [showScheduleModal, setShowScheduleModal] = useState(false);
     const [scheduleDate, setScheduleDate] = useState('');
@@ -259,6 +262,27 @@ const AdminCRM: React.FC = () => {
     }, [conversations, searchTerm, activeFilters, sortBy]);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    // Channel Health Check
+    useEffect(() => {
+        const fetchChannelHealth = async () => {
+            try {
+                const res = await fetch(`${import.meta.env.VITE_API_URL}/api/crm/comm-health`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    setChannelHealth(data);
+                }
+            } catch (err) {
+                console.error('Failed to fetch channel health:', err);
+            }
+        };
+        fetchChannelHealth();
+        // Refresh every 2 minutes
+        const interval = setInterval(fetchChannelHealth, 120000);
+        return () => clearInterval(interval);
+    }, [token]);
 
     // Persistence Logic
     useEffect(() => {
@@ -1469,7 +1493,24 @@ const AdminCRM: React.FC = () => {
                                 <LucideLayout style={{ color: theme.accent }} size={24} />
                             </div>
                             <div className="min-w-0">
-                                <h1 className="text-sm sm:text-lg font-bold truncate" style={{ color: theme.text }}>Omnichannel CRM <span className="text-[10px] bg-purple-500 text-white px-1 rounded ml-1 align-middle animate-pulse">v2.10</span></h1>
+                                <h1 className="text-sm sm:text-lg font-bold truncate flex items-center gap-2" style={{ color: theme.text }}>
+                                    Omnichannel CRM <span className="text-[10px] bg-purple-500 text-white px-1 rounded ml-1 align-middle animate-pulse">v2.10</span>
+                                    {/* Channel Health Indicator */}
+                                    {channelHealth && (
+                                        <span
+                                            className={`text-[9px] px-1.5 py-0.5 rounded flex items-center gap-1 cursor-help ${
+                                                channelHealth.status === 'critical' ? 'bg-red-500/20 text-red-400' :
+                                                channelHealth.status === 'degraded' ? 'bg-yellow-500/20 text-yellow-400' :
+                                                'bg-green-500/20 text-green-400'
+                                            }`}
+                                            title={channelHealth.channels?.map((c: any) => `${c.channel}: ${c.status}`).join(', ')}
+                                        >
+                                            {channelHealth.status === 'critical' && <><AlertTriangle size={10} /> Canal caído</>}
+                                            {channelHealth.status === 'degraded' && <><AlertCircle size={10} /> Degradado</>}
+                                            {channelHealth.status === 'healthy' && <><Wifi size={10} /></>}
+                                        </span>
+                                    )}
+                                </h1>
                                 <p className="text-xs opacity-50 truncate hidden sm:block" style={{ color: theme.text }}>Tablero de Conversaciones Inteligentes</p>
                             </div>
                         </div>
@@ -2427,8 +2468,23 @@ const AdminCRM: React.FC = () => {
                                                                 </div>
                                                             )}
                                                         </div>
-                                                        <span className="text-[9px] opacity-30 mt-1 font-mono px-1">
+                                                        <span className="text-[9px] opacity-30 mt-1 font-mono px-1 flex items-center gap-1">
                                                             {msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--'} • {isInternal ? 'NOTA INTERNA' : msg.direction === 'outbound' ? 'AGENTE' : 'CLIENTE'}
+                                                            {/* Channel delivery indicator */}
+                                                            {msg.direction === 'outbound' && msg.raw_payload?.delivery_info && (
+                                                                <span className="ml-1 flex items-center gap-0.5" title={`Enviado por ${msg.raw_payload.delivery_info.channel_used || 'WA'}`}>
+                                                                    {msg.raw_payload.delivery_info.channel_used === 'email' && <span className="text-blue-400">📧</span>}
+                                                                    {msg.raw_payload.delivery_info.channel_used === 'sms' && <span className="text-green-400">💬</span>}
+                                                                    {msg.raw_payload.delivery_info.channel_used === 'whatsapp' && <span className="text-emerald-400">✓</span>}
+                                                                    {msg.raw_payload.delivery_info.email_sent && msg.raw_payload.delivery_info.channel_used !== 'email' && (
+                                                                        <span className="text-blue-300 opacity-60" title="Email backup enviado">+📧</span>
+                                                                    )}
+                                                                    {msg.status === 'failed' && <span className="text-red-400">⚠️</span>}
+                                                                </span>
+                                                            )}
+                                                            {msg.direction === 'outbound' && !msg.raw_payload?.delivery_info && msg.status === 'delivered' && (
+                                                                <span className="text-emerald-400/50">✓</span>
+                                                            )}
                                                         </span>
                                                     </div>
                                                 );
