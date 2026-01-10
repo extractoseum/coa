@@ -22,6 +22,17 @@ export const getMyOrders = async (req: Request, res: Response) => {
 
         if (error) throw error;
 
+        // Debug: Log order status fields
+        if (orders && orders.length > 0) {
+            console.log(`[Orders] getMyOrders for client ${clientId}:`);
+            orders.slice(0, 3).forEach((o: any) => {
+                console.log(`  - ${o.order_number}: status=${o.status}, financial=${o.financial_status}, fulfillment=${o.fulfillment_status}, tracking_count=${o.order_tracking?.length || 0}`);
+                if (o.order_tracking?.length > 0) {
+                    console.log(`    tracking[0]: carrier=${o.order_tracking[0].carrier}, current_status=${o.order_tracking[0].current_status}`);
+                }
+            });
+        }
+
         res.json({ success: true, orders });
     } catch (error: any) {
         logger.error('[Orders] Error fetching my orders:', error, { correlation_id: req.correlationId });

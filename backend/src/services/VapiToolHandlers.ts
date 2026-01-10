@@ -825,6 +825,15 @@ export async function handleLookupOrder(
         }
 
         console.log(`[VapiTools] lookup_order: searchMethod=${searchMethod}, found=${!!order}`);
+        if (order) {
+            console.log(`[VapiTools] lookup_order RAW DATA:`, JSON.stringify({
+                order_number: order.order_number,
+                status: order.status,
+                financial_status: order.financial_status,
+                fulfillment_status: order.fulfillment_status,
+                order_tracking: order.order_tracking
+            }, null, 2));
+        }
 
         if (!order) {
             const noContextMsg = !order_number && !clientId && !customerPhone
