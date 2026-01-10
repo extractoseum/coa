@@ -2,6 +2,7 @@ import { supabase } from '../config/supabase';
 import { sendWhatsAppMessage, isWhapiConfigured } from './whapiService';
 import { sendNewCoaEmail, sendLoyaltyUpdateEmail, sendOrderCreatedEmail, sendOrderShippedEmail, sendAbandonedRecoveryEmail, sendTrackingUpdateEmail } from './emailService';
 import { logNotification } from './loggerService';
+import { sendSmartMessage, MessageType } from './SmartCommunicationService';
 
 const ONESIGNAL_APP_ID = process.env.ONESIGNAL_APP_ID || '';
 const ONESIGNAL_REST_API_KEY = process.env.ONESIGNAL_REST_API_KEY || '';
@@ -1181,7 +1182,7 @@ export const notifyOrderCreated = async (clientId: string, orderNumber: string, 
     const title = '🛒 ¡Pedido Recibido!';
     const message = `${greeting}Hemos recibido tu pedido ${orderNumber}. En breve te avisaremos cuando sea enviado.`;
 
-    // Send Push
+    // Send Push notification via OneSignal
     await sendNotification({
         title,
         message,
@@ -1190,22 +1191,28 @@ export const notifyOrderCreated = async (clientId: string, orderNumber: string, 
         targetValue: clientId
     });
 
-    // Send WhatsApp
-    if (isWhapiConfigured()) {
-        const phone = clientData?.phone || await getClientPhone(clientId);
-        if (phone) {
-            const waMsg = `*${title}*\n\n${message}\n\nPuedes ver el estado en tu dashboard: https://coa.extractoseum.com/dashboard`;
-            await sendWhatsAppMessage({ to: phone, body: waMsg });
-        }
-    }
-
-    // Send Email
+    // Use SmartCommunication for WhatsApp/Email with automatic fallback
+    const phone = clientData?.phone || await getClientPhone(clientId);
     const email = clientData?.email || await getClientEmail(clientId);
-    if (email) {
+
+    if (phone) {
+        const waMsg = `*${title}*\n\n${message}\n\nPuedes ver el estado en tu dashboard: https://coa.extractoseum.com/dashboard`;
+        const smartResult = await sendSmartMessage({
+            to: phone,
+            toEmail: email || undefined,
+            subject: `Pedido ${orderNumber} recibido - Extractos EUM`,
+            body: waMsg,
+            type: 'transactional' as MessageType, // Email + WhatsApp parallel
+            clientId,
+            metadata: { source: 'order_created', orderNumber }
+        });
+
+        console.log(`[OneSignal] Order CREATED SmartComm result: channel=${smartResult.channelUsed}, emailSent=${smartResult.emailSent}`);
+    } else if (email) {
+        // No phone, send email directly
         await sendOrderCreatedEmail(email, orderNumber);
     }
 
-    // Update the log to mark as completed (the initial insert already created the record)
     console.log(`[OneSignal] Order CREATED notification sent for ${orderNumber}`);
 };
 
@@ -1389,7 +1396,7 @@ export const notifyTrackingUpdate = async (
     message = `${greeting}${message}`;
     console.log(`[OneSignal] notifyTrackingUpdate for ${orderNumber}, status: ${status}`);
 
-    // Send Push
+    // Send Push notification via OneSignal
     await sendNotification({
         title,
         message,
@@ -1398,21 +1405,31 @@ export const notifyTrackingUpdate = async (
         targetValue: clientId
     });
 
-    // Send WhatsApp
-    console.log(`[OneSignal] notifyTrackingUpdate - isWhapiConfigured: ${isWhapiConfigured()}`);
-    if (isWhapiConfigured()) {
-        const phone = clientData?.phone || await getClientPhone(clientId);
-        console.log(`[OneSignal] notifyTrackingUpdate - Phone found: ${phone}`);
-        if (phone) {
-            const waMsg = `*${title}*\n\n${message}\n\nSigue tu paquete aquí: https://coa.extractoseum.com/my-orders`;
-            const waResult = await sendWhatsAppMessage({ to: phone, body: waMsg });
-            console.log(`[OneSignal] notifyTrackingUpdate - WhatsApp result: ${JSON.stringify(waResult)}`);
-        }
-    }
-
-    // Send Email
+    // Use SmartCommunication for WhatsApp/Email with automatic fallback
+    const phone = clientData?.phone || await getClientPhone(clientId);
     const email = clientData?.email || await getClientEmail(clientId);
-    if (email) {
+
+    if (phone) {
+        const waMsg = `*${title}*\n\n${message}\n\nSigue tu paquete aquí: https://coa.extractoseum.com/my-orders`;
+
+        // Use 'critical' type for delivery status (out_for_delivery, delivered) to ensure all channels
+        const msgType: MessageType = (status === 'delivered' || status === 'out_for_delivery')
+            ? 'critical'
+            : 'informational';
+
+        const smartResult = await sendSmartMessage({
+            to: phone,
+            toEmail: email || undefined,
+            subject: `${title} - Pedido ${orderNumber}`,
+            body: waMsg,
+            type: msgType,
+            clientId,
+            metadata: { source: 'tracking_update', orderNumber, status }
+        });
+
+        console.log(`[OneSignal] Tracking update SmartComm result: channel=${smartResult.channelUsed}, emailSent=${smartResult.emailSent}`);
+    } else if (email) {
+        // No phone, send email directly
         await sendTrackingUpdateEmail(email, orderNumber, title, message);
     }
 
