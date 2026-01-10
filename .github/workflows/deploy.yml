@@ -185,19 +185,42 @@ jobs:
               echo "VAPI_DEFAULT_ASSISTANT_ID=${{ secrets.VAPI_DEFAULT_ASSISTANT_ID }}" >> .env
             fi
 
-            # Update Twilio credentials (SMS & Voice)
-            if [ -n "${{ secrets.TWILIO_ACCOUNT_SID }}" ]; then
-              sed -i '/^TWILIO_ACCOUNT_SID=/d' .env 2>/dev/null || true
-              sed -i '/^TWILIO_AUTH_TOKEN=/d' .env 2>/dev/null || true
-              sed -i '/^TWILIO_PHONE_NUMBER=/d' .env 2>/dev/null || true
-              sed -i '/^# Twilio/d' .env 2>/dev/null || true
+            # ===========================================
+            # TWILIO MULTI-ACCOUNT CONFIGURATION
+            # Priority: Paid accounts first, trial as emergency backup
+            # Configure these secrets in GitHub:
+            # - TWILIO_VOICE_* : Extractos EUM (MX, voice only)
+            # - TWILIO_SMS_* : Bernardo Paid (US, SMS enabled)
+            # - TWILIO_BACKUP_* : EUM MX Trial (emergency)
+            # ===========================================
+            sed -i '/^TWILIO_/d' .env 2>/dev/null || true
+            sed -i '/^# Twilio/d' .env 2>/dev/null || true
 
+            # Voice account (Extractos EUM - MX number, voice only)
+            if [ -n "${{ secrets.TWILIO_VOICE_ACCOUNT_SID }}" ]; then
               echo "" >> .env
-              echo "# Twilio (SMS & Voice)" >> .env
-              echo "TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_ACCOUNT_SID }}" >> .env
-              echo "TWILIO_AUTH_TOKEN=${{ secrets.TWILIO_AUTH_TOKEN }}" >> .env
-              # Phone number hardcoded to avoid secret interpolation issues
-              echo "TWILIO_PHONE_NUMBER=+525596616455" >> .env
+              echo "# Twilio Voice (Extractos EUM - MX, voice only)" >> .env
+              echo "TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_VOICE_ACCOUNT_SID }}" >> .env
+              echo "TWILIO_AUTH_TOKEN=${{ secrets.TWILIO_VOICE_AUTH_TOKEN }}" >> .env
+              echo "TWILIO_PHONE_NUMBER=${{ secrets.TWILIO_VOICE_PHONE_NUMBER }}" >> .env
+            fi
+
+            # SMS account (Bernardo Paid - US number with SMS)
+            if [ -n "${{ secrets.TWILIO_SMS_ACCOUNT_SID }}" ]; then
+              echo "" >> .env
+              echo "# Twilio SMS (Bernardo Paid - US, SMS enabled)" >> .env
+              echo "TWILIO_SMS_ACCOUNT_SID=${{ secrets.TWILIO_SMS_ACCOUNT_SID }}" >> .env
+              echo "TWILIO_SMS_AUTH_TOKEN=${{ secrets.TWILIO_SMS_AUTH_TOKEN }}" >> .env
+              echo "TWILIO_SMS_PHONE_NUMBER=${{ secrets.TWILIO_SMS_PHONE_NUMBER }}" >> .env
+            fi
+
+            # Emergency backup (EUM MX Trial)
+            if [ -n "${{ secrets.TWILIO_BACKUP_ACCOUNT_SID }}" ]; then
+              echo "" >> .env
+              echo "# Twilio Backup (EUM MX Trial - emergency)" >> .env
+              echo "TWILIO_BACKUP_ACCOUNT_SID=${{ secrets.TWILIO_BACKUP_ACCOUNT_SID }}" >> .env
+              echo "TWILIO_BACKUP_AUTH_TOKEN=${{ secrets.TWILIO_BACKUP_AUTH_TOKEN }}" >> .env
+              echo "TWILIO_BACKUP_PHONE_NUMBER=${{ secrets.TWILIO_BACKUP_PHONE_NUMBER }}" >> .env
             fi
 
             # Update Anthropic API Key (Claude)

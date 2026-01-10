@@ -106,14 +106,16 @@ function initializeChannels(): void {
         failureCount: 0
     }]);
 
-    // SMS channel - requires ALL THREE Twilio credentials
-    const smsEnabled = !!(
-        process.env.TWILIO_ACCOUNT_SID &&
-        process.env.TWILIO_AUTH_TOKEN &&
-        process.env.TWILIO_PHONE_NUMBER
-    );
+    // SMS channel - uses dedicated SMS account (TWILIO_SMS_*) or falls back to main account
+    const smsSid = process.env.TWILIO_SMS_ACCOUNT_SID || process.env.TWILIO_ACCOUNT_SID;
+    const smsToken = process.env.TWILIO_SMS_AUTH_TOKEN || process.env.TWILIO_AUTH_TOKEN;
+    const smsPhone = process.env.TWILIO_SMS_PHONE_NUMBER || process.env.TWILIO_PHONE_NUMBER;
+    const smsEnabled = !!(smsSid && smsToken && smsPhone);
     console.log(`[SmartComm] SMS channel enabled: ${smsEnabled}`);
-    console.log(`[SmartComm] Twilio config: SID=${process.env.TWILIO_ACCOUNT_SID ? 'set' : 'NOT SET'}, TOKEN=${process.env.TWILIO_AUTH_TOKEN ? 'set' : 'NOT SET'}, PHONE=${process.env.TWILIO_PHONE_NUMBER || 'NOT SET'}`);
+    console.log(`[SmartComm] SMS config: SID=${smsSid ? smsSid.substring(0, 10) + '...' : 'NOT SET'}, PHONE=${smsPhone || 'NOT SET'}`);
+    if (process.env.TWILIO_BACKUP_PHONE_NUMBER) {
+        console.log(`[SmartComm] SMS backup available: ${process.env.TWILIO_BACKUP_PHONE_NUMBER}`);
+    }
     channelRegistry.set('sms', [{
         name: 'sms',
         enabled: smsEnabled,
