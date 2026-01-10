@@ -86,7 +86,7 @@ const AraChatWindow: React.FC<AraChatWindowProps> = ({
 
     return (
         <div
-            className="fixed inset-x-0 top-0 bottom-20 sm:bottom-0 sm:absolute sm:inset-auto sm:bottom-full sm:right-0 sm:mb-4 z-[10000] flex flex-col sm:w-96 sm:h-[500px] sm:max-h-[80vh] sm:rounded-2xl shadow-2xl overflow-hidden border border-white/10"
+            className="fixed inset-x-0 top-0 bottom-20 pb-20 sm:pb-0 sm:absolute sm:inset-auto sm:bottom-full sm:right-0 sm:mb-4 z-[10000] flex flex-col sm:w-96 sm:h-[500px] sm:max-h-[80vh] sm:rounded-2xl shadow-2xl overflow-hidden border border-white/10"
             style={{
                 backgroundColor: theme.cardBg,
                 borderColor: theme.border
@@ -242,11 +242,10 @@ const AraChatWindow: React.FC<AraChatWindowProps> = ({
                         className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                     >
                         <div
-                            className={`max-w-[85%] rounded-2xl px-4 py-2.5 ${
-                                msg.role === 'user'
+                            className={`max-w-[85%] rounded-2xl px-4 py-2.5 ${msg.role === 'user'
                                     ? 'rounded-br-md'
                                     : 'rounded-bl-md'
-                            } ${msg.isTemp ? 'opacity-70' : ''}`}
+                                } ${msg.isTemp ? 'opacity-70' : ''}`}
                             style={{
                                 backgroundColor: msg.role === 'user'
                                     ? theme.accent

@@ -710,9 +710,85 @@ export async function handleLookupOrder(
     // Select with order_tracking join to get carrier status
     const orderSelect = '*, order_tracking(carrier, tracking_number, current_status, tracking_url)';
 
+    // Helper function to format a single order's status
+    const formatOrderStatus = (order: any) => {
+        let actualStatus = order.status || 'created';
+
+        // Map Shopify financial_status
+        if (order.financial_status) {
+            const financialMap: Record<string, string> = {
+                'pending': 'pending',
+                'authorized': 'authorized',
+                'paid': 'paid',
+                'partially_paid': 'partially_paid',
+                'refunded': 'refunded',
+                'voided': 'cancelled'
+            };
+            actualStatus = financialMap[order.financial_status] || actualStatus;
+        }
+
+        // Map Shopify fulfillment_status (overrides financial if exists)
+        if (order.fulfillment_status) {
+            const fulfillmentMap: Record<string, string> = {
+                'fulfilled': 'shipped',
+                'partial': 'processing',
+                'restocked': 'refunded'
+            };
+            actualStatus = fulfillmentMap[order.fulfillment_status] || actualStatus;
+        }
+
+        // Get tracking info
+        const tracking = order.order_tracking?.[0];
+        const trackingStatus = tracking?.current_status;
+
+        // Check tracking status for more specific status
+        if (trackingStatus) {
+            const normalizedTracking = trackingStatus.toLowerCase();
+            const trackingMap: Record<string, string> = {
+                'pre_transit': 'processing',
+                'in_transit': 'in_transit',
+                'out_for_delivery': 'out_for_delivery',
+                'delivered': 'delivered',
+                'success': 'delivered',
+                'available_for_pickup': 'available_for_pickup',
+                'return_to_sender': 'return_to_sender',
+                'failure': 'delivery_failed',
+                'unknown': 'in_transit'
+            };
+            if (trackingMap[normalizedTracking]) {
+                actualStatus = trackingMap[normalizedTracking];
+            }
+        }
+
+        const statusMap: Record<string, string> = {
+            'created': 'recién creado',
+            'pending': 'pendiente de pago',
+            'authorized': 'pago autorizado',
+            'paid': 'pagado',
+            'processing': 'en preparación',
+            'shipped': 'enviado',
+            'in_transit': 'en camino',
+            'out_for_delivery': 'en reparto',
+            'delivered': 'entregado',
+            'available_for_pickup': 'listo para recoger',
+            'cancelled': 'cancelado',
+            'refunded': 'reembolsado',
+            'return_to_sender': 'devuelto',
+            'delivery_failed': 'entrega fallida'
+        };
+
+        return {
+            actualStatus,
+            statusText: statusMap[actualStatus] || actualStatus,
+            tracking
+        };
+    };
+
     try {
         let order;
+        let orders: any[] = [];
         let searchMethod = '';
+        let isMultipleOrders = false;
 
         if (order_number) {
             searchMethod = 'order_number';
@@ -726,15 +802,19 @@ export async function handleLookupOrder(
             order = data;
         } else if (clientId) {
             searchMethod = 'clientId';
-            // Get latest order for client
+            // Get ALL orders for authenticated client (up to 10 most recent)
             const { data } = await supabase
                 .from('orders')
                 .select(orderSelect)
                 .eq('client_id', clientId)
                 .order('created_at', { ascending: false })
-                .limit(1)
-                .maybeSingle();
-            order = data;
+                .limit(10);
+
+            if (data && data.length > 0) {
+                orders = data;
+                isMultipleOrders = data.length > 1;
+                order = data[0]; // Keep reference to most recent for single-order logic
+            }
         } else if (customerPhone) {
             searchMethod = 'customerPhone';
             const cleanPhone = cleanupPhone(customerPhone);
@@ -824,102 +904,63 @@ export async function handleLookupOrder(
             console.log(`[VapiTools] lookup_order: no search criteria available`);
         }
 
-        console.log(`[VapiTools] lookup_order: searchMethod=${searchMethod}, found=${!!order}`);
-        if (order) {
-            console.log(`[VapiTools] lookup_order RAW DATA:`, JSON.stringify({
-                order_number: order.order_number,
-                status: order.status,
-                financial_status: order.financial_status,
-                fulfillment_status: order.fulfillment_status,
-                order_tracking: order.order_tracking
-            }, null, 2));
-        }
+        console.log(`[VapiTools] lookup_order: searchMethod=${searchMethod}, found=${!!order}, totalOrders=${orders.length}, isMultiple=${isMultipleOrders}`);
 
-        if (!order) {
+        if (!order && orders.length === 0) {
             const noContextMsg = !order_number && !clientId && !customerPhone
                 ? 'No tengo suficiente información para buscar tu pedido. ¿Me puedes dar el número de orden?'
-                : 'No encontré el pedido. ¿Tienes el número de orden? Lo encuentras en el correo de confirmación.';
+                : 'No encontré pedidos. ¿Tienes el número de orden? Lo encuentras en el correo de confirmación.';
             return {
                 success: false,
                 message: noContextMsg
             };
         }
 
-        // Determine actual status from Shopify fields (financial_status + fulfillment_status)
-        // Priority: fulfillment_status > financial_status > status
-        let actualStatus = order.status || 'created';
+        // Handle multiple orders for authenticated users
+        if (isMultipleOrders && orders.length > 1) {
+            console.log(`[VapiTools] lookup_order: returning ${orders.length} orders for authenticated user`);
 
-        // Map Shopify financial_status
-        if (order.financial_status) {
-            const financialMap: Record<string, string> = {
-                'pending': 'pending',
-                'authorized': 'authorized',
-                'paid': 'paid',
-                'partially_paid': 'partially_paid',
-                'refunded': 'refunded',
-                'voided': 'cancelled'
+            // Format each order with status
+            const formattedOrders = orders.map(o => {
+                const { actualStatus, statusText, tracking } = formatOrderStatus(o);
+                const total = o.total_amount || o.total || 0;
+                return {
+                    order_number: o.order_number,
+                    status: actualStatus,
+                    status_text: statusText,
+                    total,
+                    created_at: o.created_at,
+                    tracking_number: tracking?.tracking_number,
+                    tracking_status: tracking?.current_status,
+                    financial_status: o.financial_status,
+                    fulfillment_status: o.fulfillment_status
+                };
+            });
+
+            // Build human-readable summary
+            const orderSummaries = formattedOrders.map((o, i) =>
+                `${i + 1}. ${o.order_number}: ${o.status_text} ($${o.total} MXN)`
+            ).join('\n');
+
+            return {
+                success: true,
+                message: `Encontré ${orders.length} pedidos en tu cuenta:\n\n${orderSummaries}\n\n¿Quieres más detalles de alguno en específico?`,
+                data: {
+                    total_orders: orders.length,
+                    orders: formattedOrders
+                }
             };
-            actualStatus = financialMap[order.financial_status] || actualStatus;
         }
 
-        // Map Shopify fulfillment_status (overrides financial if exists)
-        if (order.fulfillment_status) {
-            const fulfillmentMap: Record<string, string> = {
-                'fulfilled': 'shipped',
-                'partial': 'processing',
-                'restocked': 'refunded'
-            };
-            actualStatus = fulfillmentMap[order.fulfillment_status] || actualStatus;
-        }
-
-        // Get tracking info from joined order_tracking table
-        const tracking = order.order_tracking?.[0];
-        const trackingStatus = tracking?.current_status;
+        // Single order response (original logic using helper function)
+        const { actualStatus, statusText, tracking } = formatOrderStatus(order);
         const trackingNumber = tracking?.tracking_number;
         const trackingCarrier = tracking?.carrier;
         const trackingUrl = tracking?.tracking_url;
-
-        // Also check tracking status for more specific status (from order_tracking table)
-        if (trackingStatus) {
-            const normalizedTracking = trackingStatus.toLowerCase();
-            const trackingMap: Record<string, string> = {
-                'pre_transit': 'processing',
-                'in_transit': 'in_transit',
-                'out_for_delivery': 'out_for_delivery',
-                'delivered': 'delivered',
-                'success': 'delivered', // Estafeta uses 'success' for delivered
-                'available_for_pickup': 'available_for_pickup',
-                'return_to_sender': 'return_to_sender',
-                'failure': 'delivery_failed',
-                'unknown': 'in_transit'
-            };
-            if (trackingMap[normalizedTracking]) {
-                actualStatus = trackingMap[normalizedTracking];
-            }
-        }
+        const trackingStatus = tracking?.current_status;
+        const totalAmount = order.total_amount || order.total || 0;
 
         console.log(`[VapiTools] lookup_order status resolution: financial=${order.financial_status}, fulfillment=${order.fulfillment_status}, tracking=${trackingStatus} => ${actualStatus}`);
-
-        // Format status in Spanish (natural for voice)
-        const statusMap: Record<string, string> = {
-            'created': 'recién creado',
-            'pending': 'pendiente de pago',
-            'authorized': 'pago autorizado, en preparación',
-            'paid': 'pagado y en preparación',
-            'processing': 'en preparación',
-            'shipped': 'enviado',
-            'in_transit': 'en camino',
-            'out_for_delivery': 'en reparto',
-            'delivered': 'entregado',
-            'available_for_pickup': 'listo para recoger',
-            'cancelled': 'cancelado',
-            'refunded': 'reembolsado',
-            'return_to_sender': 'regresado al remitente',
-            'delivery_failed': 'entrega fallida'
-        };
-
-        const statusText = statusMap[actualStatus] || actualStatus;
-        const totalAmount = order.total_amount || order.total || 0;
 
         // Build tracking info
         let trackingInfo = '';

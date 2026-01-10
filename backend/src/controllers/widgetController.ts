@@ -438,7 +438,7 @@ export const verifyWidgetOTP = async (req: Request, res: Response) => {
             // Get widget channel chip for routing
             const { data: chip } = await supabase
                 .from('channel_chips')
-                .select('default_entry_column_id')
+                .select('default_entry_column_id, default_agent_id')
                 .eq('channel_id', session.origin?.includes('shopify') ? 'widget_shopify' : 'widget_ara')
                 .single();
 
@@ -598,13 +598,31 @@ export const sendMessage = async (req: Request, res: Response) => {
         }
 
         // Send to Ara service
+        // Get agent ID from conversation's column or chip, fallback to sales_ara
+        const { data: conv } = await supabase
+            .from('conversations')
+            .select('channel_chip_id')
+            .eq('id', session.conversation_id)
+            .single();
+
+        let agentId = 'sales_ara';
+        if (conv?.channel_chip_id) {
+            const { data: chip } = await supabase
+                .from('channel_chips')
+                .select('default_agent_id')
+                .eq('id', conv.channel_chip_id)
+                .single();
+            if (chip?.default_agent_id) agentId = chip.default_agent_id;
+        }
+
         const result = await araService.chat(message.trim(), {
             clientId: session.client_id,
             conversationId: session.conversation_id,
             sessionId: session.id,
             customerPhone: session.client?.phone,
             customerEmail: session.client?.email,
-            customerName: session.client?.name
+            customerName: session.client?.name,
+            agentId
         });
 
         res.json({

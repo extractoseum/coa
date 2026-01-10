@@ -21,6 +21,9 @@ import {
     handleSendWhatsApp,
     handleEscalateToHuman
 } from './VapiToolHandlers';
+import path from 'path';
+import fs from 'fs';
+import { IntelligenceService } from './intelligenceService';
 
 // Initialize Anthropic client
 const anthropic = new Anthropic({
@@ -155,6 +158,7 @@ interface WidgetChatContext {
     customerPhone?: string;
     customerEmail?: string;
     customerName?: string;
+    agentId?: string;
 }
 
 interface ChatMessage {
@@ -227,6 +231,17 @@ export class WidgetAraService {
 
         // 3. Build context-aware system prompt
         let systemPrompt = WIDGET_SYSTEM_PROMPT;
+
+        // LOAD AGENT KNOWLEDGE
+        const agentId = context.agentId || 'sales_ara';
+        const agentKnowledge = await this.loadAgentKnowledge(agentId, message);
+
+        if (agentKnowledge) {
+            // Replace generic system prompt with agent identity and knowledge
+            systemPrompt = agentKnowledge;
+        } else {
+            console.warn(`[WidgetAra] No knowledge found for agent ${agentId}, using fallback.`);
+        }
 
         // Add customer context if available
         if (context.customerName || context.customerPhone || context.customerEmail) {
@@ -440,5 +455,72 @@ export class WidgetAraService {
             console.error(`[WidgetAra] Tool execution error (${toolName}):`, error);
             return { success: false, error: error.message };
         }
+    }
+    /**
+     * Loads agent identity and relevant knowledge snaps
+     */
+    private async loadAgentKnowledge(agentId: string, userMessage: string): Promise<string> {
+        const KNOWLEDGE_BASE_DIR = path.join(__dirname, '../../data/ai_knowledge_base');
+        const categories = ['agents_god_mode', 'agents_public', 'agents_internal'];
+
+        // Find agent folder
+        let agentFolderPath = '';
+        for (const cat of categories) {
+            const checkPath = path.join(KNOWLEDGE_BASE_DIR, cat, agentId);
+            if (fs.existsSync(checkPath) && fs.lstatSync(checkPath).isDirectory()) {
+                agentFolderPath = checkPath;
+                break;
+            }
+        }
+
+        if (!agentFolderPath) {
+            console.warn(`[WidgetAra] Agent folder not found: ${agentId}`);
+            return '';
+        }
+
+        // Load identity/instructivo
+        let knowledge = '';
+        const identityPath = path.join(agentFolderPath, 'identity.md');
+        if (fs.existsSync(identityPath)) {
+            knowledge = fs.readFileSync(identityPath, 'utf-8') + '\n\n';
+        }
+
+        const instructivoPath = path.join(agentFolderPath, 'instructivo.md');
+        if (fs.existsSync(instructivoPath)) {
+            knowledge += fs.readFileSync(instructivoPath, 'utf-8') + '\n\n';
+        }
+
+        // Use IntelligenceService for knowledge snaps (like AIService does)
+        try {
+            const intelligenceService = IntelligenceService.getInstance();
+            const relevantSnaps = intelligenceService.findRelevantSnaps(agentFolderPath, userMessage);
+
+            // Inject relevant knowledge content
+            for (const snap of relevantSnaps) {
+                try {
+                    // Snap content is in the file, not the object. We assume file is in agent root.
+                    const snapPath = path.join(agentFolderPath, snap.fileName);
+                    if (fs.existsSync(snapPath)) {
+                        const content = fs.readFileSync(snapPath, 'utf-8');
+                        knowledge += `\n\n--- ${snap.fileName} ---\n${content}`;
+                    }
+                } catch (readErr) {
+                    console.error(`[WidgetAra] Error reading snap content ${snap.fileName}:`, readErr);
+                }
+            }
+        } catch (e) {
+            console.error(`[WidgetAra] Error loading knowledge snaps:`, e);
+        }
+
+        // Append Widget Logic Rules (Platform specific)
+        knowledge += `\n\n
+PLATAFORMA: WIDGET DE CHAT (WEB)
+Estas operando en el widget de chat de la pagina web.
+1. Tus respuestas deben ser breves y concisas.
+2. Si el cliente pregunta por "mi pedido" y está autenticado, usa lookup_order sin parametros.
+3. Puedes usar emojis pero mantén profesionalismo.
+`;
+
+        return knowledge;
     }
 }
