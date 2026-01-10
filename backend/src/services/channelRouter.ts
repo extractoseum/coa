@@ -31,7 +31,9 @@ export class ChannelRouter {
             'WA': 'whatsapp',
             'IG': 'instagram',
             'FB': 'facebook',
-            'EMAIL': 'email'
+            'EMAIL': 'email',
+            'VOICE': 'voice',
+            'voice': 'voice'
         };
 
         const targetPlatform = platformMap[platform] || platform.toLowerCase();
@@ -41,6 +43,12 @@ export class ChannelRouter {
         if (targetPlatform === 'whatsapp') {
             targetIdentifier = cleanupPhone(identifier);
             console.log(`[ChannelRouter] Normalizing WA identifier: ${identifier} -> ${targetIdentifier}`);
+        }
+
+        // Normalize Voice identifier (Twilio phone number) to 10 digits
+        if (targetPlatform === 'voice') {
+            targetIdentifier = cleanupPhone(identifier);
+            console.log(`[ChannelRouter] Normalizing VOICE identifier: ${identifier} -> ${targetIdentifier}`);
         }
 
         // 1. Look for chip by exact account_reference

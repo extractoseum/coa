@@ -19,6 +19,7 @@ import { logger } from '../utils/Logger';
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient, LiveTranscriptionEvents } from '@deepgram/sdk';
 import { Buffer } from 'buffer';
+import { ChannelRouter } from './channelRouter';
 
 // Twilio config - support both naming conventions
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || process.env.ACCOUNT_SID;
@@ -55,6 +56,7 @@ interface CallSession {
     clientName?: string;
     clientTags?: string[];
     clientType?: string; // Gold_member, Club_partner, etc.
+    channelChipId?: string; // Voice channel chip ID for CRM routing
     messages: Array<{ role: 'user' | 'assistant'; content: string; timestamp?: Date }>;
     ws?: WebSocket;
     createdAt: Date;
@@ -186,30 +188,35 @@ export class VoiceCallService {
 
 
         try {
-            // Look up customer context with full profile
+            // Look up customer context with full profile and channel chip routing
             let context: {
                 clientId?: string;
                 clientName?: string;
                 clientTags?: string[];
                 clientType?: string;
                 conversationId?: string;
+                channelChipId?: string;
+                columnId?: string;
                 recentOrders?: any[];
                 totalSpent?: number;
             } = {};
             try {
-                context = await this.getCustomerContext(from);
+                // Pass both caller phone (from) and Twilio number (to) for chip resolution
+                context = await this.getCustomerContext(from, to);
                 logger.info(`Customer context recovered`, {
                     correlation_id: callSid,
                     clientId: context.clientId,
                     clientName: context.clientName,
                     clientType: context.clientType,
-                    tags: context.clientTags
+                    tags: context.clientTags,
+                    channelChipId: context.channelChipId,
+                    conversationId: context.conversationId
                 });
             } catch (ctxError: any) {
                 logger.warn('Failed to get context', ctxError, { correlation_id: callSid });
             }
 
-            // Create session with full context
+            // Create session with full context including chip
             const session: CallSession = {
                 callSid,
                 customerPhone: from,
@@ -218,32 +225,35 @@ export class VoiceCallService {
                 clientName: context.clientName,
                 clientTags: context.clientTags,
                 clientType: context.clientType,
+                channelChipId: context.channelChipId,
                 messages: [],
                 createdAt: new Date()
             };
             activeCalls.set(callSid, session);
 
-            // Log call in database with client context (non-blocking)
+            // Log call in database with client context and chip (non-blocking)
             (async () => {
                 try {
                     await supabase.from('voice_calls').insert({
                         vapi_call_id: callSid,
                         conversation_id: context.conversationId,
                         client_id: context.clientId,
+                        channel_chip_id: context.channelChipId,
                         direction: 'inbound',
                         phone_number: from,
                         status: 'in-progress',
                         started_at: new Date().toISOString(),
-                        context_injected: !!context.clientId,
-                        context_data: context.clientId ? {
+                        context_injected: !!(context.clientId || context.clientName),
+                        context_data: {
                             clientName: context.clientName,
                             clientType: context.clientType,
                             clientTags: context.clientTags,
                             totalSpent: context.totalSpent,
-                            recentOrders: context.recentOrders
-                        } : null
+                            recentOrders: context.recentOrders,
+                            columnId: context.columnId
+                        }
                     });
-                    logger.debug('Call logged to DB with context', { correlation_id: callSid });
+                    logger.debug('Call logged to DB with context and chip', { correlation_id: callSid });
                 } catch (dbError: any) {
                     logger.error('Failed to log call to DB', dbError, { correlation_id: callSid });
                 }
@@ -440,13 +450,16 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
     /**
      * Get customer context from database with full profile
      * Searches in both clients table AND conversations table by contact_handle
+     * Also resolves the Voice channel chip for CRM routing
      */
-    private async getCustomerContext(phone: string): Promise<{
+    private async getCustomerContext(phone: string, twilioNumber?: string): Promise<{
         clientId?: string;
         clientName?: string;
         clientTags?: string[];
         clientType?: string;
         conversationId?: string;
+        channelChipId?: string;
+        columnId?: string;
         recentOrders?: any[];
         totalSpent?: number;
     }> {
@@ -454,6 +467,16 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
             // Clean phone for lookup - try multiple formats
             const cleanPhone = phone.replace(/\D/g, '').slice(-10);
             logger.info(`[getCustomerContext] Looking up phone: ${phone} -> cleaned: ${cleanPhone}`);
+
+            // === RESOLVE VOICE CHANNEL CHIP ===
+            const channelRouter = ChannelRouter.getInstance();
+            const routing = await channelRouter.getRouting('VOICE', twilioNumber || '');
+            const channelChipId = routing.channel_chip_id || undefined;
+            const columnId = routing.column_id || undefined;
+
+            if (channelChipId) {
+                logger.info(`[getCustomerContext] Resolved Voice chip: ${channelChipId}, column: ${columnId}`);
+            }
 
             // === STRATEGY 1: Search in clients table ===
             let { data: client, error } = await supabase
@@ -504,6 +527,8 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
                     clientTags: existingConversation.tags || [],
                     clientType,
                     conversationId: existingConversation.id,
+                    channelChipId,
+                    columnId,
                     recentOrders: [],
                     totalSpent: 0
                 };
@@ -515,10 +540,12 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
                 // Still try to use existing conversation if found
                 if (existingConversation) {
                     return {
-                        conversationId: existingConversation.id
+                        conversationId: existingConversation.id,
+                        channelChipId,
+                        columnId
                     };
                 }
-                return {};
+                return { channelChipId, columnId };
             }
 
             // Parse tags to determine client type
@@ -556,13 +583,15 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
                 conversationId = convByHandle?.id;
             }
 
-            // If still no conversation, create one
+            // If still no conversation, create one with chip routing
             if (!conversationId) {
                 const { data: newConv } = await supabase
                     .from('conversations')
                     .insert({
                         contact_handle: cleanPhone,
-                        channel: 'voice',
+                        channel: 'VOICE',
+                        channel_chip_id: channelChipId,
+                        column_id: columnId,
                         facts: {
                             user_name: client.name
                         }
@@ -570,6 +599,7 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
                     .select('id')
                     .single();
                 conversationId = newConv?.id;
+                logger.info(`[getCustomerContext] Created new conversation: ${conversationId} with chip: ${channelChipId}`);
             }
 
             return {
@@ -578,6 +608,8 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
                 clientTags: tags,
                 clientType,
                 conversationId,
+                channelChipId,
+                columnId,
                 recentOrders: recentOrders || [],
                 totalSpent: client.total_spent || 0
             };
