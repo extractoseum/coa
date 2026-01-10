@@ -609,11 +609,11 @@ router.get('/test-context/:phone', async (req: Request, res: Response) => {
         const cleanPhone = phone.replace(/\D/g, '').slice(-10);
         log(`Input: ${phone} -> cleanPhone: ${cleanPhone}`);
 
-        // STRATEGY 1: Search in clients table
+        // STRATEGY 1: Search in clients table (only columns that exist!)
         log(`Strategy 1: Searching clients table for phone containing: ${cleanPhone}`);
         let { data: client, error: err1 } = await supabase
             .from('clients')
-            .select('id, name, phone, email, tags, total_spent, order_count')
+            .select('id, name, phone, email, tags')
             .ilike('phone', `%${cleanPhone}%`)
             .limit(1)
             .maybeSingle();
@@ -628,7 +628,7 @@ router.get('/test-context/:phone', async (req: Request, res: Response) => {
             log(`Strategy 1B: Trying with 52 prefix`);
             const { data: client2, error: err2 } = await supabase
                 .from('clients')
-                .select('id, name, phone, email, tags, total_spent, order_count')
+                .select('id, name, phone, email, tags')
                 .or(`phone.ilike.%${cleanPhone}%,phone.ilike.%52${cleanPhone}%`)
                 .limit(1)
                 .maybeSingle();
@@ -639,11 +639,11 @@ router.get('/test-context/:phone', async (req: Request, res: Response) => {
             log(`Strategy 1B result: client=${client ? client.name : 'null'}, id=${client?.id || 'null'}`);
         }
 
-        // STRATEGY 2: Search conversations
+        // STRATEGY 2: Search conversations (no client_id column!)
         log(`Strategy 2: Searching conversations by contact_handle`);
         const { data: conversation, error: err3 } = await supabase
             .from('conversations')
-            .select('id, contact_handle, facts, column_id, tags, client_id')
+            .select('id, contact_handle, facts, column_id, tags')
             .ilike('contact_handle', `%${cleanPhone}%`)
             .order('updated_at', { ascending: false })
             .limit(1)
@@ -651,20 +651,20 @@ router.get('/test-context/:phone', async (req: Request, res: Response) => {
         if (err3) {
             log(`Strategy 2 ERROR: ${err3.message}`);
         }
-        log(`Strategy 2 result: conversation=${conversation?.id || 'null'}, client_id=${conversation?.client_id || 'null'}`);
+        log(`Strategy 2 result: conversation=${conversation?.id || 'null'}`);
 
-        // STRATEGY 3: Search snapshots
+        // STRATEGY 3: Search snapshots (no client_id column!)
         log(`Strategy 3: Searching crm_contact_snapshots`);
         const { data: snapshot, error: err4 } = await supabase
             .from('crm_contact_snapshots')
-            .select('client_id, name, ltv, orders_count, email')
+            .select('name, ltv, orders_count, email')
             .ilike('handle', `%${cleanPhone}%`)
             .limit(1)
             .maybeSingle();
         if (err4) {
             log(`Strategy 3 ERROR: ${err4.message}`);
         }
-        log(`Strategy 3 result: snapshot=${snapshot?.name || 'null'}, client_id=${snapshot?.client_id || 'null'}`);
+        log(`Strategy 3 result: snapshot=${snapshot?.name || 'null'}`);
 
         // If client found, get orders
         let orders: any[] = [];
@@ -684,6 +684,9 @@ router.get('/test-context/:phone', async (req: Request, res: Response) => {
             }
         }
 
+        // Calculate total spent from orders
+        const totalSpent = orders.reduce((sum, o) => sum + (parseFloat(o.total_amount) || 0), 0);
+
         // Determine what would be returned
         let result: any = { channelChipId: null, columnId: null };
         if (client) {
@@ -692,13 +695,12 @@ router.get('/test-context/:phone', async (req: Request, res: Response) => {
                 clientName: client.name,
                 clientTags: client.tags || [],
                 orders: orders.map(o => ({ order_number: o.order_number, total: o.total_amount })),
-                totalSpent: client.total_spent || 0
+                totalSpent
             };
-            log(`SUCCESS: Would return clientId=${client.id}, clientName=${client.name}`);
+            log(`SUCCESS: Would return clientId=${client.id}, clientName=${client.name}, orders=${orders.length}`);
         } else if (conversation) {
             result = {
-                conversationId: conversation.id,
-                clientId: conversation.client_id || snapshot?.client_id
+                conversationId: conversation.id
             };
             log(`PARTIAL: Would return conversationId=${conversation.id}`);
         } else {
@@ -713,7 +715,7 @@ router.get('/test-context/:phone', async (req: Request, res: Response) => {
             raw: {
                 client: client ? { id: client.id, name: client.name, phone: client.phone } : null,
                 conversation: conversation ? { id: conversation.id, handle: conversation.contact_handle } : null,
-                snapshot: snapshot ? { name: snapshot.name, client_id: snapshot.client_id } : null,
+                snapshot: snapshot ? { name: snapshot.name, email: snapshot.email } : null,
                 ordersCount: orders.length
             }
         });
