@@ -107,4 +107,45 @@ router.get('/conversations/:conversationId/sentiment', requireAuth, requireRole(
 // Conversation Tags
 router.patch('/conversations/:conversationId/tags', requireAuth, requireRole('admin', 'super_admin', 'staff'), updateConversationTags);
 
+// SmartCommunication Channel Health Status
+router.get('/comm-health', requireAuth, requireRole('admin', 'super_admin', 'staff'), async (req, res) => {
+    try {
+        const { getChannelHealth } = require('../services/SmartCommunicationService');
+        const health = await getChannelHealth();
+
+        // Add summary status
+        const hasDownChannel = health.some((h: any) => h.status === 'down');
+        const hasDegradedChannel = health.some((h: any) => h.status === 'degraded');
+
+        res.json({
+            success: true,
+            status: hasDownChannel ? 'critical' : hasDegradedChannel ? 'degraded' : 'healthy',
+            channels: health,
+            timestamp: new Date().toISOString()
+        });
+    } catch (e: any) {
+        console.error('Comm Health Error:', e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Reset a channel's health status (after manual intervention)
+router.post('/comm-health/:channel/reset', requireAuth, requireRole('admin', 'super_admin'), async (req, res) => {
+    try {
+        const { channel } = req.params;
+        const { tokenIndex = 0 } = req.body;
+        const { resetChannelHealth } = require('../services/SmartCommunicationService');
+
+        resetChannelHealth(channel, tokenIndex);
+
+        res.json({
+            success: true,
+            message: `Channel ${channel} health reset successfully`
+        });
+    } catch (e: any) {
+        console.error('Comm Health Reset Error:', e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 export default router;

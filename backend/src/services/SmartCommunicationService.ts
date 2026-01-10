@@ -156,17 +156,105 @@ function getFallbackChain(type: MessageType): ChannelType[] {
     }
 }
 
+// Track last alert time to prevent spam
+const lastChannelAlertTime: Map<string, number> = new Map();
+const ALERT_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes between alerts
+
+/**
+ * Send alert to admins when a channel goes down
+ */
+async function sendChannelDownAlert(channel: ChannelType, tokenIndex: number, error: string): Promise<void> {
+    const alertKey = `${channel}-${tokenIndex}`;
+    const lastAlert = lastChannelAlertTime.get(alertKey) || 0;
+    const now = Date.now();
+
+    // Don't spam alerts
+    if (now - lastAlert < ALERT_COOLDOWN_MS) {
+        console.log(`[SmartComm] Skipping alert for ${channel}[${tokenIndex}] - cooldown active`);
+        return;
+    }
+
+    lastChannelAlertTime.set(alertKey, now);
+
+    const channelNames: Record<ChannelType, string> = {
+        whatsapp: 'WhatsApp',
+        email: 'Email',
+        sms: 'SMS (Twilio)',
+        push: 'Push (OneSignal)'
+    };
+
+    const title = `⚠️ Canal ${channelNames[channel]} caído`;
+    const message = `El canal ${channelNames[channel]}${tokenIndex > 0 ? ` (token #${tokenIndex})` : ''} ha fallado 3 veces consecutivas.\n\nError: ${error}\n\nLos mensajes se están enviando por canales alternativos.`;
+
+    try {
+        // Send email alert to admin
+        await sendAraEmail({
+            to: 'bdelatorreb@gmail.com', // Admin email
+            subject: title,
+            html: `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                    <div style="background: #DC2626; padding: 20px; text-align: center;">
+                        <h1 style="color: white; margin: 0;">⚠️ Alerta de Sistema</h1>
+                    </div>
+                    <div style="padding: 20px; background: #FEF2F2;">
+                        <h2 style="color: #991B1B;">${channelNames[channel]} no disponible</h2>
+                        <p style="font-size: 16px; line-height: 1.6; color: #374151;">
+                            ${message.replace(/\n/g, '<br>')}
+                        </p>
+                        <div style="margin-top: 20px; padding: 15px; background: white; border-radius: 8px;">
+                            <h3 style="margin: 0 0 10px 0;">Acciones recomendadas:</h3>
+                            <ul style="color: #374151;">
+                                <li>Verificar credenciales del servicio</li>
+                                <li>Revisar logs del servidor</li>
+                                <li>Contactar soporte del proveedor si persiste</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div style="padding: 15px; background: #1f2937; text-align: center;">
+                        <p style="color: #9ca3af; font-size: 12px; margin: 0;">
+                            SmartCommunicationService - Extractos EUM
+                        </p>
+                    </div>
+                </div>
+            `,
+            text: message
+        });
+
+        console.log(`[SmartComm] Channel down alert sent for ${channel}[${tokenIndex}]`);
+
+        // Also log to system_logs for tracking
+        await supabase.from('system_logs').insert({
+            event_type: 'channel_down_alert',
+            payload: {
+                channel,
+                tokenIndex,
+                error,
+                alert_sent_at: new Date().toISOString()
+            }
+        });
+    } catch (alertError: any) {
+        console.error(`[SmartComm] Failed to send channel down alert:`, alertError.message);
+    }
+}
+
 /**
  * Mark a channel as failed and update status
  */
-function markChannelFailed(channel: ChannelType, tokenIndex: number = 0, _error: string): void {
+function markChannelFailed(channel: ChannelType, tokenIndex: number = 0, error: string): void {
     const configs = channelRegistry.get(channel);
     if (configs && configs[tokenIndex]) {
+        const wasDown = configs[tokenIndex].status === 'down';
         configs[tokenIndex].failureCount++;
         configs[tokenIndex].lastCheck = new Date();
 
         if (configs[tokenIndex].failureCount >= 3) {
             configs[tokenIndex].status = 'down';
+            // Send alert only when transitioning to 'down' status
+            if (!wasDown) {
+                sendChannelDownAlert(channel, tokenIndex, error).catch(e =>
+                    console.error('[SmartComm] Alert send error:', e)
+                );
+            }
         } else if (configs[tokenIndex].failureCount >= 1) {
             configs[tokenIndex].status = 'degraded';
         }
