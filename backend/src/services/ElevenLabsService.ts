@@ -108,6 +108,10 @@ export class ElevenLabsService {
                 }
             }
 
+            // Determine Accept header based on output format
+            const acceptHeader = outputFormat.startsWith('ulaw') ? 'audio/basic' :
+                                 outputFormat.startsWith('pcm') ? 'audio/pcm' : 'audio/mpeg';
+
             const response = await axios.post(
                 `${this.baseUrl}/text-to-speech/${voiceId}?output_format=${outputFormat}`,
                 requestBody,
@@ -115,7 +119,7 @@ export class ElevenLabsService {
                     headers: {
                         'xi-api-key': this.apiKey,
                         'Content-Type': 'application/json',
-                        'Accept': 'audio/mpeg'
+                        'Accept': acceptHeader
                     },
                     responseType: 'arraybuffer'
                 }

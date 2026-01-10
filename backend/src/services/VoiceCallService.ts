@@ -669,10 +669,10 @@ export class VoiceCallService {
                 // For now, we'll generate the full audio and send it as a media event.
                 // Ideally, we pipe the stream.
 
-                // Generate Audio Buffer
+                // Generate Audio Buffer - use ulaw_8000 for Twilio compatibility
                 const audioBuffer = await elevenLabs.generateAudioAdvanced(aiResponseText, ELEVENLABS_VOICE_ID, {
                     model_id: ELEVENLABS_MODEL as any,
-                    output_format: 'mp3_44100_128',
+                    output_format: 'ulaw_8000',
                     voice_settings: { stability: 0.5, similarity_boost: 0.75 }
                 });
 
