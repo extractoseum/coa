@@ -338,4 +338,94 @@ router.get('/debug-client', async (req: Request, res: Response) => {
     res.json(results);
 });
 
+/**
+ * GET /api/voice/debug-calls
+ * View recent voice calls with transcripts
+ */
+router.get('/debug-calls', async (req: Request, res: Response) => {
+    const { supabase } = await import('../config/supabase');
+    const limit = parseInt(req.query.limit as string) || 10;
+
+    try {
+        // Fetch recent voice calls
+        const { data: calls, error } = await supabase
+            .from('voice_calls')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(limit);
+
+        if (error) {
+            res.json({ error: error.message });
+            return;
+        }
+
+        // Format the response
+        const formattedCalls = calls?.map(call => ({
+            id: call.id,
+            call_sid: call.call_sid,
+            phone_number: call.phone_number,
+            direction: call.direction,
+            status: call.status,
+            duration_seconds: call.duration_seconds,
+            created_at: call.created_at,
+            ended_at: call.ended_at,
+            client_id: call.client_id,
+            conversation_id: call.conversation_id,
+            transcripts: call.metadata?.transcripts || [],
+            transcript_count: call.metadata?.transcripts?.length || 0,
+            metadata_keys: call.metadata ? Object.keys(call.metadata) : []
+        }));
+
+        res.json({
+            total: formattedCalls?.length || 0,
+            calls: formattedCalls
+        });
+
+    } catch (error: any) {
+        res.json({ error: error.message });
+    }
+});
+
+/**
+ * GET /api/voice/debug-calls/:callSid
+ * View specific call with full transcript
+ */
+router.get('/debug-calls/:callSid', async (req: Request, res: Response) => {
+    const { supabase } = await import('../config/supabase');
+    const { callSid } = req.params;
+
+    try {
+        const { data: call, error } = await supabase
+            .from('voice_calls')
+            .select('*')
+            .eq('call_sid', callSid)
+            .single();
+
+        if (error) {
+            res.json({ error: error.message, callSid });
+            return;
+        }
+
+        // Also fetch related messages
+        let messages: any[] = [];
+        if (call?.conversation_id) {
+            const { data: msgs } = await supabase
+                .from('messages')
+                .select('*')
+                .eq('conversation_id', call.conversation_id)
+                .order('created_at', { ascending: true });
+            messages = msgs || [];
+        }
+
+        res.json({
+            call,
+            transcripts: call?.metadata?.transcripts || [],
+            related_messages: messages
+        });
+
+    } catch (error: any) {
+        res.json({ error: error.message });
+    }
+});
+
 export default router;
