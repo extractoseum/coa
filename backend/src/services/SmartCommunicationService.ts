@@ -39,6 +39,7 @@ interface ChannelConfig {
 
 interface SendMessageParams {
     to: string; // Phone number or email
+    toEmail?: string; // Direct email address (skips DB lookup)
     subject?: string; // For email
     body: string;
     type: MessageType;
@@ -219,13 +220,18 @@ async function sendViaWhatsApp(to: string, body: string): Promise<{ success: boo
 
 /**
  * Send via Email (using Ara email service)
+ * @param to - Phone number or email address
+ * @param subject - Email subject
+ * @param body - Email body text
+ * @param directEmail - Optional: Direct email address (skips DB lookup)
  */
-async function sendViaEmail(to: string, subject: string, body: string): Promise<{ success: boolean; error?: string; messageId?: string }> {
+async function sendViaEmail(to: string, subject: string, body: string, directEmail?: string): Promise<{ success: boolean; error?: string; messageId?: string }> {
     try {
-        // If 'to' is a phone number, we need to find the email from the client
-        let email = to;
-        if (!to.includes('@')) {
-            // Try to find client email by phone
+        // Use direct email if provided, otherwise look up by phone
+        let email = directEmail || to;
+
+        // If no direct email and 'to' is a phone number, find email from client
+        if (!directEmail && !to.includes('@')) {
             const cleanPhone = to.replace(/\D/g, '').slice(-10);
             const { data: client } = await supabase
                 .from('clients')
@@ -357,7 +363,7 @@ async function logCommunication(params: {
  * Main function: Send a message with intelligent fallback
  */
 export async function sendSmartMessage(params: SendMessageParams): Promise<SendResult> {
-    const { to, subject, body, type, clientId, conversationId } = params;
+    const { to, toEmail, subject, body, type, clientId, conversationId } = params;
 
     console.log(`[SmartComm] Sending ${type} message to ${to}`);
 
@@ -386,7 +392,7 @@ export async function sendSmartMessage(params: SendMessageParams): Promise<SendR
                         channelResult = await sendViaWhatsApp(to, body);
                         break;
                     case 'email':
-                        channelResult = await sendViaEmail(to, subject || `Mensaje importante de Extractos EUM`, body);
+                        channelResult = await sendViaEmail(to, subject || `Mensaje importante de Extractos EUM`, body, toEmail);
                         if (channelResult.success) result.emailSent = true;
                         break;
                     case 'sms':
@@ -418,7 +424,7 @@ export async function sendSmartMessage(params: SendMessageParams): Promise<SendR
         const emailInChain = fallbackChain.includes('email');
         if (!emailInChain) {
             // Fire and forget email backup
-            sendViaEmail(to, subject || 'Información de Extractos EUM', body)
+            sendViaEmail(to, subject || 'Información de Extractos EUM', body, toEmail)
                 .then(r => {
                     result.emailSent = r.success;
                     result.channelResults['email'] = r;
@@ -437,7 +443,7 @@ export async function sendSmartMessage(params: SendMessageParams): Promise<SendR
                     channelResult = await sendViaWhatsApp(to, body);
                     break;
                 case 'email':
-                    channelResult = await sendViaEmail(to, subject || 'Información de Extractos EUM', body);
+                    channelResult = await sendViaEmail(to, subject || 'Información de Extractos EUM', body, toEmail);
                     if (channelResult.success) result.emailSent = true;
                     break;
                 case 'sms':

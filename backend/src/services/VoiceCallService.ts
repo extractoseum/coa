@@ -51,6 +51,7 @@ interface CallSession {
     callSid: string;
     streamSid?: string;
     customerPhone: string;
+    customerEmail?: string; // For SmartCommunication fallback to email
     conversationId?: string;
     clientId?: string;
     clientName?: string;
@@ -219,6 +220,7 @@ export class VoiceCallService {
             let context: {
                 clientId?: string;
                 clientName?: string;
+                clientEmail?: string;
                 clientTags?: string[];
                 clientType?: string;
                 conversationId?: string;
@@ -247,6 +249,7 @@ export class VoiceCallService {
             const session: CallSession = {
                 callSid,
                 customerPhone: from,
+                customerEmail: context.clientEmail,
                 conversationId: context.conversationId,
                 clientId: context.clientId,
                 clientName: context.clientName,
@@ -403,7 +406,8 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
                     {
                         conversationId: session.conversationId,
                         clientId: session.clientId,
-                        customerPhone: session.customerPhone
+                        customerPhone: session.customerPhone,
+                        customerEmail: session.customerEmail
                     }
                 );
 
@@ -484,6 +488,7 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
     private async getCustomerContext(phone: string, twilioNumber?: string): Promise<{
         clientId?: string;
         clientName?: string;
+        clientEmail?: string;
         clientTags?: string[];
         clientType?: string;
         conversationId?: string;
@@ -714,9 +719,13 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
                 logger.info(`[getCustomerContext] Created new conversation: ${conversationId} with chip: ${channelChipId}`);
             }
 
+            // Get email from client or snapshot
+            const clientEmail = client.email || snapshotEmail || null;
+
             const result = {
                 clientId: client.id,
                 clientName: client.name,
+                clientEmail,
                 clientTags: tags,
                 clientType,
                 conversationId,
@@ -725,7 +734,7 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
                 recentOrders: recentOrders || [],
                 totalSpent
             };
-            logger.info(`[getCustomerContext] RETURNING context with clientId=${result.clientId}, clientName=${result.clientName}, orders=${result.recentOrders?.length || 0}`);
+            logger.info(`[getCustomerContext] RETURNING context with clientId=${result.clientId}, clientName=${result.clientName}, email=${clientEmail}, orders=${result.recentOrders?.length || 0}`);
             return result;
 
         } catch (error: any) {

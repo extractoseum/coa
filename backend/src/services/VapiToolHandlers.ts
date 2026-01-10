@@ -149,6 +149,7 @@ interface ToolCallContext {
     conversationId?: string;
     clientId?: string;
     customerPhone?: string;
+    customerEmail?: string; // For SmartCommunication email fallback
 }
 
 interface ToolResult {
@@ -170,11 +171,12 @@ export async function handleSendWhatsApp(
     context: ToolCallContext
 ): Promise<ToolResult> {
     const { message, media_url } = args;
-    const { customerPhone, conversationId, clientId } = context;
+    const { customerPhone, customerEmail, conversationId, clientId } = context;
 
     // Enhanced logging for debugging
     console.log(`[VapiTools] send_whatsapp CALLED with:`, {
         customerPhone,
+        customerEmail,
         conversationId,
         clientId,
         messageLength: message?.length,
@@ -195,6 +197,7 @@ export async function handleSendWhatsApp(
         // Use SmartCommunicationService for intelligent fallback
         const result = await sendSmartMessage({
             to: customerPhone,
+            toEmail: customerEmail, // Direct email for fallback (skips DB lookup)
             subject: 'Información de tu llamada con Extractos EUM',
             body: message,
             type: 'informational', // WhatsApp → Email → Push with email backup
