@@ -8,7 +8,8 @@ import {
     handleCheckoutUpdate,
     handleFulfillmentUpdate,
     handleBeacon,
-    getBeaconLogs
+    getBeaconLogs,
+    handleTwilioSmsInbound
 } from '../controllers/webhookController';
 
 const router = Router();
@@ -51,5 +52,12 @@ router.post('/shopify/fulfillment-update', handleFulfillmentUpdate);
 // Beacon - public debugging
 router.post('/beacon', handleBeacon);
 router.get('/beacon/recent', getBeaconLogs);
+
+/**
+ * Twilio SMS Inbound Webhook
+ * Configure in Twilio Console: Phone Number -> Messaging -> Webhook URL
+ * URL: https://coa.extractoseum.com/api/v1/webhooks/twilio/sms
+ */
+router.post('/twilio/sms', handleTwilioSmsInbound);
 
 export default router;

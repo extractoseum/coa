@@ -883,3 +883,155 @@ export const handleCheckoutUpdate = async (req: Request, res: Response) => {
         res.status(200).json({ success: false });
     }
 };
+
+/**
+ * Handle inbound SMS from Twilio
+ * Twilio sends POST with form data: From, To, Body, MessageSid, etc.
+ */
+export const handleTwilioSmsInbound = async (req: Request, res: Response) => {
+    try {
+        const { From, To, Body, MessageSid, NumMedia } = req.body;
+
+        console.log(`[Twilio SMS Inbound] From: ${From}, To: ${To}, Body: ${Body?.substring(0, 50)}...`);
+
+        if (!From || !Body) {
+            console.warn('[Twilio SMS Inbound] Missing From or Body');
+            // Return TwiML empty response
+            res.type('text/xml').send('<Response></Response>');
+            return;
+        }
+
+        // Normalize phone number for DB lookup (last 10 digits for MX)
+        const cleanPhone = From.replace(/\D/g, '').slice(-10);
+
+        // Find existing conversation by phone (SMS channel)
+        let { data: existingConv } = await supabase
+            .from('conversations')
+            .select('id, column_id, client_id')
+            .or(`contact_handle.ilike.%${cleanPhone}`)
+            .eq('channel', 'SMS')
+            .order('updated_at', { ascending: false })
+            .limit(1)
+            .single();
+
+        // If no SMS conversation, check for any conversation with this phone
+        if (!existingConv) {
+            const { data: anyConv } = await supabase
+                .from('conversations')
+                .select('id, column_id, client_id')
+                .or(`contact_handle.ilike.%${cleanPhone}`)
+                .order('updated_at', { ascending: false })
+                .limit(1)
+                .single();
+
+            existingConv = anyConv;
+        }
+
+        let conversationId: string;
+        let clientId: string | null = null;
+
+        if (existingConv) {
+            conversationId = existingConv.id;
+            clientId = existingConv.client_id;
+            console.log(`[Twilio SMS Inbound] Found existing conversation: ${conversationId}`);
+        } else {
+            // Look up client by phone
+            const { data: client } = await supabase
+                .from('clients')
+                .select('id, name, email')
+                .ilike('phone', `%${cleanPhone}`)
+                .single();
+
+            clientId = client?.id || null;
+
+            // Get SMS chip for routing (or default column)
+            const { data: smsChip } = await supabase
+                .from('channel_chips')
+                .select('default_entry_column_id, is_active')
+                .eq('channel_id', 'sms_twilio')
+                .single();
+
+            let targetColumnId = smsChip?.is_active !== false ? smsChip?.default_entry_column_id : null;
+
+            if (!targetColumnId) {
+                const { data: defaultCol } = await supabase
+                    .from('crm_columns')
+                    .select('id')
+                    .order('position', { ascending: true })
+                    .limit(1)
+                    .single();
+                targetColumnId = defaultCol?.id || null;
+            }
+
+            // Create new conversation
+            const { data: newConv, error } = await supabase
+                .from('conversations')
+                .insert({
+                    contact_handle: From,
+                    channel: 'SMS',
+                    platform: 'twilio',
+                    traffic_source: 'sms_inbound',
+                    column_id: targetColumnId,
+                    client_id: clientId,
+                    summary: `SMS: ${Body.substring(0, 50)}...`
+                })
+                .select('id')
+                .single();
+
+            if (error || !newConv) {
+                console.error('[Twilio SMS Inbound] Failed to create conversation:', error);
+                res.type('text/xml').send('<Response></Response>');
+                return;
+            }
+
+            conversationId = newConv.id;
+            console.log(`[Twilio SMS Inbound] Created new conversation: ${conversationId}`);
+        }
+
+        // Insert message into crm_messages
+        const { error: msgError } = await supabase.from('crm_messages').insert({
+            conversation_id: conversationId,
+            direction: 'inbound',
+            content: Body,
+            sender_type: 'client',
+            channel: 'SMS',
+            external_id: MessageSid,
+            metadata: {
+                from: From,
+                to: To,
+                num_media: NumMedia || 0,
+                twilio_sid: MessageSid
+            }
+        });
+
+        if (msgError) {
+            console.error('[Twilio SMS Inbound] Failed to save message:', msgError);
+        } else {
+            console.log(`[Twilio SMS Inbound] Message saved to conversation ${conversationId}`);
+        }
+
+        // Update conversation last_inbound_at
+        await supabase
+            .from('conversations')
+            .update({
+                last_inbound_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', conversationId);
+
+        // Log webhook
+        await logWebhook('twilio_sms_inbound', {
+            from: From,
+            to: To,
+            body_preview: Body?.substring(0, 100),
+            conversation_id: conversationId,
+            message_sid: MessageSid
+        }, clientId || undefined);
+
+        // Return empty TwiML (no auto-reply)
+        res.type('text/xml').send('<Response></Response>');
+    } catch (error: any) {
+        console.error('[Twilio SMS Inbound] Error:', error);
+        res.type('text/xml').send('<Response></Response>');
+    }
+};
