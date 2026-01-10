@@ -475,6 +475,20 @@ router.get('/debug-orders/:phone', async (req: Request, res: Response) => {
             .limit(1)
             .maybeSingle();
 
+        // Search 5: Check clients table format
+        const { data: clientByPhone } = await supabase
+            .from('clients')
+            .select('id, name, phone, email')
+            .or(`phone.ilike.%${cleanPhone}%,phone.ilike.%52${cleanPhone}%`)
+            .limit(3);
+
+        // Search 6: Sample clients to see phone format
+        const { data: sampleClients } = await supabase
+            .from('clients')
+            .select('name, phone')
+            .not('phone', 'is', null)
+            .limit(10);
+
         res.json({
             input: phone,
             cleanedPhone: cleanPhone,
@@ -486,7 +500,10 @@ router.get('/debug-orders/:phone', async (req: Request, res: Response) => {
                 contact_handle: conversation.contact_handle,
                 contact_name: conversation.contact_name
             } : null,
-            order1441: order1441
+            order1441: order1441,
+            clientsFoundByPhone: clientByPhone?.length || 0,
+            clients: clientByPhone,
+            sampleClientPhones: sampleClients?.map(c => ({ name: c.name?.substring(0, 15), phone: c.phone }))
         });
     } catch (error: any) {
         res.json({ error: error.message });
