@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import {
     Cpu, Layers, Zap, Plus, X, Save, Trash2,
     Hash, Globe, Tag, MessageSquare, AlertCircle,
-    ArrowRight, Settings, Filter, Search, Smile
+    ArrowRight, Settings, Filter, Search, Smile, Bot
 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 
@@ -173,7 +173,7 @@ const OrchestratorConfig = ({ onClose }: { onClose: () => void }) => {
                                         <div className="flex justify-between items-start">
                                             <div className="flex items-center gap-3">
                                                 <div className="p-2 rounded-xl bg-black/40 border border-white/5 shadow-inner">
-                                                    {chip.platform === 'whatsapp' ? <MessageSquare size={16} className="text-green-500" /> : <Globe size={16} className="text-pink-500" />}
+                                                    {chip.platform === 'whatsapp' ? <MessageSquare size={16} className="text-green-500" /> : chip.platform === 'widget' ? <Bot size={16} className="text-purple-500" /> : <Globe size={16} className="text-pink-500" />}
                                                 </div>
                                                 <div className="flex flex-col">
                                                     <span className="text-xs font-black text-white">{chip.channel_id}</span>
@@ -267,6 +267,7 @@ const OrchestratorConfig = ({ onClose }: { onClose: () => void }) => {
                                                 <option value="linkedin">LinkedIn</option>
                                                 <option value="tiktok">TikTok</option>
                                                 <option value="shop">Shop App</option>
+                                                <option value="widget">Widget (Ara Chat)</option>
                                             </select>
                                         </div>
                                         <div className="space-y-2">
