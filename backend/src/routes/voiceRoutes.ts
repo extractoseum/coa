@@ -489,6 +489,26 @@ router.get('/debug-orders/:phone', async (req: Request, res: Response) => {
             .not('phone', 'is', null)
             .limit(10);
 
+        // Search 7: Check crm_contact_snapshots (KEY for finding client_id linkage!)
+        const { data: snapshot } = await supabase
+            .from('crm_contact_snapshots')
+            .select('id, handle, name, client_id, email, ltv, orders_count')
+            .ilike('handle', `%${cleanPhone}%`)
+            .limit(1)
+            .maybeSingle();
+
+        // Search 8: If snapshot has client_id, find orders by that client_id
+        let ordersByClientId: any[] = [];
+        if (snapshot?.client_id) {
+            const { data: ordersFromClient } = await supabase
+                .from('orders')
+                .select('id, order_number, customer_phone, customer_email, total_amount, financial_status')
+                .eq('client_id', snapshot.client_id)
+                .order('created_at', { ascending: false })
+                .limit(5);
+            ordersByClientId = ordersFromClient || [];
+        }
+
         res.json({
             input: phone,
             cleanedPhone: cleanPhone,
@@ -503,7 +523,21 @@ router.get('/debug-orders/:phone', async (req: Request, res: Response) => {
             order1441: order1441,
             clientsFoundByPhone: clientByPhone?.length || 0,
             clients: clientByPhone,
-            sampleClientPhones: sampleClients?.map(c => ({ name: c.name?.substring(0, 15), phone: c.phone }))
+            sampleClientPhones: sampleClients?.map(c => ({ name: c.name?.substring(0, 15), phone: c.phone })),
+            // NEW: Snapshot-based lookup (the key to finding orders!)
+            snapshot: snapshot ? {
+                name: snapshot.name,
+                client_id: snapshot.client_id,
+                email: snapshot.email,
+                ltv: snapshot.ltv,
+                orders_count: snapshot.orders_count
+            } : null,
+            ordersByClientId: ordersByClientId.map(o => ({
+                order_number: o.order_number,
+                customer_phone: o.customer_phone,
+                customer_email: o.customer_email,
+                total_amount: o.total_amount
+            }))
         });
     } catch (error: any) {
         res.json({ error: error.message });

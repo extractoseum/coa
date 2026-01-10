@@ -524,16 +524,34 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
             // This catches cases where the phone number exists in CRM but not in clients table
             const { data: existingConversation } = await supabase
                 .from('conversations')
-                .select('id, contact_handle, facts, column_id, tags')
+                .select('id, contact_handle, facts, column_id, tags, client_id')
                 .ilike('contact_handle', `%${cleanPhone}%`)
                 .order('updated_at', { ascending: false })
                 .limit(1)
                 .maybeSingle();
 
+            // === STRATEGY 2B: Search in crm_contact_snapshots for client_id ===
+            // Snapshots often have client_id linked even when conversations don't
+            let snapshotClientId: string | null = null;
+            let snapshotName: string | null = null;
+            const { data: snapshot } = await supabase
+                .from('crm_contact_snapshots')
+                .select('client_id, name, ltv, orders_count, email')
+                .ilike('handle', `%${cleanPhone}%`)
+                .limit(1)
+                .maybeSingle();
+
+            if (snapshot) {
+                snapshotClientId = snapshot.client_id;
+                snapshotName = snapshot.name;
+                logger.info(`[getCustomerContext] Found snapshot for ${cleanPhone}: name=${snapshotName}, client_id=${snapshotClientId}, ltv=${snapshot.ltv}, orders=${snapshot.orders_count}`);
+            }
+
             // If we found a conversation but no client, extract context from conversation facts
             if (!client && existingConversation) {
                 const facts = existingConversation.facts as any || {};
-                logger.info(`[getCustomerContext] Found conversation for phone: ${cleanPhone}, name from facts: ${facts.user_name}`);
+                const conversationClientId = existingConversation.client_id || snapshotClientId;
+                logger.info(`[getCustomerContext] Found conversation for phone: ${cleanPhone}, name from facts: ${facts.user_name}, client_id: ${conversationClientId}`);
 
                 // Determine client type from conversation context
                 let clientType = 'returning'; // Has conversation = returning customer
@@ -541,31 +559,72 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
                     clientType = 'vip'; // High intent = treat as VIP
                 }
 
-                // Try to find orders by phone number since we don't have client_id
-                // Note: orders table uses customer_phone, not phone
+                // Try multiple strategies to find orders
                 let recentOrders: any[] = [];
                 let totalSpent = 0;
                 try {
-                    const { data: ordersByPhone } = await supabase
-                        .from('orders')
-                        .select('id, order_number, status, total_amount, financial_status, fulfillment_status, created_at')
-                        .or(`customer_phone.ilike.%${cleanPhone}%,customer_phone.ilike.%52${cleanPhone}%`)
-                        .order('created_at', { ascending: false })
-                        .limit(5);
+                    // PRIORITY 1: If we have a client_id (from conversation or snapshot), use it!
+                    if (conversationClientId) {
+                        const { data: ordersByClientId } = await supabase
+                            .from('orders')
+                            .select('id, order_number, status, total_amount, financial_status, fulfillment_status, created_at')
+                            .eq('client_id', conversationClientId)
+                            .order('created_at', { ascending: false })
+                            .limit(5);
 
-                    if (ordersByPhone && ordersByPhone.length > 0) {
-                        recentOrders = ordersByPhone;
-                        totalSpent = ordersByPhone.reduce((sum, o) => sum + (parseFloat(o.total_amount) || 0), 0);
-                        logger.info(`[getCustomerContext] Found ${ordersByPhone.length} orders by customer_phone, totalSpent: ${totalSpent}`);
-                    } else {
-                        logger.info(`[getCustomerContext] No orders found for customer_phone containing: ${cleanPhone}`);
+                        if (ordersByClientId && ordersByClientId.length > 0) {
+                            recentOrders = ordersByClientId;
+                            totalSpent = ordersByClientId.reduce((sum, o) => sum + (parseFloat(o.total_amount) || 0), 0);
+                            logger.info(`[getCustomerContext] Found ${ordersByClientId.length} orders by client_id ${conversationClientId}, totalSpent: ${totalSpent}`);
+                        }
+                    }
+
+                    // PRIORITY 2: If no orders by client_id, try by customer_email from snapshot
+                    if (recentOrders.length === 0 && snapshot?.email) {
+                        const { data: ordersByEmail } = await supabase
+                            .from('orders')
+                            .select('id, order_number, status, total_amount, financial_status, fulfillment_status, created_at')
+                            .ilike('customer_email', snapshot.email)
+                            .order('created_at', { ascending: false })
+                            .limit(5);
+
+                        if (ordersByEmail && ordersByEmail.length > 0) {
+                            recentOrders = ordersByEmail;
+                            totalSpent = ordersByEmail.reduce((sum, o) => sum + (parseFloat(o.total_amount) || 0), 0);
+                            logger.info(`[getCustomerContext] Found ${ordersByEmail.length} orders by email ${snapshot.email}, totalSpent: ${totalSpent}`);
+                        }
+                    }
+
+                    // PRIORITY 3: Fallback to phone search
+                    if (recentOrders.length === 0) {
+                        const { data: ordersByPhone } = await supabase
+                            .from('orders')
+                            .select('id, order_number, status, total_amount, financial_status, fulfillment_status, created_at')
+                            .or(`customer_phone.ilike.%${cleanPhone}%,customer_phone.ilike.%52${cleanPhone}%`)
+                            .order('created_at', { ascending: false })
+                            .limit(5);
+
+                        if (ordersByPhone && ordersByPhone.length > 0) {
+                            recentOrders = ordersByPhone;
+                            totalSpent = ordersByPhone.reduce((sum, o) => sum + (parseFloat(o.total_amount) || 0), 0);
+                            logger.info(`[getCustomerContext] Found ${ordersByPhone.length} orders by customer_phone, totalSpent: ${totalSpent}`);
+                        } else {
+                            logger.info(`[getCustomerContext] No orders found for customer_phone containing: ${cleanPhone}`);
+                        }
                     }
                 } catch (orderErr) {
-                    logger.warn(`[getCustomerContext] Error fetching orders by customer_phone:`, orderErr);
+                    logger.warn(`[getCustomerContext] Error fetching orders:`, orderErr);
+                }
+
+                // Use snapshot LTV if we have it and didn't find orders
+                if (totalSpent === 0 && snapshot?.ltv) {
+                    totalSpent = snapshot.ltv;
+                    logger.info(`[getCustomerContext] Using LTV from snapshot: ${totalSpent}`);
                 }
 
                 return {
-                    clientName: facts.user_name || undefined,
+                    clientId: conversationClientId || undefined,
+                    clientName: facts.user_name || snapshotName || undefined,
                     clientTags: existingConversation.tags || [],
                     clientType,
                     conversationId: existingConversation.id,

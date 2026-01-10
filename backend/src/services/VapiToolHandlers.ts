@@ -679,33 +679,73 @@ export async function handleLookupOrder(
             order = data;
         } else if (customerPhone) {
             searchMethod = 'customerPhone';
-            // Try to find client by phone first
             const cleanPhone = cleanupPhone(customerPhone);
-            console.log(`[VapiTools] lookup_order: searching client by phone ${cleanPhone}`);
+            console.log(`[VapiTools] lookup_order: searching by phone ${cleanPhone}`);
 
-            const { data: client } = await supabase
-                .from('clients')
-                .select('id')
-                .ilike('phone', `%${cleanPhone}%`)
+            // STRATEGY 1: Try to find client_id from crm_contact_snapshots (most reliable)
+            const { data: snapshot } = await supabase
+                .from('crm_contact_snapshots')
+                .select('client_id, email')
+                .ilike('handle', `%${cleanPhone}%`)
                 .limit(1)
                 .maybeSingle();
 
-            if (client) {
-                console.log(`[VapiTools] lookup_order: found client ${client.id}, searching orders`);
+            if (snapshot?.client_id) {
+                console.log(`[VapiTools] lookup_order: found snapshot with client_id ${snapshot.client_id}`);
                 const { data } = await supabase
                     .from('orders')
                     .select('*')
-                    .eq('client_id', client.id)
+                    .eq('client_id', snapshot.client_id)
                     .order('created_at', { ascending: false })
                     .limit(1)
                     .maybeSingle();
                 order = data;
+                if (order) {
+                    console.log(`[VapiTools] lookup_order: found order ${order.order_number} by snapshot client_id`);
+                }
             }
 
-            // If no client found, search orders directly by phone number
-            // Note: orders table uses customer_phone, not phone
+            // STRATEGY 2: Try by email from snapshot
+            if (!order && snapshot?.email) {
+                console.log(`[VapiTools] lookup_order: searching by snapshot email ${snapshot.email}`);
+                const { data: orderByEmail } = await supabase
+                    .from('orders')
+                    .select('*')
+                    .ilike('customer_email', snapshot.email)
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+                if (orderByEmail) {
+                    console.log(`[VapiTools] lookup_order: found order ${orderByEmail.order_number} by email`);
+                    order = orderByEmail;
+                }
+            }
+
+            // STRATEGY 3: Try to find client in clients table by phone
             if (!order) {
-                console.log(`[VapiTools] lookup_order: searching orders directly by customer_phone ${cleanPhone}`);
+                const { data: client } = await supabase
+                    .from('clients')
+                    .select('id')
+                    .ilike('phone', `%${cleanPhone}%`)
+                    .limit(1)
+                    .maybeSingle();
+
+                if (client) {
+                    console.log(`[VapiTools] lookup_order: found client ${client.id} in clients table`);
+                    const { data } = await supabase
+                        .from('orders')
+                        .select('*')
+                        .eq('client_id', client.id)
+                        .order('created_at', { ascending: false })
+                        .limit(1)
+                        .maybeSingle();
+                    order = data;
+                }
+            }
+
+            // STRATEGY 4: Fallback - search orders directly by phone number
+            if (!order) {
+                console.log(`[VapiTools] lookup_order: fallback - searching orders by customer_phone ${cleanPhone}`);
                 const { data: orderByPhone } = await supabase
                     .from('orders')
                     .select('*')
@@ -718,7 +758,7 @@ export async function handleLookupOrder(
                     console.log(`[VapiTools] lookup_order: found order ${orderByPhone.order_number} by customer_phone`);
                     order = orderByPhone;
                 } else {
-                    console.log(`[VapiTools] lookup_order: no orders found for customer_phone ${cleanPhone}`);
+                    console.log(`[VapiTools] lookup_order: no orders found for phone ${cleanPhone}`);
                 }
             }
         } else {
