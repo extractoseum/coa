@@ -196,7 +196,8 @@ jobs:
               echo "# Twilio (SMS & Voice)" >> .env
               echo "TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_ACCOUNT_SID }}" >> .env
               echo "TWILIO_AUTH_TOKEN=${{ secrets.TWILIO_AUTH_TOKEN }}" >> .env
-              echo "TWILIO_PHONE_NUMBER=${{ secrets.TWILIO_PHONE_NUMBER }}" >> .env
+              # Phone number hardcoded to avoid secret interpolation issues
+              echo "TWILIO_PHONE_NUMBER=+525596616455" >> .env
             fi
 
             # Update Anthropic API Key (Claude)

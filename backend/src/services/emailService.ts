@@ -537,16 +537,18 @@ export const processIncomingAraEmail = async (email: IncomingEmail): Promise<str
             .single();
 
         // Get the email channel chip for routing
-        const { data: emailChip } = await supabase
+        const { data: emailChip, error: chipError } = await supabase
             .from('channel_chips')
-            .select('default_entry_column_id')
+            .select('default_entry_column_id, is_active')
             .eq('channel_id', 'email_ara_ghostbuster')
             .single();
 
-        // Fallback to first column if no chip configured
-        let targetColumnId = emailChip?.default_entry_column_id;
+        console.log(`[AraEmail] Chip lookup result: ${JSON.stringify(emailChip)}, error: ${chipError?.message || 'none'}`);
+
+        // Fallback to first column if no chip configured or chip inactive
+        let targetColumnId = (emailChip?.is_active !== false) ? emailChip?.default_entry_column_id : null;
         if (!targetColumnId) {
-            console.log('[AraEmail] No email chip found, using first column as fallback');
+            console.log('[AraEmail] No email chip found or inactive, using first column as fallback');
             const { data: defaultCol } = await supabase
                 .from('crm_columns')
                 .select('id')
@@ -644,13 +646,15 @@ export const startEmailPolling = (intervalMs: number = 60000): void => {
         return;
     }
 
+    console.log(`[AraEmail] Checking config - User: ${ARA_EMAIL_CONFIG.user}, OAuth: ${!!ARA_EMAIL_CONFIG.refreshToken}, Password: ${!!ARA_EMAIL_CONFIG.password}`);
+
     if (!ARA_EMAIL_CONFIG.password && !ARA_EMAIL_CONFIG.refreshToken) {
         console.warn('[AraEmail] Cannot start polling - no password or OAuth configured');
         return;
     }
 
     isPollingEmails = true;
-    console.log(`[AraEmail] Starting email polling every ${intervalMs / 1000}s`);
+    console.log(`[AraEmail] Starting email polling every ${intervalMs / 1000}s for ${ARA_EMAIL_CONFIG.user}`);
 
     // Initial fetch
     pollEmails();

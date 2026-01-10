@@ -106,9 +106,14 @@ function initializeChannels(): void {
         failureCount: 0
     }]);
 
-    // SMS channel
-    const smsEnabled = !!process.env.TWILIO_ACCOUNT_SID;
-    console.log(`[SmartComm] SMS channel enabled: ${smsEnabled} (TWILIO_ACCOUNT_SID: ${process.env.TWILIO_ACCOUNT_SID ? 'set' : 'NOT SET'})`);
+    // SMS channel - requires ALL THREE Twilio credentials
+    const smsEnabled = !!(
+        process.env.TWILIO_ACCOUNT_SID &&
+        process.env.TWILIO_AUTH_TOKEN &&
+        process.env.TWILIO_PHONE_NUMBER
+    );
+    console.log(`[SmartComm] SMS channel enabled: ${smsEnabled}`);
+    console.log(`[SmartComm] Twilio config: SID=${process.env.TWILIO_ACCOUNT_SID ? 'set' : 'NOT SET'}, TOKEN=${process.env.TWILIO_AUTH_TOKEN ? 'set' : 'NOT SET'}, PHONE=${process.env.TWILIO_PHONE_NUMBER || 'NOT SET'}`);
     channelRegistry.set('sms', [{
         name: 'sms',
         enabled: smsEnabled,
