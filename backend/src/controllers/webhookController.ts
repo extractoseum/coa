@@ -886,7 +886,28 @@ export const handleCheckoutUpdate = async (req: Request, res: Response) => {
 
 /**
  * Handle inbound SMS from Twilio
- * Twilio sends POST with form data: From, To, Body, MessageSid, etc.
+ *
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │ SMS INBOUND WEBHOOK                                                     │
+ * ├─────────────────────────────────────────────────────────────────────────┤
+ * │ Endpoint: POST /api/v1/webhooks/twilio/sms                              │
+ * │                                                                         │
+ * │ Configure in Twilio Console for each US number:                         │
+ * │ - +19154654725 (Bernardo Paid)                                          │
+ * │ - +19284875505 (EUM MX Trial backup)                                    │
+ * │                                                                         │
+ * │ FLOW:                                                                   │
+ * │ 1. Twilio sends POST with: From, To, Body, MessageSid, NumMedia         │
+ * │ 2. Normalize phone (last 10 digits for MX/US)                           │
+ * │ 3. Find existing conversation by phone + SMS channel                    │
+ * │ 4. If not found, create new conversation using 'sms_twilio' chip        │
+ * │ 5. Insert message to crm_messages                                       │
+ * │ 6. Return empty TwiML (no auto-reply)                                   │
+ * │                                                                         │
+ * │ Channel Chip: 'sms_twilio' determines which CRM column receives SMS     │
+ * └─────────────────────────────────────────────────────────────────────────┘
+ *
+ * @see COMMUNICATION_ARCHITECTURE.md for full system documentation
  */
 export const handleTwilioSmsInbound = async (req: Request, res: Response) => {
     try {

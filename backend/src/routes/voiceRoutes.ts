@@ -1,11 +1,34 @@
 /**
  * Voice Routes - Twilio Webhooks for Voice Calls
  *
- * These routes handle:
- * - Incoming call webhooks
- * - Speech recognition results (Gather)
- * - Call status updates
- * - Outbound call initiation
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │ VOICE SYSTEM ARCHITECTURE                                               │
+ * ├─────────────────────────────────────────────────────────────────────────┤
+ * │ Pipeline: Twilio → Deepgram (STT) → Claude (AI) → ElevenLabs (TTS)     │
+ * │                                                                         │
+ * │ PHONE NUMBERS (all use same webhook):                                   │
+ * │ - +525596616455 (MX Voice) - Extractos EUM primary                      │
+ * │ - +19154654725 (US SMS/Voice) - Bernardo Paid                           │
+ * │ - +19284875505 (US SMS/Voice) - EUM MX Trial backup                     │
+ * │                                                                         │
+ * │ WEBHOOK URL: https://coa.extractoseum.com/api/voice/incoming            │
+ * │                                                                         │
+ * │ CALL FLOW:                                                              │
+ * │ 1. Twilio receives call → POST /api/voice/incoming                      │
+ * │ 2. VoiceCallService looks up customer, creates conversation             │
+ * │ 3. Returns TwiML with WebSocket stream connection                       │
+ * │ 4. Real-time audio: Deepgram transcribes → Claude responds → ElevenLabs │
+ * │ 5. Call ends → Recording saved → Transcript stored                      │
+ * │                                                                         │
+ * │ AVAILABLE AI TOOLS:                                                     │
+ * │ - search_products: Search product catalog                               │
+ * │ - lookup_order: Check order status                                      │
+ * │ - get_coa: Retrieve Certificate of Analysis                             │
+ * │ - send_whatsapp: Send WhatsApp message to caller                        │
+ * │ - escalate_to_human: Request human agent                                │
+ * └─────────────────────────────────────────────────────────────────────────┘
+ *
+ * @see COMMUNICATION_ARCHITECTURE.md for full system documentation
  */
 
 import { Router, Request, Response } from 'express';

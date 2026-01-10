@@ -1,12 +1,31 @@
 /**
  * Twilio Service - Multi-Account SMS & Voice Integration
  *
- * Supports separate accounts for Voice (MX) and SMS (US) with emergency backup.
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │ ARCHITECTURE OVERVIEW                                                   │
+ * ├─────────────────────────────────────────────────────────────────────────┤
+ * │ Mexican numbers (+52) CANNOT send SMS - they are voice-only.            │
+ * │ US numbers (+1) support both SMS and voice.                             │
+ * │ This service manages 3 Twilio accounts for resilient communication:     │
+ * │                                                                         │
+ * │ 1. VOICE ACCOUNT (Extractos EUM - MX)                                   │
+ * │    └─ +525596616455 - Voice calls, OTP via voice                        │
+ * │                                                                         │
+ * │ 2. SMS ACCOUNT (Bernardo Paid - US)                                     │
+ * │    └─ +19154654725 - Primary SMS, can also receive voice                │
+ * │                                                                         │
+ * │ 3. BACKUP ACCOUNT (EUM MX Trial - US)                                   │
+ * │    └─ +19284875505 - Emergency SMS fallback                             │
+ * │                                                                         │
+ * │ SMS FLOW: Try SMS Account → If fails → Try Backup → Return error        │
+ * │ VOICE FLOW: Uses Voice Account only (MX number for local presence)      │
+ * └─────────────────────────────────────────────────────────────────────────┘
  *
- * Account Priority:
- * 1. TWILIO_SMS_* - Primary SMS (Bernardo Paid, US number with SMS capability)
- * 2. TWILIO_* - Primary Voice (Extractos EUM, MX number, voice only)
- * 3. TWILIO_BACKUP_* - Emergency backup (EUM MX Trial, use only if others fail)
+ * WEBHOOK CONFIGURATION (in Twilio Console):
+ * - All numbers: Voice → https://coa.extractoseum.com/api/voice/incoming
+ * - US numbers: SMS → https://coa.extractoseum.com/api/v1/webhooks/twilio/sms
+ *
+ * @see COMMUNICATION_ARCHITECTURE.md for full system documentation
  */
 
 import twilio from 'twilio';
