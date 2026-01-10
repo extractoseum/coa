@@ -542,23 +542,26 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
                 }
 
                 // Try to find orders by phone number since we don't have client_id
+                // Note: orders table uses customer_phone, not phone
                 let recentOrders: any[] = [];
                 let totalSpent = 0;
                 try {
                     const { data: ordersByPhone } = await supabase
                         .from('orders')
                         .select('id, order_number, status, total_amount, financial_status, fulfillment_status, created_at')
-                        .or(`phone.ilike.%${cleanPhone}%,phone.ilike.%52${cleanPhone}%`)
+                        .or(`customer_phone.ilike.%${cleanPhone}%,customer_phone.ilike.%52${cleanPhone}%`)
                         .order('created_at', { ascending: false })
                         .limit(5);
 
                     if (ordersByPhone && ordersByPhone.length > 0) {
                         recentOrders = ordersByPhone;
                         totalSpent = ordersByPhone.reduce((sum, o) => sum + (parseFloat(o.total_amount) || 0), 0);
-                        logger.info(`[getCustomerContext] Found ${ordersByPhone.length} orders by phone, totalSpent: ${totalSpent}`);
+                        logger.info(`[getCustomerContext] Found ${ordersByPhone.length} orders by customer_phone, totalSpent: ${totalSpent}`);
+                    } else {
+                        logger.info(`[getCustomerContext] No orders found for customer_phone containing: ${cleanPhone}`);
                     }
                 } catch (orderErr) {
-                    logger.warn(`[getCustomerContext] Error fetching orders by phone:`, orderErr);
+                    logger.warn(`[getCustomerContext] Error fetching orders by customer_phone:`, orderErr);
                 }
 
                 return {

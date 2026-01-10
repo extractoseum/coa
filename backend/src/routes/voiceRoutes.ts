@@ -445,18 +445,18 @@ router.get('/debug-orders/:phone', async (req: Request, res: Response) => {
     const cleanPhone = phone.replace(/\D/g, '').slice(-10);
 
     try {
-        // Search 1: Direct phone match
+        // Search 1: Direct phone match (orders uses customer_phone, not phone)
         const { data: orders1 } = await supabase
             .from('orders')
-            .select('id, order_number, phone, email, financial_status, fulfillment_status, total_amount')
-            .or(`phone.ilike.%${cleanPhone}%,phone.ilike.%52${cleanPhone}%`)
+            .select('id, order_number, customer_phone, customer_email, financial_status, fulfillment_status, total_amount')
+            .or(`customer_phone.ilike.%${cleanPhone}%,customer_phone.ilike.%52${cleanPhone}%`)
             .limit(5);
 
         // Search 2: Get sample orders to see phone format
         const { data: sampleOrders } = await supabase
             .from('orders')
-            .select('order_number, phone')
-            .not('phone', 'is', null)
+            .select('order_number, customer_phone')
+            .not('customer_phone', 'is', null)
             .limit(10);
 
         // Search 3: Check conversation format
@@ -470,7 +470,7 @@ router.get('/debug-orders/:phone', async (req: Request, res: Response) => {
         // Search 4: Look for order 1441 specifically
         const { data: order1441 } = await supabase
             .from('orders')
-            .select('order_number, phone, email, financial_status')
+            .select('order_number, customer_phone, customer_email, financial_status')
             .ilike('order_number', '%1441%')
             .limit(1)
             .maybeSingle();
@@ -480,7 +480,7 @@ router.get('/debug-orders/:phone', async (req: Request, res: Response) => {
             cleanedPhone: cleanPhone,
             ordersFoundByPhone: orders1?.length || 0,
             orders: orders1,
-            samplePhoneFormats: sampleOrders?.map(o => ({ order: o.order_number, phone: o.phone })),
+            samplePhoneFormats: sampleOrders?.map(o => ({ order: o.order_number, customer_phone: o.customer_phone })),
             conversationFound: conversation ? {
                 id: conversation.id,
                 contact_handle: conversation.contact_handle,

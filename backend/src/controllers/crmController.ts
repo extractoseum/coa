@@ -1725,11 +1725,11 @@ export const getUnifiedContactView = async (req: Request, res: Response): Promis
             .order('created_at', { ascending: false })
             .limit(20);
 
-        // 4. Get recent orders for this contact
+        // 4. Get recent orders for this contact (orders uses customer_phone/customer_email)
         const { data: orders, error: orderErr } = await supabase
             .from('orders')
             .select('id, order_number, total_amount, financial_status, fulfillment_status, created_at')
-            .or(`phone.ilike.%${cleanHandle}%,email.ilike.%${cleanHandle}%`)
+            .or(`customer_phone.ilike.%${cleanHandle}%,customer_email.ilike.%${cleanHandle}%`)
             .order('created_at', { ascending: false })
             .limit(10);
 

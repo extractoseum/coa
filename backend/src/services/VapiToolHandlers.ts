@@ -703,21 +703,22 @@ export async function handleLookupOrder(
             }
 
             // If no client found, search orders directly by phone number
+            // Note: orders table uses customer_phone, not phone
             if (!order) {
-                console.log(`[VapiTools] lookup_order: searching orders directly by phone ${cleanPhone}`);
+                console.log(`[VapiTools] lookup_order: searching orders directly by customer_phone ${cleanPhone}`);
                 const { data: orderByPhone } = await supabase
                     .from('orders')
                     .select('*')
-                    .or(`phone.ilike.%${cleanPhone}%,phone.ilike.%52${cleanPhone}%`)
+                    .or(`customer_phone.ilike.%${cleanPhone}%,customer_phone.ilike.%52${cleanPhone}%`)
                     .order('created_at', { ascending: false })
                     .limit(1)
                     .maybeSingle();
 
                 if (orderByPhone) {
-                    console.log(`[VapiTools] lookup_order: found order ${orderByPhone.order_number} by phone`);
+                    console.log(`[VapiTools] lookup_order: found order ${orderByPhone.order_number} by customer_phone`);
                     order = orderByPhone;
                 } else {
-                    console.log(`[VapiTools] lookup_order: no orders found for phone ${cleanPhone}`);
+                    console.log(`[VapiTools] lookup_order: no orders found for customer_phone ${cleanPhone}`);
                 }
             }
         } else {
