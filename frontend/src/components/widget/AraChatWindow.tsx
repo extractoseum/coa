@@ -86,12 +86,10 @@ const AraChatWindow: React.FC<AraChatWindowProps> = ({
 
     return (
         <div
-            className="fixed inset-0 sm:absolute sm:inset-auto sm:bottom-full sm:right-0 sm:mb-4 z-[10000] flex flex-col sm:w-96 sm:rounded-2xl shadow-2xl overflow-hidden border border-white/10"
+            className="fixed inset-x-0 top-0 bottom-20 sm:bottom-0 sm:absolute sm:inset-auto sm:bottom-full sm:right-0 sm:mb-4 z-[10000] flex flex-col sm:w-96 sm:h-[500px] sm:max-h-[80vh] sm:rounded-2xl shadow-2xl overflow-hidden border border-white/10"
             style={{
                 backgroundColor: theme.cardBg,
-                borderColor: theme.border,
-                height: '100%',
-                maxHeight: '100vh'
+                borderColor: theme.border
             }}
         >
             {/* Header */}
@@ -356,9 +354,6 @@ const AraChatWindow: React.FC<AraChatWindowProps> = ({
                         )}
                     </button>
                 </div>
-
-                {/* Safe area padding for mobile */}
-                <div className="h-safe-area-inset-bottom sm:hidden" />
             </div>
         </div>
     );

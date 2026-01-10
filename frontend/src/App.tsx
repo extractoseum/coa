@@ -492,7 +492,7 @@ function App() {
             </Suspense>
 
             {/* Floating Widget: AdminSidekick for super_admin, AraChatWidget for everyone else */}
-            <div className="z-40 relative md:z-auto">
+            <div className="z-40 relative">
               <FloatingDock initialBottom={80} initialRight={24}>
                 <FloatingWidgetSwitcher />
               </FloatingDock>
