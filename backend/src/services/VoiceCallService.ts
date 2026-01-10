@@ -52,7 +52,10 @@ interface CallSession {
     customerPhone: string;
     conversationId?: string;
     clientId?: string;
-    messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+    clientName?: string;
+    clientTags?: string[];
+    clientType?: string; // Gold_member, Club_partner, etc.
+    messages: Array<{ role: 'user' | 'assistant'; content: string; timestamp?: Date }>;
     ws?: WebSocket;
     createdAt: Date;
 }
@@ -183,27 +186,44 @@ export class VoiceCallService {
 
 
         try {
-            // Look up customer context (with fallback)
-            let context: { clientId?: string; clientName?: string; conversationId?: string } = {};
+            // Look up customer context with full profile
+            let context: {
+                clientId?: string;
+                clientName?: string;
+                clientTags?: string[];
+                clientType?: string;
+                conversationId?: string;
+                recentOrders?: any[];
+                totalSpent?: number;
+            } = {};
             try {
                 context = await this.getCustomerContext(from);
-                logger.info(`Customer context recovered`, { correlation_id: callSid, clientId: context.clientId, clientName: context.clientName });
+                logger.info(`Customer context recovered`, {
+                    correlation_id: callSid,
+                    clientId: context.clientId,
+                    clientName: context.clientName,
+                    clientType: context.clientType,
+                    tags: context.clientTags
+                });
             } catch (ctxError: any) {
                 logger.warn('Failed to get context', ctxError, { correlation_id: callSid });
             }
 
-            // Create session
+            // Create session with full context
             const session: CallSession = {
                 callSid,
                 customerPhone: from,
                 conversationId: context.conversationId,
                 clientId: context.clientId,
+                clientName: context.clientName,
+                clientTags: context.clientTags,
+                clientType: context.clientType,
                 messages: [],
                 createdAt: new Date()
             };
             activeCalls.set(callSid, session);
 
-            // Log call in database (non-blocking, don't await)
+            // Log call in database with client context (non-blocking)
             (async () => {
                 try {
                     await supabase.from('voice_calls').insert({
@@ -212,20 +232,24 @@ export class VoiceCallService {
                         direction: 'inbound',
                         phone_number: from,
                         status: 'in-progress',
-                        started_at: new Date().toISOString()
+                        started_at: new Date().toISOString(),
+                        metadata: {
+                            clientName: context.clientName,
+                            clientType: context.clientType,
+                            clientTags: context.clientTags,
+                            totalSpent: context.totalSpent
+                        }
                     });
-                    logger.debug('Call logged to DB', { correlation_id: callSid });
+                    logger.debug('Call logged to DB with context', { correlation_id: callSid });
                 } catch (dbError: any) {
                     logger.error('Failed to log call to DB', dbError, { correlation_id: callSid });
                 }
             })();
 
             // Streaming Mode: Connect immediately to WebSocket
-            // Generate personalized greeting is handled by the initial AI response in the stream
             return this.generateIncomingCallTwiML(callSid);
         } catch (error: any) {
             logger.error('handleIncomingCall fatal error', error, { correlation_id: callSid });
-            // Return a simple greeting anyway
             return this.generateGreetingTwiML('¡Hola! Soy Ara de Extractos EUM. ¿En qué puedo ayudarte?', callSid);
         }
     }
@@ -272,10 +296,32 @@ export class VoiceCallService {
             throw new Error('Anthropic client not configured');
         }
 
-        // Build context message
+        // Build rich context from client profile
         let contextInfo = '';
         if (session.clientId) {
-            contextInfo = `[Contexto: Cliente ID ${session.clientId}, Teléfono: ${session.customerPhone}]`;
+            const greetingName = session.clientName ? session.clientName.split(' ')[0] : '';
+            const clientTypeLabel = {
+                'gold': 'Cliente Gold - trato VIP',
+                'partner': 'Partner del Club - descuentos especiales',
+                'club': 'Miembro del Club',
+                'vip': 'Cliente VIP Minorista',
+                'returning': 'Cliente recurrente',
+                'new': 'Cliente nuevo'
+            }[session.clientType || 'new'] || 'Cliente';
+
+            contextInfo = `
+[CONTEXTO DEL CLIENTE - USA ESTA INFORMACIÓN PARA PERSONALIZAR]
+- Nombre: ${session.clientName || 'Desconocido'} (salúdalo como "${greetingName || 'amigo'}")
+- Tipo: ${clientTypeLabel}
+- Tags: ${(session.clientTags || []).join(', ') || 'ninguno'}
+- Teléfono: ${session.customerPhone}
+- ID: ${session.clientId}
+
+INSTRUCCIONES DE PERSONALIZACIÓN:
+- Si es Gold/VIP/Partner: Trato especial, menciona beneficios exclusivos
+- Si es cliente recurrente: Pregunta si quiere reordenar lo de siempre
+- Si es nuevo: Sé más explicativo sobre productos
+- SIEMPRE usa el nombre del cliente en la conversación`;
         }
 
         const messages: Anthropic.MessageParam[] = [
@@ -285,7 +331,7 @@ export class VoiceCallService {
             }))
         ];
 
-        // Add context to system if available
+        // Add rich context to system prompt
         const systemPrompt = contextInfo
             ? `${ARA_SYSTEM_PROMPT}\n\n${contextInfo}`
             : ARA_SYSTEM_PROMPT;
@@ -389,22 +435,26 @@ export class VoiceCallService {
     }
 
     /**
-     * Get customer context from database
+     * Get customer context from database with full profile
      */
     private async getCustomerContext(phone: string): Promise<{
         clientId?: string;
         clientName?: string;
+        clientTags?: string[];
+        clientType?: string;
         conversationId?: string;
+        recentOrders?: any[];
+        totalSpent?: number;
     }> {
         try {
             // Clean phone for lookup - try multiple formats
             const cleanPhone = phone.replace(/\D/g, '').slice(-10);
             logger.info(`[getCustomerContext] Looking up phone: ${phone} -> cleaned: ${cleanPhone}`);
 
-            // Try exact match on cleaned phone
+            // Try exact match on cleaned phone with full profile
             let { data: client, error } = await supabase
                 .from('clients')
-                .select('id, name, phone')
+                .select('id, name, phone, email, tags, total_spent, order_count, notes')
                 .ilike('phone', `%${cleanPhone}%`)
                 .limit(1)
                 .maybeSingle();
@@ -415,10 +465,9 @@ export class VoiceCallService {
 
             // If not found, try with country code variations
             if (!client && cleanPhone.length === 10) {
-                // Try with 52 prefix (Mexico)
                 const { data: client2 } = await supabase
                     .from('clients')
-                    .select('id, name, phone')
+                    .select('id, name, phone, email, tags, total_spent, order_count, notes')
                     .or(`phone.ilike.%${cleanPhone}%,phone.ilike.%52${cleanPhone}%`)
                     .limit(1)
                     .maybeSingle();
@@ -430,7 +479,24 @@ export class VoiceCallService {
                 return {};
             }
 
-            logger.info(`[getCustomerContext] Found client: ${client.name} (${client.id}), phone in DB: ${client.phone}`);
+            // Parse tags to determine client type
+            const tags = client.tags || [];
+            let clientType = 'new';
+            if (tags.includes('Gold_member')) clientType = 'gold';
+            else if (tags.includes('Club_partner')) clientType = 'partner';
+            else if (tags.includes('Club_user')) clientType = 'club';
+            else if (tags.includes('VIP Minorista')) clientType = 'vip';
+            else if ((client.order_count || 0) > 0) clientType = 'returning';
+
+            logger.info(`[getCustomerContext] Found client: ${client.name} (${client.id}), type: ${clientType}, tags: ${tags.join(', ')}`);
+
+            // Get recent orders for context
+            const { data: recentOrders } = await supabase
+                .from('orders')
+                .select('id, order_number, status, total, created_at')
+                .eq('client_id', client.id)
+                .order('created_at', { ascending: false })
+                .limit(3);
 
             // Find or create conversation
             const { data: conversation } = await supabase
@@ -445,7 +511,6 @@ export class VoiceCallService {
             let conversationId = conversation?.id;
 
             if (!conversationId) {
-                // Create new conversation for voice
                 const { data: newConv } = await supabase
                     .from('conversations')
                     .insert({
@@ -461,7 +526,11 @@ export class VoiceCallService {
             return {
                 clientId: client.id,
                 clientName: client.name,
-                conversationId
+                clientTags: tags,
+                clientType,
+                conversationId,
+                recentOrders: recentOrders || [],
+                totalSpent: client.total_spent || 0
             };
 
         } catch (error: any) {
@@ -568,6 +637,57 @@ export class VoiceCallService {
     }
 
     /**
+     * Save transcript message to database and conversation
+     */
+    private async saveTranscript(
+        session: CallSession,
+        role: 'user' | 'assistant',
+        content: string
+    ): Promise<void> {
+        try {
+            // Save to voice_calls transcript (update metadata)
+            const { data: existingCall } = await supabase
+                .from('voice_calls')
+                .select('metadata')
+                .eq('vapi_call_id', session.callSid)
+                .single();
+
+            const metadata = existingCall?.metadata || {};
+            const transcripts = metadata.transcripts || [];
+            transcripts.push({
+                role,
+                content,
+                timestamp: new Date().toISOString()
+            });
+
+            await supabase
+                .from('voice_calls')
+                .update({
+                    metadata: { ...metadata, transcripts }
+                })
+                .eq('vapi_call_id', session.callSid);
+
+            // Also save to conversation messages if we have a conversation
+            if (session.conversationId) {
+                await supabase.from('messages').insert({
+                    conversation_id: session.conversationId,
+                    content,
+                    from_customer: role === 'user',
+                    channel: 'voice',
+                    metadata: {
+                        callSid: session.callSid,
+                        transcribed: true
+                    }
+                });
+            }
+
+            logger.debug(`Transcript saved: ${role}`, { correlation_id: session.callSid });
+        } catch (error: any) {
+            logger.error('Failed to save transcript', error, { correlation_id: session.callSid });
+        }
+    }
+
+    /**
      * Handle WebSocket connection for Audio Streaming
      * Twilio <Stream> -> Deepgram -> Claude -> ElevenLabs -> Twilio
      */
@@ -653,14 +773,22 @@ export class VoiceCallService {
                     return;
                 }
 
-                // Append to history
-                session.messages.push({ role: 'user', content: fullText });
+                // Append to history with timestamp
+                const userMessage = { role: 'user' as const, content: fullText, timestamp: new Date() };
+                session.messages.push(userMessage);
+
+                // Save user transcript to DB
+                this.saveTranscript(session, 'user', fullText);
 
                 // Get AI Response
                 const aiResponseText = await this.getClaudeResponse(session, fullText);
 
-                // Add to history
-                session.messages.push({ role: 'assistant', content: aiResponseText });
+                // Add to history with timestamp
+                const assistantMessage = { role: 'assistant' as const, content: aiResponseText, timestamp: new Date() };
+                session.messages.push(assistantMessage);
+
+                // Save assistant response to DB
+                this.saveTranscript(session, 'assistant', aiResponseText);
 
                 logger.info(`[VoiceStreaming] AI Response: "${aiResponseText}"`, { correlation_id: callSid });
 
