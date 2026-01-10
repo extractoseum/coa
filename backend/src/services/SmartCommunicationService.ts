@@ -21,7 +21,6 @@ import { sendSMS } from './twilioService';
 import { sendNotification } from './onesignalService';
 import { supabase } from '../config/supabase';
 import { normalizePhone } from '../utils/phoneUtils';
-import axios from 'axios';
 
 // Types
 export type MessageType = 'instant' | 'informational' | 'transactional' | 'critical';
@@ -157,17 +156,9 @@ function getFallbackChain(type: MessageType): ChannelType[] {
 }
 
 /**
- * Get a healthy WhatsApp config (with working token)
- */
-function getHealthyWhatsAppConfig(): ChannelConfig | null {
-    const configs = channelRegistry.get('whatsapp') || [];
-    return configs.find(c => c.enabled && c.status !== 'down' && c.failureCount < 3) || null;
-}
-
-/**
  * Mark a channel as failed and update status
  */
-function markChannelFailed(channel: ChannelType, tokenIndex: number = 0, error: string): void {
+function markChannelFailed(channel: ChannelType, tokenIndex: number = 0, _error: string): void {
     const configs = channelRegistry.get(channel);
     if (configs && configs[tokenIndex]) {
         configs[tokenIndex].failureCount++;
@@ -291,7 +282,7 @@ async function sendViaSMS(to: string, body: string): Promise<{ success: boolean;
 
         if (result.success) {
             markChannelHealthy('sms');
-            return { success: true, messageId: result.sid };
+            return { success: true, messageId: result.messageId };
         } else {
             markChannelFailed('sms', 0, result.error || 'SMS failed');
             return { success: false, error: result.error };
@@ -366,7 +357,7 @@ async function logCommunication(params: {
  * Main function: Send a message with intelligent fallback
  */
 export async function sendSmartMessage(params: SendMessageParams): Promise<SendResult> {
-    const { to, subject, body, type, clientId, conversationId, metadata } = params;
+    const { to, subject, body, type, clientId, conversationId } = params;
 
     console.log(`[SmartComm] Sending ${type} message to ${to}`);
 
