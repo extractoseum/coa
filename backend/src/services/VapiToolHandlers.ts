@@ -862,20 +862,24 @@ export async function handleLookupOrder(
 
         // Also check tracking_status for more specific status
         if (order.tracking_status) {
+            const normalizedTracking = order.tracking_status.toLowerCase();
             const trackingMap: Record<string, string> = {
                 'pre_transit': 'processing',
                 'in_transit': 'in_transit',
                 'out_for_delivery': 'out_for_delivery',
                 'delivered': 'delivered',
+                'success': 'delivered', // Estafeta uses 'success' for delivered
                 'available_for_pickup': 'available_for_pickup',
                 'return_to_sender': 'return_to_sender',
                 'failure': 'delivery_failed',
                 'unknown': 'in_transit'
             };
-            if (trackingMap[order.tracking_status]) {
-                actualStatus = trackingMap[order.tracking_status];
+            if (trackingMap[normalizedTracking]) {
+                actualStatus = trackingMap[normalizedTracking];
             }
         }
+
+        console.log(`[VapiTools] lookup_order status resolution: financial=${order.financial_status}, fulfillment=${order.fulfillment_status}, tracking=${order.tracking_status} => ${actualStatus}`);
 
         // Format status in Spanish (natural for voice)
         const statusMap: Record<string, string> = {
