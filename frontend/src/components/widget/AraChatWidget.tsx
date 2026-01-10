@@ -11,7 +11,8 @@ import AraChatWindow from './AraChatWindow';
 import AraAuthGate from './AraAuthGate';
 import { useWidgetAuth } from './hooks/useWidgetAuth';
 import { useWidgetChat } from './hooks/useWidgetChat';
-import { useNotifications, Notification } from './hooks/useNotifications';
+import { useNotifications } from './hooks/useNotifications';
+import type { Notification } from './hooks/useNotifications';
 
 const AraChatWidget: React.FC = () => {
     const [isOpen, setIsOpen] = useState(false);

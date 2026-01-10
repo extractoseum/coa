@@ -7,7 +7,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { X, Send, Loader2, Bell, ChevronDown, User, Bot, AlertCircle } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
-import { Notification } from './hooks/useNotifications';
+import type { Notification } from './hooks/useNotifications';
 
 interface ChatMessage {
     id: string;

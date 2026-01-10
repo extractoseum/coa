@@ -35,7 +35,7 @@ export function useWidgetChat(
     const [isLoading, setIsLoading] = useState(false);
     const [isSending, setIsSending] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const pollingRef = useRef<NodeJS.Timeout | null>(null);
+    const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const lastMessageIdRef = useRef<string | null>(null);
 
     // Load message history
