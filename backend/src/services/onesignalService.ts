@@ -3,6 +3,7 @@ import { sendWhatsAppMessage, isWhapiConfigured } from './whapiService';
 import { sendNewCoaEmail, sendLoyaltyUpdateEmail, sendOrderCreatedEmail, sendOrderShippedEmail, sendAbandonedRecoveryEmail, sendTrackingUpdateEmail } from './emailService';
 import { logNotification } from './loggerService';
 import { sendSmartMessage, MessageType } from './SmartCommunicationService';
+import { NotificationService } from './NotificationService';
 
 const ONESIGNAL_APP_ID = process.env.ONESIGNAL_APP_ID || '';
 const ONESIGNAL_REST_API_KEY = process.env.ONESIGNAL_REST_API_KEY || '';
@@ -562,6 +563,9 @@ export const notifyReviewApproved = async (reviewerId: string, coaName: string) 
     // Log for deduplication
     await logNotification('review_approved_sent', { coaName }, reviewerId);
 
+    // Add Widget Notification
+    await NotificationService.getInstance().createReviewNotification(reviewerId, coaName, true);
+
     return pushResult;
 };
 
@@ -615,6 +619,9 @@ export const notifyCoaAssigned = async (clientId: string, coaName: string, coaTo
     if (email) {
         await sendNewCoaEmail(email, coaName, coaToken);
     }
+
+    // Add Widget Notification
+    await NotificationService.getInstance().createCoaNotification(clientId, coaName, coaToken);
 
     return pushResult;
 };
@@ -1020,6 +1027,13 @@ export const notifyFraudDetected = async (
         }
     }
 
+    // Add Widget Notification
+    await NotificationService.getInstance().createSystemNotification(
+        coaOwnerId,
+        '⚠️ Alerta de Seguridad',
+        `Se detectó actividad inusual en el COA "${coaName}". Revisa tus certificados.`
+    );
+
     return pushResult;
 };
 
@@ -1134,6 +1148,9 @@ export const notifyLoyaltyUpdate = async (clientId: string, tierName: string, ty
 
     // Log the event
     await logNotification('loyalty_update_sent', { tier: tierName, type }, clientId);
+
+    // Add Widget Notification
+    await NotificationService.getInstance().createLoyaltyNotification(clientId, tierName);
 };
 
 /**
@@ -1212,6 +1229,9 @@ export const notifyOrderCreated = async (clientId: string, orderNumber: string, 
         // No phone, send email directly
         await sendOrderCreatedEmail(email, orderNumber);
     }
+
+    // Add Widget Notification
+    await NotificationService.getInstance().createOrderNotification(clientId, orderNumber, 'paid');
 
     console.log(`[OneSignal] Order CREATED notification sent for ${orderNumber}`);
 };
@@ -1342,6 +1362,9 @@ export const notifyOrderShipped = async (
         await sendOrderShippedEmail(email, orderNumber, carrier, guides);
     }
 
+    // Add Widget Notification
+    await NotificationService.getInstance().createOrderNotification(clientId, orderNumber, isPickedUp ? 'shipped' : 'fulfilled');
+
     // Log already created at start with atomic lock, just log completion
     console.log(`[OneSignal] Order SHIPPED notification sent for ${orderNumber} (${trackingString})`);
 };
@@ -1432,6 +1455,9 @@ export const notifyTrackingUpdate = async (
         // No phone, send email directly
         await sendTrackingUpdateEmail(email, orderNumber, title, message);
     }
+
+    // Add Widget Notification
+    await NotificationService.getInstance().createOrderNotification(clientId, orderNumber, status);
 
     await logNotification('tracking_update_sent', { orderNumber, status, friendlyStatus: getStatusText(status), location, message }, clientId);
 };

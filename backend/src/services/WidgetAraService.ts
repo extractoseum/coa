@@ -21,6 +21,11 @@ import {
     handleSendWhatsApp,
     handleEscalateToHuman
 } from './VapiToolHandlers';
+import {
+    AgentToolService,
+    AuditCollector,
+    AuditStep
+} from './AgentToolService';
 import path from 'path';
 import fs from 'fs';
 import { IntelligenceService } from './intelligenceService';
@@ -118,6 +123,20 @@ const WIDGET_TOOLS: Anthropic.Tool[] = [
             },
             required: ['reason']
         }
+    },
+    {
+        name: 'audit_decision',
+        description: 'AUDITORÍA: Explica por qué tomaste una decisión previa o de dónde sacaste un dato (como un precio). Requiere el ID del mensaje anterior.',
+        input_schema: {
+            type: 'object' as const,
+            properties: {
+                message_id: {
+                    type: 'string',
+                    description: 'El ID del mensaje que quieres auditar/explicar.'
+                }
+            },
+            required: ['message_id']
+        }
     }
 ];
 
@@ -159,6 +178,7 @@ interface WidgetChatContext {
     customerEmail?: string;
     customerName?: string;
     agentId?: string;
+    auditCollector?: AuditCollector;
 }
 
 interface ChatMessage {
@@ -229,12 +249,14 @@ export class WidgetAraService {
         // Add current message
         messages.push({ role: 'user', content: message });
 
+        const auditCollector = new AuditCollector();
+
         // 3. Build context-aware system prompt
         let systemPrompt = WIDGET_SYSTEM_PROMPT;
 
         // LOAD AGENT KNOWLEDGE
         const agentId = context.agentId || 'sales_ara';
-        const agentKnowledge = await this.loadAgentKnowledge(agentId, message);
+        const agentKnowledge = await this.loadAgentKnowledge(agentId, message, auditCollector);
 
         if (agentKnowledge) {
             // Replace generic system prompt with agent identity and knowledge
@@ -284,7 +306,7 @@ export class WidgetAraService {
                     const toolResult = await this.executeTool(
                         toolUse.name,
                         toolUse.input as Record<string, any>,
-                        context
+                        { ...context, auditCollector }
                     );
 
                     toolResultsForApi.push({
@@ -373,7 +395,8 @@ export class WidgetAraService {
                     model: 'claude-sonnet-4-20250514',
                     tools_used: toolResults.map(t => t.toolUseId),
                     duration_ms: Date.now() - startTime,
-                    iterations
+                    iterations,
+                    audit_trail: auditCollector.getTrail()
                 }
             })
             .select('id, created_at')
@@ -447,6 +470,9 @@ export class WidgetAraService {
                 case 'escalate_to_human':
                     return await handleEscalateToHuman(args as { reason: string; urgency?: string }, toolContext);
 
+                case 'audit_decision':
+                    return await AgentToolService.getInstance().auditDecision(args.message_id);
+
                 default:
                     console.warn(`[WidgetAra] Unknown tool: ${toolName}`);
                     return { success: false, error: `Unknown tool: ${toolName}` };
@@ -459,7 +485,7 @@ export class WidgetAraService {
     /**
      * Loads agent identity and relevant knowledge snaps
      */
-    private async loadAgentKnowledge(agentId: string, userMessage: string): Promise<string> {
+    private async loadAgentKnowledge(agentId: string, userMessage: string, collector?: AuditCollector): Promise<string> {
         const KNOWLEDGE_BASE_DIR = path.join(__dirname, '../../data/ai_knowledge_base');
         const categories = ['agents_god_mode', 'agents_public', 'agents_internal'];
 
@@ -503,6 +529,19 @@ export class WidgetAraService {
                     if (fs.existsSync(snapPath)) {
                         const content = fs.readFileSync(snapPath, 'utf-8');
                         knowledge += `\n\n--- ${snap.fileName} ---\n${content}`;
+
+                        if (collector) {
+                            collector.addStep({
+                                type: 'knowledge_load',
+                                name: snap.fileName,
+                                input: { userMessage },
+                                output: {
+                                    preview: content.substring(0, 100) + '...',
+                                    relevance: snap.score
+                                },
+                                reason: `Found relevant knowledge snap: ${snap.fileName}`
+                            });
+                        }
                     }
                 } catch (readErr) {
                     console.error(`[WidgetAra] Error reading snap content ${snap.fileName}:`, readErr);

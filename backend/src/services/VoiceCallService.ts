@@ -20,6 +20,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { createClient, LiveTranscriptionEvents } from '@deepgram/sdk';
 import { Buffer } from 'buffer';
 import { ChannelRouter } from './channelRouter';
+import { AuditCollector, AgentToolService } from './AgentToolService';
 
 // Twilio config - support both naming conventions
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || process.env.ACCOUNT_SID;
@@ -121,6 +122,20 @@ const VOICE_TOOLS: Anthropic.Tool[] = [
                 wants_callback: { type: 'boolean', description: 'Si quiere que le devuelvan la llamada' }
             },
             required: ['reason']
+        }
+    },
+    {
+        name: 'audit_decision',
+        description: 'AUDITORÍA: Explica por qué tomaste una decisión previa o de dónde sacaste un dato (como un precio). Requiere el ID del mensaje anterior.',
+        input_schema: {
+            type: 'object' as const,
+            properties: {
+                message_id: {
+                    type: 'string',
+                    description: 'El ID del mensaje que quieres auditar/explicar.'
+                }
+            },
+            required: ['message_id']
         }
     }
 ];
@@ -334,7 +349,7 @@ export class VoiceCallService {
     /**
      * Get response from Claude with tool use
      */
-    private async getClaudeResponse(session: CallSession, userInput: string): Promise<string> {
+    private async getClaudeResponse(session: CallSession, userInput: string, collector?: AuditCollector): Promise<string> {
         if (!anthropic) {
             throw new Error('Anthropic client not configured');
         }
@@ -407,7 +422,8 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
                         conversationId: session.conversationId,
                         clientId: session.clientId,
                         customerPhone: session.customerPhone,
-                        customerEmail: session.customerEmail
+                        customerEmail: session.customerEmail,
+                        auditCollector: collector
                     }
                 );
 
@@ -846,7 +862,8 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
     private async saveTranscript(
         session: CallSession,
         role: 'user' | 'assistant',
-        content: string
+        content: string,
+        auditTrail?: any
     ): Promise<void> {
         try {
             // Get existing call record
@@ -867,7 +884,8 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
             const newEntry = {
                 role,
                 content,
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toISOString(),
+                audit_trail: auditTrail
             };
 
             // Append to messages_json array
@@ -1006,15 +1024,17 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
                 // Save user transcript to DB
                 this.saveTranscript(session, 'user', fullText);
 
+                const auditCollector = new AuditCollector();
+
                 // Get AI Response
-                const aiResponseText = await this.getClaudeResponse(session, fullText);
+                const aiResponseText = await this.getClaudeResponse(session, fullText, auditCollector);
 
                 // Add to history with timestamp
                 const assistantMessage = { role: 'assistant' as const, content: aiResponseText, timestamp: new Date() };
                 session.messages.push(assistantMessage);
 
-                // Save assistant response to DB
-                this.saveTranscript(session, 'assistant', aiResponseText);
+                // Save assistant response to DB with audit trail
+                this.saveTranscript(session, 'assistant', aiResponseText, auditCollector.getTrail());
 
                 logger.info(`[VoiceStreaming] AI Response: "${aiResponseText}"`, { correlation_id: callSid });
 

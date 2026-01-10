@@ -19,6 +19,7 @@ export interface KnowledgeSnap {
     usageCount: number;              // Times this snap has been included in context
     effectivenessScore: number;      // 0-100 based on conversation outcomes
     lastUsed: string | null;         // Timestamp of last usage
+    score?: number;                   // Runtime relevance score
 }
 
 export interface FileMetadata {
@@ -534,7 +535,7 @@ IMPORTANTE: Este indicador SIEMPRE va al final de tu mensaje, en una línea sepa
         return scoredSnaps
             .filter(s => s.score > 0)
             .sort((a, b) => b.score - a.score)
-            .map(s => s.snap);
+            .map(s => ({ ...s.snap, score: s.score }));
     }
 
     /**

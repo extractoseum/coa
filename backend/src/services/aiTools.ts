@@ -1,5 +1,6 @@
 
 import { supabase } from '../config/supabase';
+import { AgentToolService } from './AgentToolService';
 import { searchLocalProducts, createShopifyDraftOrder, searchShopifyCustomers, getShopifyCustomerOrders, searchShopifyCustomerByPhone } from './shopifyService';
 
 export interface AIToolDefinition {
@@ -706,28 +707,7 @@ export const TOOL_HANDLERS: Record<string, (args: any) => Promise<any>> = {
     },
 
     search_products_db: async ({ query }: { query: string }) => {
-        try {
-            console.log(`[AITools] Searching products for: "${query}"`);
-            const products = await searchLocalProducts(query);
-
-            if (products.length === 0) {
-                return {
-                    query,
-                    count: 0,
-                    results: [],
-                    hint: "No exact matches found. Try searching for the English term (e.g. 'gummies' instead of 'gomitas') or a broader category."
-                };
-            }
-
-            return {
-                query,
-                count: products.length,
-                results: products
-            };
-        } catch (error: any) {
-            console.error('[AITools] Product search failed:', error.message);
-            return { error: 'Failed to search products database.' };
-        }
+        return AgentToolService.getInstance().searchProducts(query);
     },
     create_checkout_link: async ({ items }: { items: any[] }) => {
         try {
@@ -788,12 +768,7 @@ export const TOOL_HANDLERS: Record<string, (args: any) => Promise<any>> = {
     },
     // PHASE 1 HANDLERS
     send_whatsapp_message: async ({ phone, message }) => {
-        const { sendWhatsAppMessage, normalizePhone } = require('./whapiService');
-        // Normalize handled by service, but good to be safe if service changes
-        const result = await sendWhatsAppMessage({ to: phone, body: message });
-        return result.sent
-            ? { success: true, message_id: result.message?.id }
-            : { success: false, error: result.error };
+        return AgentToolService.getInstance().sendWhatsApp(message, { customerPhone: phone });
     },
     check_whatsapp_status: async () => {
         const { checkWhapiStatus } = require('./whapiService');
@@ -970,75 +945,8 @@ export const TOOL_HANDLERS: Record<string, (args: any) => Promise<any>> = {
             return { error: 'Order not found or shopify error' };
         }
     },
-    search_order_by_number: async ({ order_number }) => {
-        // Normalize order number - extract digits and search flexibly
-        const cleanNumber = order_number.replace(/[^0-9]/g, '');
-        console.log(`[AITools] Searching order by number: "${order_number}" (cleaned: ${cleanNumber})`);
-
-        // Search in local orders table with flexible matching
-        // Note: Using correct column names (total_amount not total_price, no line_items/tracking columns in orders table)
-        const { data: orders, error } = await supabase
-            .from('orders')
-            .select('id, order_number, total_amount, financial_status, fulfillment_status, status, shopify_created_at, customer_email, customer_phone')
-            .or(`order_number.ilike.%${order_number}%,order_number.ilike.%${cleanNumber}%`)
-            .order('shopify_created_at', { ascending: false })
-            .limit(5);
-
-        if (error) {
-            console.error('[AITools] search_order_by_number failed:', error.message);
-            return { error: 'Error searching orders' };
-        }
-
-        if (!orders || orders.length === 0) {
-            // Try Shopify API directly as fallback
-            try {
-                const { searchShopifyOrders } = require('./shopifyService');
-                if (typeof searchShopifyOrders === 'function') {
-                    const shopifyOrders = await searchShopifyOrders(order_number);
-                    if (shopifyOrders && shopifyOrders.length > 0) {
-                        return {
-                            source: 'shopify_live',
-                            orders: shopifyOrders.map((o: any) => ({
-                                order_number: o.name,
-                                total: o.total_price,
-                                status: o.financial_status,
-                                fulfillment_status: o.fulfillment_status || 'Procesando',
-                                items: (o.line_items || []).map((li: any) => `${li.quantity}x ${li.title}`),
-                                tracking: (o.fulfillments || []).map((f: any) => ({
-                                    number: f.tracking_number,
-                                    url: f.tracking_url,
-                                    company: f.tracking_company
-                                })),
-                                created_at: o.created_at
-                            }))
-                        };
-                    }
-                }
-            } catch (e) {
-                console.warn('[AITools] Shopify fallback search failed:', e);
-            }
-
-            return {
-                found: false,
-                message: `No se encontró ningún pedido con el número "${order_number}". Verifica que el número sea correcto.`
-            };
-        }
-
-        return {
-            found: true,
-            count: orders.length,
-            orders: orders.map(o => ({
-                order_number: o.order_number,
-                total: String(o.total_amount || '0'),
-                status: o.financial_status || o.status || 'pending',
-                fulfillment_status: o.fulfillment_status || 'Procesando',
-                items: [] as string[], // Line items not stored in orders table
-                tracking_number: null, // Not available in orders table
-                tracking_url: null,    // Not available in orders table
-                created_at: o.shopify_created_at,
-                customer_email: o.customer_email
-            }))
-        };
+    search_order_by_number: async ({ order_number }: { order_number: string }) => {
+        return AgentToolService.getInstance().lookupOrder(order_number);
     },
     create_shopify_coupon: async ({ code, amount_off, type }) => {
         const { createShopifyPriceRule, createShopifyDiscountCode } = require('./shopifyService');
@@ -1090,25 +998,11 @@ export const TOOL_HANDLERS: Record<string, (args: any) => Promise<any>> = {
             return { success: false, error: e.message };
         }
     },
-    search_coas: async ({ query }) => {
-        const { data, error } = await supabase
-            .from('coas')
-            .select('id, batch_id, lab_name, created_at, custom_name') // Added custom_name
-            .or(`batch_id.ilike.%${query}%,lab_name.ilike.%${query}%,custom_name.ilike.%${query}%`)
-            .limit(10);
-
-        if (error) return { error: error.message };
-        return data;
+    search_coas: async ({ query }: { query: string }) => {
+        return AgentToolService.getInstance().getCOA(undefined, query);
     },
-    get_coa_details: async ({ coa_id }) => {
-        const { data, error } = await supabase
-            .from('coas')
-            .select('*')
-            .eq('id', coa_id)
-            .single();
-
-        if (error) return { error: error.message };
-        return data;
+    get_coa_details: async ({ coa_id }: { coa_id: string }) => {
+        return AgentToolService.getInstance().getCOA(coa_id);
     },
     get_abandoned_checkouts: async ({ limit = 10 }) => {
         const { data, error, count } = await supabase

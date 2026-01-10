@@ -457,7 +457,7 @@ export const searchLocalProducts = async (query: string): Promise<any[]> => {
         name: p.title,
         price: p.variants?.[0]?.price || 'N/A',
         stock: p.variants?.reduce((sum: number, v: any) => sum + (v.inventory_quantity || 0), 0) > 0 ? 'In Stock' : 'Out of Stock',
-        tags: p.tags?.slice(0, 5), // Limit tags
+        tags: p.tags?.slice(0, 5),
         link: `https://${SHOPIFY_STORE_DOMAIN}/products/${p.handle}`,
         variants: p.variants?.map((v: any) => ({
             id: v.id,
@@ -465,6 +465,37 @@ export const searchLocalProducts = async (query: string): Promise<any[]> => {
             price: v.price
         }))
     })) || [];
+};
+
+/**
+ * Search products directly on Shopify Admin API (Hybrid Fallback)
+ */
+export const searchShopifyProducts = async (query: string): Promise<any[]> => {
+    if (!isShopifyConfigured()) return [];
+    try {
+        const response = await shopifyApi.get(`${getBaseUrl()}/products.json`, {
+            params: { title: query, limit: 10 }
+        });
+        const products = response.data.products || [];
+
+        // Format for consistency with searchLocalProducts
+        return products.map((p: any) => ({
+            id: p.id,
+            name: p.title,
+            price: p.variants?.[0]?.price || 'N/A',
+            stock: p.variants?.reduce((sum: number, v: any) => sum + (v.inventory_quantity || 0), 0) > 0 ? 'In Stock' : 'Out of Stock',
+            tags: p.tags?.split(',').map((t: string) => t.trim()).slice(0, 5),
+            link: `https://${SHOPIFY_STORE_DOMAIN}/products/${p.handle}`,
+            variants: p.variants?.map((v: any) => ({
+                id: v.id,
+                title: v.title,
+                price: v.price
+            }))
+        }));
+    } catch (error: any) {
+        console.error('[Shopify] API Product search failed:', error.message);
+        return [];
+    }
 };
 
 export const HOLOGRAM_PURCHASE_URL = process.env.SHOPIFY_HOLOGRAM_URL || 'https://extractoseum.com/collections/analisis-coa';
