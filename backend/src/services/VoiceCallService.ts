@@ -156,13 +156,25 @@ export class VoiceCallService {
     generateIncomingCallTwiML(callSid: string): string {
         const wsUrl = BACKEND_URL.replace('https://', 'wss://').replace('http://', 'ws://');
 
-        // Enable call recording with webhook callback
-        // Recording will be saved to Twilio and URL sent to our webhook
+        // Start call recording via Twilio API (non-blocking)
+        // This is more reliable than TwiML <Record> for streaming calls
+        if (twilioClient) {
+            (async () => {
+                try {
+                    await twilioClient.calls(callSid).recordings.create({
+                        recordingStatusCallback: `${BACKEND_URL}/api/voice/recording-status`,
+                        recordingStatusCallbackEvent: ['completed']
+                    });
+                    logger.info(`[VoiceCallService] Recording started for call ${callSid}`);
+                } catch (recErr: any) {
+                    logger.error(`[VoiceCallService] Failed to start recording for ${callSid}:`, recErr);
+                }
+            })();
+        }
+
+        // Connect to WebSocket stream for real-time audio processing
         return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Start>
-        <Record recordingStatusCallback="${BACKEND_URL}/api/voice/recording-status" recordingStatusCallbackEvent="completed"/>
-    </Start>
     <Connect>
         <Stream url="${wsUrl}/api/voice/stream/${callSid}">
             <Parameter name="callSid" value="${callSid}"/>
@@ -529,6 +541,26 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
                     clientType = 'vip'; // High intent = treat as VIP
                 }
 
+                // Try to find orders by phone number since we don't have client_id
+                let recentOrders: any[] = [];
+                let totalSpent = 0;
+                try {
+                    const { data: ordersByPhone } = await supabase
+                        .from('orders')
+                        .select('id, order_number, status, total_amount, financial_status, fulfillment_status, created_at')
+                        .or(`phone.ilike.%${cleanPhone}%,phone.ilike.%52${cleanPhone}%`)
+                        .order('created_at', { ascending: false })
+                        .limit(5);
+
+                    if (ordersByPhone && ordersByPhone.length > 0) {
+                        recentOrders = ordersByPhone;
+                        totalSpent = ordersByPhone.reduce((sum, o) => sum + (parseFloat(o.total_amount) || 0), 0);
+                        logger.info(`[getCustomerContext] Found ${ordersByPhone.length} orders by phone, totalSpent: ${totalSpent}`);
+                    }
+                } catch (orderErr) {
+                    logger.warn(`[getCustomerContext] Error fetching orders by phone:`, orderErr);
+                }
+
                 return {
                     clientName: facts.user_name || undefined,
                     clientTags: existingConversation.tags || [],
@@ -536,8 +568,8 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
                     conversationId: existingConversation.id,
                     channelChipId,
                     columnId,
-                    recentOrders: [],
-                    totalSpent: 0
+                    recentOrders,
+                    totalSpent
                 };
             }
 
