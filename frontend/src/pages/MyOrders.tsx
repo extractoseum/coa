@@ -95,6 +95,9 @@ export default function MyOrders() {
                 return { bg: 'rgba(234, 179, 8, 0.2)', color: '#eab308' };
             case 'cancelled':
             case 'voided':
+            case 'return_to_sender':
+            case 'exception':
+            case 'failure':
                 return { bg: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' };
             case 'pending':
             case 'pending_payment':
@@ -116,6 +119,9 @@ export default function MyOrders() {
             case 'delivered':
             case 'success': // Estafeta uses 'success' for delivered
                 return 'Entregado';
+            case 'return_to_sender': return 'Devuelto';
+            case 'exception':
+            case 'failure': return 'Problema en Entrega';
             case 'cancelled': return 'Cancelado';
             case 'voided': return 'Anulado';
             case 'pending': return 'Pendiente Recolección';
@@ -470,18 +476,26 @@ export default function MyOrders() {
                                         <div className="p-12 text-center rounded-xl bg-gray-50/50 dark:bg-black/20 border border-dashed border-gray-200 dark:border-white/10">
                                             <Clock className="w-12 h-12 mx-auto mb-4 opacity-20" style={{ color: theme.textMuted }} />
                                             <p className="font-medium" style={{ color: theme.text }}>
-                                                {selectedOrder?.status === 'created'
-                                                    ? 'Estamos validando tu pago'
-                                                    : selectedOrder?.status === 'fulfilled'
-                                                        ? 'Guía generada, sincronizando...'
-                                                        : 'Estamos preparando tu guía'}
+                                                {selectedOrder?.status === 'cancelled' || selectedOrder?.financial_status === 'voided'
+                                                    ? 'Este pedido fue cancelado'
+                                                    : selectedOrder?.financial_status === 'pending'
+                                                        ? 'Pendiente de pago'
+                                                        : selectedOrder?.status === 'created'
+                                                            ? 'Estamos validando tu pago'
+                                                            : selectedOrder?.status === 'fulfilled'
+                                                                ? 'Guía generada, sincronizando...'
+                                                                : 'Estamos preparando tu guía'}
                                             </p>
                                             <p className="text-sm mt-2" style={{ color: theme.textMuted }}>
-                                                {selectedOrder?.status === 'created'
-                                                    ? 'Una vez confirmado, procesaremos tu envío inmediatamente.'
-                                                    : selectedOrder?.status === 'fulfilled'
-                                                        ? 'Tu guía ya fue creada, en unos minutos podrás ver el avance aquí.'
-                                                        : 'Te notificaremos por WhatsApp y Push en cuanto sea recolectado.'}
+                                                {selectedOrder?.status === 'cancelled' || selectedOrder?.financial_status === 'voided'
+                                                    ? 'Contacta a soporte si tienes dudas sobre la cancelación.'
+                                                    : selectedOrder?.financial_status === 'pending'
+                                                        ? 'Completa tu pago para que podamos procesar tu pedido.'
+                                                        : selectedOrder?.status === 'created'
+                                                            ? 'Una vez confirmado, procesaremos tu envío inmediatamente.'
+                                                            : selectedOrder?.status === 'fulfilled'
+                                                                ? 'Tu guía ya fue creada, en unos minutos podrás ver el avance aquí.'
+                                                                : 'Te notificaremos por WhatsApp y Push en cuanto sea recolectado.'}
                                             </p>
                                         </div>
                                     )}
