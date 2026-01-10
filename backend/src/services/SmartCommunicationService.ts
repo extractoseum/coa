@@ -107,11 +107,13 @@ function initializeChannels(): void {
     }]);
 
     // SMS channel
+    const smsEnabled = !!process.env.TWILIO_ACCOUNT_SID;
+    console.log(`[SmartComm] SMS channel enabled: ${smsEnabled} (TWILIO_ACCOUNT_SID: ${process.env.TWILIO_ACCOUNT_SID ? 'set' : 'NOT SET'})`);
     channelRegistry.set('sms', [{
         name: 'sms',
-        enabled: !!process.env.TWILIO_ACCOUNT_SID,
+        enabled: smsEnabled,
         priority: 0,
-        status: 'healthy',
+        status: smsEnabled ? 'healthy' : 'down',
         lastCheck: new Date(),
         failureCount: 0
     }]);
@@ -370,18 +372,29 @@ async function sendViaEmail(to: string, subject: string, body: string, directEma
  * Send via SMS (using Twilio)
  */
 async function sendViaSMS(to: string, body: string): Promise<{ success: boolean; error?: string; messageId?: string }> {
+    // Check if SMS is enabled
+    const smsConfig = channelRegistry.get('sms')?.[0];
+    if (!smsConfig?.enabled) {
+        console.log(`[SmartComm] SMS not enabled - skipping (TWILIO_ACCOUNT_SID not set)`);
+        return { success: false, error: 'SMS channel not configured' };
+    }
+
     try {
         const phone = normalizePhone(to, 'twilio');
+        console.log(`[SmartComm] Sending SMS to ${phone} (original: ${to})`);
         const result = await sendSMS(phone, body);
 
         if (result.success) {
+            console.log(`[SmartComm] SMS sent successfully: ${result.messageId}`);
             markChannelHealthy('sms');
             return { success: true, messageId: result.messageId };
         } else {
+            console.log(`[SmartComm] SMS failed: ${result.error}`);
             markChannelFailed('sms', 0, result.error || 'SMS failed');
             return { success: false, error: result.error };
         }
     } catch (error: any) {
+        console.error(`[SmartComm] SMS exception:`, error.message);
         markChannelFailed('sms', 0, error.message);
         return { success: false, error: error.message };
     }
@@ -581,18 +594,19 @@ export async function sendSmartMessage(params: SendMessageParams): Promise<SendR
 /**
  * Get health status of all channels
  */
-export function getChannelHealth(): ChannelHealth[] {
-    const health: ChannelHealth[] = [];
+export function getChannelHealth(): (ChannelHealth & { enabled: boolean })[] {
+    const health: (ChannelHealth & { enabled: boolean })[] = [];
 
     for (const [channelType, configs] of channelRegistry) {
         for (let i = 0; i < configs.length; i++) {
             const config = configs[i];
             health.push({
                 channel: channelType,
-                status: config.status,
+                status: config.enabled ? config.status : 'down',
                 lastCheck: config.lastCheck,
                 failureCount: config.failureCount,
-                lastError: config.failureCount > 0 ? `${config.failureCount} recent failures` : undefined
+                lastError: !config.enabled ? 'Not configured' : (config.failureCount > 0 ? `${config.failureCount} recent failures` : undefined),
+                enabled: config.enabled
             });
         }
     }
