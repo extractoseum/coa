@@ -142,14 +142,18 @@
     },
     {
         "category": "shopping-bag",
-        "name": "search_products_db",
-        "description": "Search for products in the local database. Returns name, price, stock status, and purchase link.",
+        "name": "search_products",
+        "description": "Busca productos en el catálogo de Extractos EUM. Usa para encontrar gomitas, tinturas, tópicos, etc.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Product name, effect, or keyword"
+                    "description": "Término de búsqueda (ej: \"gomitas\", \"aceite cbd\", \"crema\")"
+                },
+                "category": {
+                    "type": "string",
+                    "description": "Categoría opcional (comestibles, tinturas, topicos)"
                 }
             },
             "required": [
@@ -209,23 +213,22 @@
     },
     {
         "category": "whatsapp",
-        "name": "send_whatsapp_message",
-        "description": "Send a WhatsApp message via Whapi. Format number with 521.",
+        "name": "send_whatsapp",
+        "description": "Envía información al WhatsApp del cliente (links, COAs, detalles de productos).",
         "input_schema": {
             "type": "object",
             "properties": {
-                "to": {
+                "message": {
                     "type": "string",
-                    "description": "Phone number (e.g. 5215512345678)"
+                    "description": "Mensaje a enviar al cliente"
                 },
-                "body": {
+                "media_url": {
                     "type": "string",
-                    "description": "Message content"
+                    "description": "URL de imagen o documento para adjuntar (opcional)"
                 }
             },
             "required": [
-                "to",
-                "body"
+                "message"
             ]
         }
     },
@@ -484,7 +487,7 @@
     {
         "name": "get_order_tracking",
         "description": "Get tracking info (Estafeta/Fedex) for a Shopify order.",
-        "parameters": {
+        "input_schema": {
             "type": "object",
             "properties": {
                 "order_id": {
@@ -496,7 +499,7 @@
                 "order_id"
             ]
         },
-        "category": "e-commerce",
+        "category": "truck",
         "required_permissions": [
             "read_orders"
         ]
@@ -504,7 +507,7 @@
     {
         "name": "search_order_by_number",
         "description": "Search for an order by its visible order number (e.g., #EUM_1441_SHOP, EUM1441, 1441). Use this when a customer provides a specific order number. Returns order details, status, tracking, and items.",
-        "parameters": {
+        "input_schema": {
             "type": "object",
             "properties": {
                 "order_number": {
@@ -538,7 +541,7 @@
     {
         "name": "create_shopify_coupon",
         "description": "Create a unique discount coupon in Shopify.",
-        "parameters": {
+        "input_schema": {
             "type": "object",
             "properties": {
                 "code": {
@@ -564,7 +567,7 @@
                 "type"
             ]
         },
-        "category": "e-commerce",
+        "category": "shopping-cart",
         "required_permissions": [
             "write_discounts"
         ]
@@ -572,7 +575,7 @@
     {
         "name": "sync_products_from_shopify",
         "description": "Force sync products from Shopify to local DB.",
-        "parameters": {
+        "input_schema": {
             "type": "object",
             "properties": {}
         },
@@ -584,7 +587,7 @@
     {
         "name": "generate_voice_message",
         "description": "Generate voice audio from text (TTS) for sending.",
-        "parameters": {
+        "input_schema": {
             "type": "object",
             "properties": {
                 "text": {
@@ -600,7 +603,7 @@
                 "text"
             ]
         },
-        "category": "communication",
+        "category": "mic",
         "required_permissions": [
             "generate_audio"
         ]
@@ -608,7 +611,7 @@
     {
         "name": "get_coa_details",
         "description": "Get detailed metadata of a specific COA.",
-        "parameters": {
+        "input_schema": {
             "type": "object",
             "properties": {
                 "coa_id": {
@@ -620,7 +623,7 @@
                 "coa_id"
             ]
         },
-        "category": "data",
+        "category": "coa",
         "required_permissions": [
             "read_coas"
         ]
@@ -715,6 +718,57 @@
             "required": [
                 "action",
                 "target"
+            ]
+        }
+    },
+    {
+        "category": "orders",
+        "name": "lookup_order",
+        "description": "Busca pedidos del cliente. Si el cliente está autenticado, puedes llamar esta herramienta SIN parámetros y automáticamente buscará todos sus pedidos. También puedes buscar por número de orden específico.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "order_number": {
+                    "type": "string",
+                    "description": "Número de orden específico (ej: \"EUM_1234_SHOP\"). Opcional si el cliente está autenticado."
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "category": "coa",
+        "name": "get_coa",
+        "description": "Obtiene el Certificado de Análisis (COA) de un producto por número de lote o nombre.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "batch_number": {
+                    "type": "string",
+                    "description": "Número de lote del producto"
+                },
+                "product_name": {
+                    "type": "string",
+                    "description": "Nombre del producto para buscar su COA"
+                }
+            },
+            "required": []
+        }
+    },
+    {
+        "category": "system",
+        "name": "audit_decision",
+        "description": "AUDITORÍA: Explica por qué tomaste una decisión previa o de dónde sacaste un dato (como un precio). Requiere el ID del mensaje anterior.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message_id": {
+                    "type": "string",
+                    "description": "El ID del mensaje que quieres auditar/explicar."
+                }
+            },
+            "required": [
+                "message_id"
             ]
         }
     }

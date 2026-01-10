@@ -14,20 +14,15 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { supabase } from '../config/supabase';
-import {
-    handleSearchProducts,
-    handleLookupOrder,
-    handleGetCOA,
-    handleSendWhatsApp,
-    handleEscalateToHuman
-} from './VapiToolHandlers';
+import { ToolRegistry } from './ToolRegistry';
+import { ToolDispatcher } from './ToolDispatcher';
 import {
     AgentToolService,
     AuditCollector,
     AuditStep
 } from './AgentToolService';
-import path from 'path';
-import fs from 'fs';
+import * as path from 'path';
+import * as fs from 'fs';
 import { IntelligenceService } from './intelligenceService';
 
 // Initialize Anthropic client
@@ -35,109 +30,14 @@ const anthropic = new Anthropic({
     apiKey: process.env.ANTHROPIC_API_KEY
 });
 
-// Tool definitions for Claude
-const WIDGET_TOOLS: Anthropic.Tool[] = [
-    {
-        name: 'search_products',
-        description: 'Busca productos en el catálogo de Extractos EUM. Usa para encontrar gomitas, tinturas, tópicos, etc.',
-        input_schema: {
-            type: 'object' as const,
-            properties: {
-                query: {
-                    type: 'string',
-                    description: 'Término de búsqueda (ej: "gomitas", "aceite cbd", "crema")'
-                },
-                category: {
-                    type: 'string',
-                    description: 'Categoría opcional (comestibles, tinturas, topicos)'
-                }
-            },
-            required: ['query']
-        }
-    },
-    {
-        name: 'lookup_order',
-        description: 'Busca pedidos del cliente. Si el cliente está autenticado, puedes llamar esta herramienta SIN parámetros y automáticamente buscará todos sus pedidos. También puedes buscar por número de orden específico.',
-        input_schema: {
-            type: 'object' as const,
-            properties: {
-                order_number: {
-                    type: 'string',
-                    description: 'Número de orden específico (ej: "EUM_1234_SHOP"). Opcional si el cliente está autenticado.'
-                }
-            },
-            required: []
-        }
-    },
-    {
-        name: 'get_coa',
-        description: 'Obtiene el Certificado de Análisis (COA) de un producto por número de lote o nombre.',
-        input_schema: {
-            type: 'object' as const,
-            properties: {
-                batch_number: {
-                    type: 'string',
-                    description: 'Número de lote del producto'
-                },
-                product_name: {
-                    type: 'string',
-                    description: 'Nombre del producto para buscar su COA'
-                }
-            },
-            required: []
-        }
-    },
-    {
-        name: 'send_whatsapp',
-        description: 'Envía información al WhatsApp del cliente (links, COAs, detalles de productos).',
-        input_schema: {
-            type: 'object' as const,
-            properties: {
-                message: {
-                    type: 'string',
-                    description: 'Mensaje a enviar al cliente'
-                },
-                media_url: {
-                    type: 'string',
-                    description: 'URL de imagen o documento para adjuntar (opcional)'
-                }
-            },
-            required: ['message']
-        }
-    },
-    {
-        name: 'escalate_to_human',
-        description: 'Solicita que un agente humano contacte al cliente. Usa cuando no puedas resolver el problema.',
-        input_schema: {
-            type: 'object' as const,
-            properties: {
-                reason: {
-                    type: 'string',
-                    description: 'Razón de la escalación'
-                },
-                urgency: {
-                    type: 'string',
-                    enum: ['low', 'medium', 'high'],
-                    description: 'Urgencia de la escalación'
-                }
-            },
-            required: ['reason']
-        }
-    },
-    {
-        name: 'audit_decision',
-        description: 'AUDITORÍA: Explica por qué tomaste una decisión previa o de dónde sacaste un dato (como un precio). Requiere el ID del mensaje anterior.',
-        input_schema: {
-            type: 'object' as const,
-            properties: {
-                message_id: {
-                    type: 'string',
-                    description: 'El ID del mensaje que quieres auditar/explicar.'
-                }
-            },
-            required: ['message_id']
-        }
-    }
+// Tool names for widget Ara
+const WIDGET_TOOL_NAMES = [
+    'search_products',
+    'lookup_order',
+    'get_coa',
+    'send_whatsapp',
+    'escalate_to_human',
+    'audit_decision'
 ];
 
 // System prompt for widget Ara
@@ -286,7 +186,7 @@ export class WidgetAraService {
                 model: 'claude-sonnet-4-20250514',
                 max_tokens: 1024,
                 system: systemPrompt,
-                tools: WIDGET_TOOLS,
+                tools: ToolRegistry.getInstance().getAnthropicTools(WIDGET_TOOL_NAMES),
                 messages
             });
 
@@ -329,7 +229,7 @@ export class WidgetAraService {
                     model: 'claude-sonnet-4-20250514',
                     max_tokens: 1024,
                     system: systemPrompt,
-                    tools: WIDGET_TOOLS,
+                    tools: ToolRegistry.getInstance().getAnthropicTools(WIDGET_TOOL_NAMES),
                     messages: updatedMessages
                 });
             }
@@ -434,8 +334,8 @@ export class WidgetAraService {
     }
 
     /**
-     * Execute a tool call
-     */
+ * Execute a tool call
+ */
     private async executeTool(
         toolName: string,
         args: Record<string, any>,
@@ -445,42 +345,12 @@ export class WidgetAraService {
             conversationId: context.conversationId,
             clientId: context.clientId,
             customerPhone: context.customerPhone,
-            customerEmail: context.customerEmail
+            customerEmail: context.customerEmail,
+            agentId: context.agentId,
+            auditCollector: (context as any).auditCollector // Should already be attached
         };
 
-        try {
-            switch (toolName) {
-                case 'search_products':
-                    return await handleSearchProducts(args as { query: string; category?: string }, toolContext);
-
-                case 'lookup_order':
-                    // If no order_number provided but we have customer phone, use it
-                    const orderArgs = {
-                        order_number: args.order_number,
-                        phone: args.phone || context.customerPhone
-                    };
-                    return await handleLookupOrder(orderArgs, toolContext);
-
-                case 'get_coa':
-                    return await handleGetCOA(args as { batch_number?: string; product_name?: string }, toolContext);
-
-                case 'send_whatsapp':
-                    return await handleSendWhatsApp(args as { message: string; media_url?: string }, toolContext);
-
-                case 'escalate_to_human':
-                    return await handleEscalateToHuman(args as { reason: string; urgency?: string }, toolContext);
-
-                case 'audit_decision':
-                    return await AgentToolService.getInstance().auditDecision(args.message_id);
-
-                default:
-                    console.warn(`[WidgetAra] Unknown tool: ${toolName}`);
-                    return { success: false, error: `Unknown tool: ${toolName}` };
-            }
-        } catch (error: any) {
-            console.error(`[WidgetAra] Tool execution error (${toolName}):`, error);
-            return { success: false, error: error.message };
-        }
+        return ToolDispatcher.execute(toolName, args, toolContext);
     }
     /**
      * Loads agent identity and relevant knowledge snaps

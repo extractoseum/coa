@@ -34,8 +34,9 @@ import healthRoutes from './routes/healthRoutes'; // NEW: Vitality Health Check
 import behaviorRoutes from './routes/behaviorRoutes'; // NEW: Behavioral Intelligence Tracking
 import logsRoutes from './routes/logsRoutes'; // NEW: Telemetry Logs
 import sitemapRoutes from './routes/sitemapRoutes'; // NEW: Dynamic Sitemap
-import vapiRoutes from './routes/vapiRoutes'; // NEW: Vapi Real-Time Voice
-import voiceRoutes from './routes/voiceRoutes'; // NEW: Direct Twilio Voice (no VAPI)
+// DEPRECATED: VapiService - using internal VoiceCallService instead (Twilio + Deepgram + Claude + ElevenLabs)
+// import vapiRoutes from './routes/vapiRoutes'; // DEPRECATED: Vapi Real-Time Voice
+import voiceRoutes from './routes/voiceRoutes'; // Active: Direct Twilio Voice
 import driftRoutes from './routes/driftRoutes'; // NEW: Drift Bot Mission Control
 import oracleRoutes from './routes/oracleRoutes';
 import ghostbusterRoutes from './routes/ghostbusterRoutes'; // NEW: Oracle Predictive Restocking
@@ -175,8 +176,8 @@ app.use('/api/v1/crm', crmRoutes); // NEW: Omnichannel CRM Core
 app.use('/api/v1/health', healthRoutes); // NEW: Vitality Health Check
 app.use('/api/v1/admin/tools', toolsRoutes); // NEW: IDE Tools Editor
 app.use('/api/v1/behavior', behaviorRoutes); // NEW: Behavioral Intelligence Tracking
-app.use('/api/v1/vapi', vapiRoutes); // NEW: Vapi Voice Integration
-app.use('/api/voice', voiceRoutes); // NEW: Direct Twilio Voice (no VAPI)
+// DEPRECATED: app.use('/api/v1/vapi', vapiRoutes); // VapiService deprecated - use internal VoiceCallService
+app.use('/api/voice', voiceRoutes); // Active: Direct Twilio Voice (internal pipeline)
 app.use('/api/v1/drift', driftRoutes); // NEW: Drift Bot
 app.use('/api/v1/oracle', oracleRoutes);
 app.use('/api/v1/ghostbuster', ghostbusterRoutes); // NEW: Oracle Predictive Restocking

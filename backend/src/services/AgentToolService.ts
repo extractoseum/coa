@@ -1,3 +1,5 @@
+import * as path from 'path';
+import * as fs from 'fs';
 import { supabase } from '../config/supabase';
 import { logger } from '../utils/Logger';
 import {
@@ -301,7 +303,7 @@ export class AgentToolService {
             const result = {
                 found: (coas?.length || 0) > 0,
                 count: coas?.length || 0,
-                results: (coas || []).map(c => ({
+                results: (coas || []).map((c: any) => ({
                     id: c.id,
                     batch: c.batch_id,
                     name: c.custom_name || c.custom_title,
@@ -540,5 +542,390 @@ export class AgentToolService {
             logger.error('[AgentToolService] Audit decision failed:', error);
             throw error;
         }
+    }
+    /**
+     * Get system health metrics
+     */
+    public async getSystemHealth(): Promise<any> {
+        // Simple count of ledger entries as a proxy for health for now
+        const { count, error } = await supabase
+            .from('integrity_ledger')
+            .select('*', { count: 'exact', head: true });
+
+        if (error) throw error;
+        return {
+            status: 'Operational',
+            ledger_entries: count,
+            timestamp: new Date().toISOString()
+        };
+    }
+
+    /**
+     * Read file content (Internal tools)
+     */
+    public async readFileContent(filePath: string): Promise<any> {
+        const safeRoot = process.cwd();
+        const targetPath = path.resolve(safeRoot, filePath);
+
+        if (!targetPath.startsWith(safeRoot)) {
+            throw new Error('Access denied: Path traversal detected.');
+        }
+
+        if (!fs.existsSync(targetPath)) {
+            throw new Error(`File not found: ${filePath}`);
+        }
+
+        const content = fs.readFileSync(targetPath, 'utf-8');
+        return {
+            file_path: filePath,
+            content: content.substring(0, 5000) + (content.length > 5000 ? '\n...[TRUNCATED]' : '')
+        };
+    }
+
+    /**
+     * List directory contents
+     */
+    public async listDirectory(dirPath: string = './'): Promise<any> {
+        const safeRoot = process.cwd();
+        const targetPath = path.resolve(safeRoot, dirPath);
+
+        if (!targetPath.startsWith(safeRoot)) {
+            throw new Error('Access denied: Path traversal detected.');
+        }
+
+        if (!fs.existsSync(targetPath)) {
+            throw new Error(`Directory not found: ${dirPath}`);
+        }
+
+        const files = fs.readdirSync(targetPath, { withFileTypes: true }).map((dirent: fs.Dirent) => ({
+            name: dirent.name,
+            type: dirent.isDirectory() ? 'directory' : 'file'
+        }));
+
+        return { dir_path: dirPath, files: files.slice(0, 50) };
+    }
+
+    /**
+     * Get server logs
+     */
+    public async getLogs(type: 'error' | 'out' = 'error', lines: number = 20): Promise<any> {
+        const logPath = type === 'out'
+            ? '/root/.pm2/logs/coa-backend-out.log'
+            : '/root/.pm2/logs/coa-backend-error.log';
+
+        if (!fs.existsSync(logPath)) {
+            return { error: `Log file not found at ${logPath}` };
+        }
+
+        const content = fs.readFileSync(logPath, 'utf-8');
+        const allLines = content.split('\n');
+        return { log_file: logPath, lines: allLines.slice(-lines) };
+    }
+
+    /**
+     * Get count of active clients today
+     */
+    public async getActiveClientsCountToday(): Promise<any> {
+        // Calculate Midnight in Mexico (UTC-6)
+        const now = new Date();
+        const storeOffset = 6 * 60 * 60 * 1000;
+        const storeTime = new Date(now.getTime() - storeOffset);
+        storeTime.setUTCHours(0, 0, 0, 0);
+        const windowToday = new Date(storeTime.getTime() + storeOffset).toISOString();
+
+        // 1. Unique Scanners (IPs)
+        const { data: scans } = await supabase
+            .from('coa_scans')
+            .select('ip_hash')
+            .gte('scanned_at', windowToday);
+        const uniqueIps = new Set(scans?.map(s => s.ip_hash) || []);
+
+        // 2. Unique Orderers (Client IDs)
+        const { data: orders } = await supabase
+            .from('orders')
+            .select('client_id')
+            .gte('shopify_created_at', windowToday);
+        const uniqueOrderers = new Set(orders?.map(o => o.client_id).filter(Boolean) || []);
+
+        // 3. Unique Logins (Client IDs)
+        const { data: logins } = await supabase
+            .from('clients')
+            .select('id')
+            .gte('last_login_at', windowToday);
+        const uniqueLogins = new Set(logins?.map(l => l.id) || []);
+
+        const totalRegisteredActive = new Set([...Array.from(uniqueOrderers), ...Array.from(uniqueLogins)]);
+
+        return {
+            total_active: totalRegisteredActive.size + uniqueIps.size,
+            registered_clients: totalRegisteredActive.size,
+            anonymous_scanners: uniqueIps.size,
+            orders_today: orders?.length || 0,
+            period: 'Today (Since Midnight Store Time)',
+            timestamp: new Date().toISOString()
+        };
+    }
+
+    /**
+     * Get recent scan details
+     */
+    public async getRecentScansDetails(limit: number = 10): Promise<any> {
+        const { data, error } = await supabase
+            .from('coa_scans')
+            .select(`
+                id,
+                scanned_at,
+                city,
+                country,
+                ip_address,
+                ip_hash,
+                coas (
+                    custom_title,
+                    custom_name,
+                    coa_number
+                )
+            `)
+            .order('scanned_at', { ascending: false })
+            .limit(limit);
+
+        if (error) throw error;
+
+        return data.map((scan: any) => ({
+            id: scan.id,
+            timestamp: scan.scanned_at,
+            location: `${scan.city || 'Unknown'}, ${scan.country || 'Unknown'}`,
+            coa_name: scan.coas?.custom_name || scan.coas?.custom_title || scan.coas?.coa_number || 'Unknown COA',
+            ip_address: scan.ip_address,
+            visitor_id: scan.ip_hash
+        }));
+    }
+    /**
+     * Get voice call history
+     */
+    public async getVoiceCallHistory(conversationId: string): Promise<any> {
+        const { data, error } = await supabase
+            .from('voice_calls')
+            .select('*')
+            .eq('conversation_id', conversationId)
+            .order('created_at', { ascending: false })
+            .limit(10);
+
+        if (error) throw error;
+        return data.map((c: any) => ({
+            id: c.id,
+            direction: c.direction,
+            status: c.status,
+            duration: c.duration_seconds,
+            summary: c.summary,
+            recording_url: c.recording_url,
+            created_at: c.created_at
+        }));
+    }
+
+    /**
+     * Browser control (Grounder)
+     */
+    public async browserAction(action: string, target: string): Promise<any> {
+        try {
+            const { BrowserService } = require('./BrowserService');
+            const browser = BrowserService.getInstance();
+            return await browser.performAction(action, target);
+        } catch (e: any) {
+            console.error('[AgentToolService] Browser action failed:', e);
+            throw e;
+        }
+    }
+
+    /**
+     * Get CRM conversation summary
+     */
+    public async getConversationSummary(conversationId: string): Promise<any> {
+        const { data, error } = await supabase
+            .from('conversations')
+            .select('id, summary, facts, status, last_message_at, contact_handle')
+            .eq('id', conversationId)
+            .single();
+
+        if (error) throw error;
+        return data;
+    }
+
+    /**
+     * Get Contact 360 profile
+     */
+    public async getContact360(phone: string): Promise<any> {
+        const { CRMService } = require('./CRMService');
+        const crm = new CRMService();
+        return crm.getContactSnapshot(phone, 'WA');
+    }
+
+    /**
+     * Move conversation in Kanban
+     */
+    public async moveConversationToColumn(conversationId: string, columnName: string): Promise<any> {
+        const { data: column } = await supabase
+            .from('crm_columns')
+            .select('id')
+            .ilike('name', `%${columnName}%`)
+            .single();
+
+        if (!column) throw new Error(`Column "${columnName}" not found`);
+
+        const { CRMService } = require('./CRMService');
+        const crm = new CRMService();
+        await crm.moveConversation(conversationId, column.id);
+        return { success: true, moved_to: columnName };
+    }
+
+    /**
+     * Get AI usage stats
+     */
+    public async getAIUsageStats(days: number = 7): Promise<any> {
+        const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+        const { data, error } = await supabase
+            .from('ai_usage_logs')
+            .select('model, input_tokens, output_tokens, created_at')
+            .gte('created_at', since);
+
+        if (error) {
+            console.warn('[AgentToolService] Failed to fetch ai_usage_logs:', error.message);
+            return { period_days: days, usage_by_model: {}, total_calls: 0 };
+        }
+
+        const byModel: Record<string, any> = {};
+        data.forEach((log: any) => {
+            const m = log.model || 'unknown';
+            if (!byModel[m]) byModel[m] = { calls: 0, input: 0, output: 0 };
+            byModel[m].calls++;
+            byModel[m].input += (log.input_tokens || 0);
+            byModel[m].output += (log.output_tokens || 0);
+        });
+
+        return { period_days: days, usage_by_model: byModel, total_calls: data.length };
+    }
+
+    /**
+     * Get order tracking info
+     */
+    public async getOrderTracking(orderId: string): Promise<any> {
+        const { getShopifyOrder } = require('./shopifyService');
+        const order = await getShopifyOrder(orderId);
+        const fulfillments = order.fulfillments || [];
+        return {
+            order_id: order.id,
+            tracking: fulfillments.map((f: any) => ({
+                company: f.tracking_company,
+                number: f.tracking_number,
+                url: f.tracking_url,
+                status: f.shipment_status
+            }))
+        };
+    }
+
+    /**
+     * Get abandoned checkouts
+     */
+    public async getAbandonedCheckouts(limit: number = 10): Promise<any> {
+        const { data, error, count } = await supabase
+            .from('abandoned_checkouts')
+            .select('*', { count: 'exact' })
+            .eq('recovery_status', 'pending')
+            .order('created_at', { ascending: false })
+            .limit(limit);
+
+        if (error) throw error;
+        return {
+            total_pending: count,
+            checkouts: data || [],
+            limit
+        };
+    }
+    /**
+     * Get recent orders from local DB
+     */
+    public async getRecentOrders(limit: number = 10): Promise<any> {
+        const { data, error, count } = await supabase
+            .from('orders')
+            .select('*', { count: 'exact' })
+            .order('shopify_created_at', { ascending: false })
+            .limit(limit);
+
+        if (error) throw error;
+        return {
+            total_count: count,
+            orders: data,
+            limit
+        };
+    }
+
+    /**
+     * Search clients in local DB
+     */
+    public async searchClients(query: string): Promise<any> {
+        const { data, error } = await supabase
+            .from('clients')
+            .select('*')
+            .or(`name.ilike.%${query}%,email.ilike.%${query}%,phone.ilike.%${query}%`)
+            .limit(5);
+
+        if (error) throw error;
+        return data;
+    }
+
+    /**
+     * Search Shopify customers (Live)
+     */
+    public async searchShopifyCustomers(query: string): Promise<any> {
+        const { searchShopifyCustomers, searchShopifyCustomerByPhone } = require('./shopifyService');
+        const isPhone = /^\+?\d+$/.test(query.replace(/[\s-]/g, ''));
+        let customers = [];
+
+        if (isPhone) {
+            customers = await searchShopifyCustomerByPhone(query);
+        } else {
+            customers = await searchShopifyCustomers(query);
+        }
+
+        return customers.map((c: any) => ({
+            id: c.id,
+            name: `${c.first_name} ${c.last_name}`,
+            email: c.email,
+            phone: c.phone || c.default_address?.phone || 'N/A',
+            total_spent: c.total_spent,
+            orders_count: c.orders_count,
+            tags: c.tags
+        }));
+    }
+
+    /**
+     * Get customer orders directly from Shopify
+     */
+    public async getCustomerOrdersLive(shopifyCustomerId: string): Promise<any> {
+        const { getShopifyCustomerOrders } = require('./shopifyService');
+        const orders = await getShopifyCustomerOrders(shopifyCustomerId);
+        return orders.map((o: any) => ({
+            order_number: o.name,
+            created_at: o.created_at,
+            total: o.total_price,
+            financial_status: o.financial_status,
+            fulfillment_status: o.fulfillment_status,
+            items: o.line_items.map((i: any) => `${i.quantity}x ${i.title}`).join(', ')
+        }));
+    }
+
+    /**
+     * Create Shopify checkout link
+     */
+    public async createCheckoutLink(items: any[]): Promise<any> {
+        const { createShopifyDraftOrder } = require('./shopifyService');
+        const serviceItems = items.map((i: any) => ({
+            variantId: i.variant_id,
+            quantity: i.quantity || 1
+        }));
+
+        const url = await createShopifyDraftOrder(serviceItems);
+        if (!url) throw new Error('Could not generate invoice URL (Shopify returned null).');
+
+        return { success: true, invoice_url: url };
     }
 }

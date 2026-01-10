@@ -21,6 +21,7 @@ import { createClient, LiveTranscriptionEvents } from '@deepgram/sdk';
 import { Buffer } from 'buffer';
 import { ChannelRouter } from './channelRouter';
 import { AuditCollector, AgentToolService } from './AgentToolService';
+import { ToolRegistry } from './ToolRegistry';
 
 // Twilio config - support both naming conventions
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || process.env.ACCOUNT_SID;
@@ -66,79 +67,20 @@ interface CallSession {
 
 const activeCalls = new Map<string, CallSession>();
 
-// Tools available to Claude for voice calls
-const VOICE_TOOLS: Anthropic.Tool[] = [
-    {
-        name: 'search_products',
-        description: 'Busca productos en el catálogo. Usa esto cuando el cliente pregunte por productos, gomitas, tinturas, etc.',
-        input_schema: {
-            type: 'object' as const,
-            properties: {
-                query: { type: 'string', description: 'Término de búsqueda (ej: gomitas, tintura, energizante)' },
-                category: { type: 'string', description: 'Categoría opcional (comestibles, tinturas, topicos)' }
-            },
-            required: ['query']
-        }
-    },
-    {
-        name: 'lookup_order',
-        description: 'Busca información de un pedido. Usa cuando pregunten por estado de envío o pedido.',
-        input_schema: {
-            type: 'object' as const,
-            properties: {
-                order_number: { type: 'string', description: 'Número de orden (opcional si tenemos contexto del cliente)' }
-            }
-        }
-    },
-    {
-        name: 'get_coa',
-        description: 'Obtiene el Certificado de Análisis (COA) de un producto o lote.',
-        input_schema: {
-            type: 'object' as const,
-            properties: {
-                batch_number: { type: 'string', description: 'Número de lote' },
-                product_name: { type: 'string', description: 'Nombre del producto' }
-            }
-        }
-    },
-    {
-        name: 'send_whatsapp',
-        description: 'Envía información por WhatsApp al cliente.',
-        input_schema: {
-            type: 'object' as const,
-            properties: {
-                message: { type: 'string', description: 'Mensaje a enviar' }
-            },
-            required: ['message']
-        }
-    },
-    {
-        name: 'escalate_to_human',
-        description: 'Registra solicitud de atención humana.',
-        input_schema: {
-            type: 'object' as const,
-            properties: {
-                reason: { type: 'string', description: 'Razón de la escalación' },
-                wants_callback: { type: 'boolean', description: 'Si quiere que le devuelvan la llamada' }
-            },
-            required: ['reason']
-        }
-    },
-    {
-        name: 'audit_decision',
-        description: 'AUDITORÍA: Explica por qué tomaste una decisión previa o de dónde sacaste un dato (como un precio). Requiere el ID del mensaje anterior.',
-        input_schema: {
-            type: 'object' as const,
-            properties: {
-                message_id: {
-                    type: 'string',
-                    description: 'El ID del mensaje que quieres auditar/explicar.'
-                }
-            },
-            required: ['message_id']
-        }
-    }
+// Tools available to Claude for voice calls - loaded from ToolRegistry (single source of truth)
+const VOICE_TOOL_NAMES = [
+    'search_products',
+    'lookup_order',
+    'get_coa',
+    'send_whatsapp',
+    'escalate_to_human',
+    'audit_decision'
 ];
+
+// Lazy-load tools from registry to avoid initialization issues
+const getVoiceTools = (): Anthropic.Tool[] => {
+    return ToolRegistry.getInstance().getAnthropicTools(VOICE_TOOL_NAMES) as Anthropic.Tool[];
+};
 
 // System prompt for Ara
 const ARA_SYSTEM_PROMPT = `Eres Ara, la asistente de ventas de Extractos EUM. Tu personalidad es cálida, profesional y conocedora.
@@ -396,13 +338,13 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
             ? `${ARA_SYSTEM_PROMPT}\n\n${contextInfo}`
             : ARA_SYSTEM_PROMPT;
 
-        // Call Claude with tools
+        // Call Claude with tools (loaded from ToolRegistry)
         const response = await anthropic.messages.create({
             model: 'claude-sonnet-4-20250514',
             max_tokens: 300, // Short for voice
             system: systemPrompt,
             messages,
-            tools: VOICE_TOOLS
+            tools: getVoiceTools()
         });
 
         // Process response - handle tool calls
@@ -446,7 +388,7 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
                             }]
                         }
                     ],
-                    tools: VOICE_TOOLS
+                    tools: getVoiceTools()
                 });
 
                 // Extract text from follow-up

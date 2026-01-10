@@ -1,5 +1,10 @@
-
-import { handleSearchProducts, handleGetCOA, handleLookupOrder, handleSendWhatsApp } from './VapiToolHandlers';
+/**
+ * DEPRECATED: VapiReplicaService
+ * This service was part of the VAPI voice integration which has been deprecated.
+ * The system now uses VoiceCallService (Twilio + Deepgram + Claude + ElevenLabs).
+ * Keeping for reference only.
+ */
+import { ToolDispatcher } from './ToolDispatcher';
 
 interface ReplicaContext {
     conversationId?: string;
@@ -33,11 +38,9 @@ export class VapiReplicaService {
                         .replace(/quiero|busco|tienes|me das|precio|de|que|hay|vendes/g, '')
                         .trim();
 
-                    const pResult = await handleSearchProducts({ query: query || 'general' }, context);
+                    const pResult = await ToolDispatcher.execute('search_products', { query: query || 'general' }, context);
 
                     if (pResult.success) {
-                        // Use the message from handler but maybe spice it up?
-                        // The handler message is already: "Encontré estos productos: X. ¿Te interesa...?"
                         responseText = this.addPersonality(pResult.message || '', 'positive');
                     } else {
                         responseText = "`[sigh]` Mmm, no encontré nada con eso. ¿Buscas algo más específico?";
@@ -47,7 +50,7 @@ export class VapiReplicaService {
                 case 'COA':
                     // Naive extraction of batch/product
                     const coaQuery = cleanText.replace(/coa|analisis|certificado|lote|tienes el|de/g, '').trim();
-                    const cResult = await handleGetCOA({ product_name: coaQuery, send_whatsapp: false }, context); // Don't send yet, ask first
+                    const cResult = await ToolDispatcher.execute('get_coa', { product_name: coaQuery, send_whatsapp: false }, context);
 
                     if (cResult.success) {
                         responseText = this.addPersonality(cResult.message || '', 'positive');
@@ -57,7 +60,7 @@ export class VapiReplicaService {
                     break;
 
                 case 'ORDER':
-                    const oResult = await handleLookupOrder({}, context); // Uses context phone/client
+                    const oResult = await ToolDispatcher.execute('lookup_order', {}, context);
                     responseText = this.addPersonality(oResult.message || '', 'neutral');
                     break;
 
@@ -67,7 +70,6 @@ export class VapiReplicaService {
 
                 default:
                     // Fallback / General QA
-                    // For now, static safe response. In future, this could be Knowledge Base lookup.
                     responseText = "`[hesitation]` Perdona, no te entendí bien. ¿Me decías de algún producto o de tu pedido?";
             }
         } catch (e) {
@@ -94,9 +96,6 @@ export class VapiReplicaService {
      * Inject "Ara" Personality (ElevenLabs tags + Slang)
      */
     private addPersonality(baseText: string, mood: 'positive' | 'neutral' | 'empathetic'): string {
-        // Simple prefix/suffix injection for now. 
-        // Can be expanded to use a template engine.
-
         let text = baseText;
 
         // Replace dry "Encontré" with friendlier starts
