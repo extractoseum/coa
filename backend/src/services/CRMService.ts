@@ -695,7 +695,8 @@ export class CRMService {
                 // skip AI
             } else {
                 // 3. Fast Gate: Low Value Content
-                const lowValuePattern = /^(ok|gracias|thanks|👍|emoji|hola|hello|hi|si|no|chau|bye)$/i;
+                // NOTE: "si" and "no" removed - they are valid responses to AI questions (e.g., "¿Te gustaría agregarlo al carrito?")
+                const lowValuePattern = /^(ok|gracias|thanks|👍|emoji|hola|hello|hi|chau|bye)$/i;
                 if (lowValuePattern.test(content.trim())) {
                     console.log(`[CRMService] Low value content detected. Skipping LLM.`);
                 } else {
