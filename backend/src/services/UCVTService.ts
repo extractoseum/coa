@@ -18,15 +18,25 @@ export class UCVTService {
     public static getToolsRegistry(): any[] {
         try {
             const filePath = path.join(this.ucvtBase, 'tools', 'tools_registry.json');
+            logger.info(`[UCVT] Looking for tools at: ${filePath}`);
             if (fs.existsSync(filePath)) {
-                return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+                const tools = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+                logger.info(`[UCVT] Loaded ${tools.length} tools from ${filePath}`);
+                return tools;
             }
-            logger.warn('UCVT: tools_registry.json not found in UCVT, falling back to legacy path.');
+            logger.warn(`[UCVT] tools_registry.json not found at ${filePath}, falling back to legacy path.`);
             // Fallback to legacy path for transition phase
             const legacyPath = path.join(process.cwd(), 'data', 'ai_knowledge_base', 'core', 'tools_registry.json');
-            return JSON.parse(fs.readFileSync(legacyPath, 'utf8'));
+            logger.info(`[UCVT] Trying legacy path: ${legacyPath}`);
+            if (fs.existsSync(legacyPath)) {
+                const tools = JSON.parse(fs.readFileSync(legacyPath, 'utf8'));
+                logger.info(`[UCVT] Loaded ${tools.length} tools from legacy path`);
+                return tools;
+            }
+            logger.error(`[UCVT] CRITICAL: No tools_registry.json found at either path!`);
+            return [];
         } catch (err) {
-            logger.error('UCVT: Error loading tools registry', err);
+            logger.error('[UCVT] Error loading tools registry:', err);
             return [];
         }
     }
