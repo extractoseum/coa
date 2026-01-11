@@ -101,10 +101,11 @@ jobs:
           npm ci
           npm run build
 
-      - name: Copy AI Knowledge Base
+      - name: Copy AI Knowledge Base & UCVT
         run: |
           mkdir -p backend/dist/data
           cp -r backend/data/ai_knowledge_base backend/dist/data/
+          cp -r backend/data/ucvt backend/dist/data/
 
       - name: Deploy Scripts
         uses: appleboy/scp-action@v0.1.7

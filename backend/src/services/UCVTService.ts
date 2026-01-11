@@ -9,7 +9,8 @@ import { logger } from '../utils/Logger';
  * and agent identities from the /backend/data/ucvt directory.
  */
 export class UCVTService {
-    private static ucvtBase = path.join(process.cwd(), 'data', 'ucvt');
+    // Use __dirname for production compatibility (dist/services -> dist/data/ucvt)
+    private static ucvtBase = path.join(__dirname, '../../data/ucvt');
 
     /**
      * Get the full Tools Registry

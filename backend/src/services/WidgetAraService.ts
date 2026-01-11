@@ -37,7 +37,8 @@ const WIDGET_TOOL_NAMES = [
     'get_coa',
     'send_whatsapp',
     'escalate_to_human',
-    'audit_decision'
+    'audit_decision',
+    'create_checkout_link'
 ];
 
 // System prompt for widget Ara
@@ -54,6 +55,7 @@ CAPACIDADES:
 - Consultar estado de pedidos
 - Proporcionar Certificados de Análisis (COA)
 - Enviar información al WhatsApp del cliente
+- Crear enlaces de checkout para agregar productos al carrito
 - Escalar a un agente humano si es necesario
 
 REGLAS:

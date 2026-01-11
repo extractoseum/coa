@@ -771,5 +771,22 @@
                 "message_id"
             ]
         }
+    },
+    {
+        "category": "support",
+        "name": "escalate_to_human",
+        "description": "Escala la conversación a un agente humano cuando el cliente lo solicita, está frustrado, o la consulta requiere atención personalizada.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string",
+                    "description": "Razón de la escalación (ej: 'Cliente solicita hablar con humano', 'Consulta compleja')"
+                }
+            },
+            "required": [
+                "reason"
+            ]
+        }
     }
 ]

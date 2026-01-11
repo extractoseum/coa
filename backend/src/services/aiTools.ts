@@ -22,27 +22,34 @@ export interface AIToolDefinition {
  * Dynamically loaded from registry
  */
 export const getAdminTools = () => ToolRegistry.getInstance().getOpenAITools([
+    // Orders & Customers
     'get_recent_orders',
     'search_clients',
     'search_shopify_customers',
-    'get_customer_orders_live',
+    'lookup_order',
+    'get_order_tracking',
+    'search_order_by_number',
+    // Products & COAs
+    'search_products',
+    'create_checkout_link',
+    'get_coa',
+    'get_coa_details',
+    // Communication
+    'send_whatsapp',
+    'check_whatsapp_status',
+    'send_sms_notification',
+    'initiate_voice_call',
+    'make_verification_call',
+    // Support
+    'escalate_to_human',
+    'audit_decision',
+    // System & Admin
     'get_system_health',
     'read_file_content',
     'list_directory',
     'get_logs',
     'get_active_clients_count_today',
     'get_recent_scans_details',
-    'search_products',
-    'create_checkout_link',
-    'send_whatsapp',
-    'check_whatsapp_status',
-    'initiate_voice_call',
-    'send_sms_notification',
-    'make_verification_call',
-    'get_order_tracking',
-    'search_order_by_number',
-    'search_coas',
-    'get_coa_details',
     'browser_action'
 ]);
 
