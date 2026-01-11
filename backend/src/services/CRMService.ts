@@ -728,10 +728,26 @@ export class CRMService {
                         // Get customer context (pending orders, LTV, etc.) for personalization
                         const customerContext = await this.getCustomerContextForAI(cleanHandle);
 
+                        // Load recent conversation history for context (last 20 messages)
+                        // Exclude the current message (createdMsg) to avoid duplication
+                        const allMessages = await this.getMessages(conversation.id);
+                        const recentMessages = allMessages
+                            .filter(m => m.id !== createdMsg?.id) // Exclude current message
+                            .slice(-20); // Keep last 20 messages
+                        const history = recentMessages
+                            .filter(m => m.message_type === 'text' && m.content && m.role !== 'system')
+                            .map(m => ({
+                                role: m.role === 'assistant' ? 'assistant' : 'user',
+                                content: m.content
+                            }))
+                            .slice(-10); // Use last 10 text messages for API call
+
+                        console.log(`[CRMService] Loaded ${history.length} messages as conversation history for context`);
+
                         const response = await this.aiService.chatWithPersona(
                             agentId,
                             content,
-                            [],
+                            history,
                             model,
                             { toolsWhitelist, objectives, customerContext }
                         );
