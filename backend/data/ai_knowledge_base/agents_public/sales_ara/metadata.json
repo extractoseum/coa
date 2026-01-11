@@ -1,9 +1,11 @@
 {
     "label": "Ara Sales Expert",
     "default_tools": [
-        "search_products_db",
+        "search_products",
         "create_checkout_link",
-        "search_knowledge_base",
+        "lookup_order",
+        "get_coa",
+        "send_whatsapp",
         "browser_action"
     ],
     "description": "Expert in product search and sales conversion."

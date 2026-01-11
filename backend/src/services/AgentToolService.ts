@@ -42,6 +42,7 @@ export interface ToolContext {
     customerPhone?: string;
     customerEmail?: string;
     agentId?: string;
+    channel?: 'WA' | 'WIDGET' | 'VOICE' | 'EMAIL' | 'SMS';
     auditCollector?: AuditCollector;
 }
 
@@ -331,16 +332,37 @@ export class AgentToolService {
 
     /**
      * Send a smart message with fallback (WhatsApp -> SMS -> Email)
+     * Now works even without phone - will use email fallback
      */
     async sendWhatsApp(message: string, context: ToolContext) {
         try {
             const phone = context.customerPhone ? normPhone(context.customerPhone) : null;
-            if (!phone) return { error: 'No phone number provided' };
+            const email = context.customerEmail;
 
+            // If no phone AND no email, fail with helpful message
+            if (!phone && !email) {
+                logger.warn('[AgentToolService] send_whatsapp failed: no contact info', {
+                    clientId: context.clientId,
+                    channel: context.channel
+                });
+                const failResult = { error: 'No contact information available (phone or email)' };
+                if (context.auditCollector) {
+                    context.auditCollector.addStep({
+                        type: 'tool_call',
+                        name: 'send_whatsapp',
+                        input: { message, phone: null, email: null },
+                        output: failResult,
+                        reason: 'No contact info available - cannot send message'
+                    });
+                }
+                return failResult;
+            }
+
+            // Use SmartCommunication - it handles fallback chain
             const result = await sendSmartMessage({
-                to: phone,
-                toEmail: context.customerEmail,
-                subject: 'Información de tu llamada con Extractos EUM',
+                to: phone || '',  // Empty string triggers email fallback in SmartComm
+                toEmail: email,
+                subject: this.getSubjectForChannel(context.channel),
                 body: message,
                 type: 'informational',
                 clientId: context.clientId,
@@ -355,7 +377,7 @@ export class AgentToolService {
                 context.auditCollector.addStep({
                     type: 'tool_call',
                     name: 'send_whatsapp',
-                    input: { message, phone, email: context.customerEmail },
+                    input: { message, phone, email },
                     output: finalResult,
                     reason: result.success ? `Successfully sent via ${result.channelUsed}` : `Failed: ${result.error}`
                 });
@@ -365,6 +387,17 @@ export class AgentToolService {
         } catch (error: any) {
             logger.error('[AgentToolService] Smart message failed:', error);
             throw error;
+        }
+    }
+
+    /**
+     * Get dynamic subject based on channel context
+     */
+    private getSubjectForChannel(channel?: string): string {
+        switch (channel) {
+            case 'VOICE': return 'Información de tu llamada con Extractos EUM';
+            case 'WIDGET': return 'Información solicitada - Extractos EUM';
+            default: return 'Mensaje de Ara - Extractos EUM';
         }
     }
 

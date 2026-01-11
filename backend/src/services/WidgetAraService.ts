@@ -96,10 +96,47 @@ interface ChatResult {
 
 export class WidgetAraService {
     /**
+     * Enrich context with client data if missing phone/email
+     * This ensures tools like send_whatsapp have contact info even if not passed from controller
+     */
+    private async enrichContext(context: WidgetChatContext): Promise<WidgetChatContext> {
+        // If we already have both phone and email, no need to enrich
+        if (context.customerPhone && context.customerEmail) {
+            return context;
+        }
+
+        // Try to fetch from clients table using clientId
+        if (context.clientId) {
+            try {
+                const { data: client, error } = await supabase
+                    .from('clients')
+                    .select('phone, email')
+                    .eq('id', context.clientId)
+                    .single();
+
+                if (!error && client) {
+                    return {
+                        ...context,
+                        customerPhone: context.customerPhone || client.phone || undefined,
+                        customerEmail: context.customerEmail || client.email || undefined
+                    };
+                }
+            } catch (e) {
+                console.warn('[WidgetAraService] Error enriching context:', e);
+            }
+        }
+
+        return context;
+    }
+
+    /**
      * Process a chat message and generate AI response
      */
     async chat(message: string, context: WidgetChatContext): Promise<ChatResult> {
         const startTime = Date.now();
+
+        // Enrich context with client data before processing
+        context = await this.enrichContext(context);
 
         // 1. Store user message
         const { data: userMsg, error: userMsgError } = await supabase
@@ -372,8 +409,8 @@ export class WidgetAraService {
     }
 
     /**
- * Execute a tool call
- */
+     * Execute a tool call
+     */
     private async executeTool(
         toolName: string,
         args: Record<string, any>,
@@ -386,7 +423,8 @@ export class WidgetAraService {
             customerPhone: context.customerPhone,
             customerEmail: context.customerEmail,
             agentId: context.agentId,
-            auditCollector: (context as any).auditCollector // Should already be attached
+            channel: 'WIDGET' as const,  // Add channel context for smart routing
+            auditCollector: (context as any).auditCollector
         };
 
         return ToolDispatcher.execute(toolName, args, toolContext);

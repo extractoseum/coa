@@ -365,6 +365,7 @@ INSTRUCCIONES DE PERSONALIZACIÓN:
                         clientId: session.clientId,
                         customerPhone: session.customerPhone,
                         customerEmail: session.customerEmail,
+                        channel: 'VOICE',  // Add channel context for smart routing
                         auditCollector: collector
                     }
                 );

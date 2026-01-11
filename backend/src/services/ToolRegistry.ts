@@ -93,10 +93,19 @@ export class ToolRegistry {
 
     /**
      * Get a subset of tools in OpenAI format
+     * OpenAI expects: { type: 'function', function: { name, description, parameters } }
      */
     public getOpenAITools(toolNames: string[]): any[] {
         return toolNames
-            .map(name => this.toOpenAIFormat(name))
+            .map(name => {
+                const tool = this.toOpenAIFormat(name);
+                if (!tool) return null;
+                // Wrap in OpenAI's expected format
+                return {
+                    type: 'function',
+                    function: tool
+                };
+            })
             .filter(t => t !== null);
     }
 

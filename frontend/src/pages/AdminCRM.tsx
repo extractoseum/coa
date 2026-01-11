@@ -157,6 +157,13 @@ const AdminCRM: React.FC = () => {
         { label: 'Potencial', color: 'bg-cyan-500', icon: '💎' },
     ];
 
+    // Audit Trail Modal State
+    const [auditModal, setAuditModal] = useState<{
+        open: boolean;
+        trail: any[];
+        messageId?: string;
+    }>({ open: false, trail: [] });
+
     // Phase 62: Extract unique tags from all conversations for dynamic filtering
     const availableTags = useMemo(() => {
         const tagSet = new Set<string>();
@@ -2465,6 +2472,20 @@ const AdminCRM: React.FC = () => {
                                                                     >
                                                                         👎
                                                                     </button>
+                                                                    {/* Audit Trail Button */}
+                                                                    {msg.raw_payload?.audit_trail && msg.raw_payload.audit_trail.length > 0 && (
+                                                                        <button
+                                                                            onClick={() => setAuditModal({
+                                                                                open: true,
+                                                                                trail: msg.raw_payload.audit_trail,
+                                                                                messageId: msg.id
+                                                                            })}
+                                                                            className="p-1 rounded transition-colors text-white/30 hover:text-blue-400 hover:bg-blue-500/10 ml-1"
+                                                                            title="Ver auditoría de decisión"
+                                                                        >
+                                                                            🔍
+                                                                        </button>
+                                                                    )}
                                                                 </div>
                                                             )}
                                                         </div>
@@ -3517,6 +3538,81 @@ const AdminCRM: React.FC = () => {
                                     >
                                         {sendingMessage ? <Loader2 size={18} className="animate-spin" /> : <Clock size={18} />}
                                         Programar
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Audit Trail Modal */}
+                    {auditModal.open && (
+                        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                            <div className="bg-gray-900 rounded-2xl border border-white/10 w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col shadow-2xl">
+                                <div className="p-4 border-b border-white/10 flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xl">🔍</span>
+                                        <h3 className="text-lg font-semibold text-white">Auditoría de Decisión</h3>
+                                    </div>
+                                    <button
+                                        onClick={() => setAuditModal({ open: false, trail: [] })}
+                                        className="p-2 hover:bg-white/10 rounded-lg transition-colors text-white/50 hover:text-white"
+                                    >
+                                        <X size={20} />
+                                    </button>
+                                </div>
+                                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                                    {auditModal.trail.map((step, i) => (
+                                        <div key={i} className="border-l-2 border-blue-400/50 pl-4 py-2">
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <span className="text-xs text-white/40 font-mono">
+                                                    {new Date(step.timestamp).toLocaleTimeString()}
+                                                </span>
+                                                <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                                    step.type === 'tool_call' ? 'bg-purple-500/20 text-purple-300' :
+                                                    step.type === 'knowledge_load' ? 'bg-green-500/20 text-green-300' :
+                                                    'bg-blue-500/20 text-blue-300'
+                                                }`}>
+                                                    {step.type}
+                                                </span>
+                                            </div>
+                                            <div className="text-white font-medium">{step.name}</div>
+                                            {step.reason && (
+                                                <div className="text-sm text-white/60 italic mt-1">{step.reason}</div>
+                                            )}
+                                            {step.input && Object.keys(step.input).length > 0 && (
+                                                <details className="mt-2">
+                                                    <summary className="text-xs text-white/40 cursor-pointer hover:text-white/60">
+                                                        Ver input →
+                                                    </summary>
+                                                    <pre className="text-xs bg-black/30 p-2 mt-1 rounded overflow-x-auto text-white/70 font-mono">
+                                                        {JSON.stringify(step.input, null, 2)}
+                                                    </pre>
+                                                </details>
+                                            )}
+                                            {step.output && (
+                                                <details className="mt-2">
+                                                    <summary className="text-xs text-white/40 cursor-pointer hover:text-white/60">
+                                                        Ver output →
+                                                    </summary>
+                                                    <pre className="text-xs bg-black/30 p-2 mt-1 rounded overflow-x-auto text-white/70 font-mono max-h-40 overflow-y-auto">
+                                                        {JSON.stringify(step.output, null, 2)}
+                                                    </pre>
+                                                </details>
+                                            )}
+                                        </div>
+                                    ))}
+                                    {auditModal.trail.length === 0 && (
+                                        <div className="text-center text-white/40 py-8">
+                                            No hay pasos de auditoría disponibles
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="p-4 border-t border-white/10">
+                                    <button
+                                        onClick={() => setAuditModal({ open: false, trail: [] })}
+                                        className="w-full px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-gray-300 transition-colors"
+                                    >
+                                        Cerrar
                                     </button>
                                 </div>
                             </div>

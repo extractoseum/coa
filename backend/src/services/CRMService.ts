@@ -797,8 +797,22 @@ export class CRMService {
                                 }
                             }
                         }
-                    } catch (aiErr) {
+                    } catch (aiErr: any) {
                         console.error('[CRMService] AI Dispatch failed:', aiErr);
+                        // Send a fallback message so user knows something went wrong
+                        try {
+                            await this.appendMessage({
+                                conversation_id: conversation.id,
+                                direction: 'outbound',
+                                role: 'system',
+                                message_type: 'text',
+                                status: 'sent',
+                                content: 'Estoy teniendo dificultades tecnicas. Un agente humano te atendera pronto.',
+                                raw_payload: { error: aiErr.message, stack: aiErr.stack?.slice(0, 500) }
+                            });
+                        } catch (fallbackErr) {
+                            console.error('[CRMService] Fallback message failed:', fallbackErr);
+                        }
                     }
                 }
             }
